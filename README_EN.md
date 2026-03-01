@@ -130,6 +130,41 @@ Extend AI's capabilities:
 
 ---
 
+## ⚠️ Important Notes
+
+### Permission & Feature Requirements
+
+Different features of Alian require different permissions. Please ensure you have granted the necessary permissions before using each feature.
+
+> 💡 **Tip**: Go to「Settings」→「Permissions」page to view and manage all permission status
+
+| Permission | Voice Call | Phone Call | Video Call | Automation | Description |
+|:----------:|:----------:|:----------:|:----------:|:----------:|:------------|
+| Record Audio | ✅ Required | ✅ Required | ✅ Required | ✅ Required | For voice input and speech recognition |
+| Camera | ❌ Not Needed | ❌ Not Needed | ✅ Required | ❌ Not Needed | For capturing video during video calls |
+| Overlay Window | ✅ Required | ✅ Required | ✅ Required | ✅ Required | For displaying call interface and execution progress |
+| Accessibility Service | ❌ Not Needed | ✅ Required | ❌ Not Needed | ✅ Required | For automation operations and controlling other apps |
+| Screen Recording | ❌ Not Needed | ✅ Required | ❌ Not Needed | ✅ Required | For capturing screen content for visual recognition |
+| Shizuku | ❌ Not Needed | ⚡ Optional | ❌ Not Needed | ⚡ Optional | Provides more efficient device control (alternative to Accessibility Service) |
+| Notifications | ⚡ Recommended | ⚡ Recommended | ⚡ Recommended | ⚡ Recommended | For displaying background notifications, prevents app from being killed by system |
+
+> **Legend**:
+> - ✅ Required: This feature cannot function without this permission
+> - ⚡ Optional/Recommended: Having this permission provides better experience
+> - ❌ Not Needed: This feature does not depend on this permission
+
+### Permission Configuration Recommendations
+
+Based on your use case, we recommend the following permission configurations:
+
+| Use Case | Recommended Configuration |
+|:---------|:--------------------------|
+| Voice/Video calls only | Record Audio + Camera (for video calls) + Overlay Window |
+| Automation only | Record Audio + Overlay Window + Accessibility Service + Screen Recording (or Shizuku) |
+| All features | Grant all permissions for the complete experience |
+
+---
+
 ## ⚡ Real-time Interruption & Interaction
 
 ### Core Highlight
