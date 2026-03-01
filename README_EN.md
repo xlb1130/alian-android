@@ -568,21 +568,6 @@ cd alian-android
 
 ### 🚧 In Development
 
-#### Cloud-Phone Integration
-- [ ] **Intelligent Task Splitting** - AI automatically determines which parts execute in cloud and which locally
-- [ ] **Real-time Collaboration** - Cloud and local sync in real-time, seamless switching
-- [ ] **Task Orchestration** - Visual cloud and local task orchestration interface
-- [ ] **Data Synchronization** - Real-time sync mechanism between cloud and local data
-- [ ] **State Management** - Unified management of cloud and local task states
-- [ ] **Collaboration Optimization** - Optimize cloud and local collaboration efficiency
-
-#### Task Templates
-- [ ] **Template Creation** - Save common tasks as templates
-- [ ] **Template Parameterization** - Support template parameter configuration
-- [ ] **Template Sharing** - Share task templates with other users
-- [ ] **Template Market** - Community task template market
-- [ ] **Template Management UI** - New "Templates" navigation tab
-
 #### MCP Protocol Support
 - [x] **MCP Client** - Implement Model Context Protocol client
 - [x] **Capability Extension** - Access more external capabilities via MCP
