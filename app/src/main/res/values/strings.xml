@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Name -->
+    <string name="app_name">Alian</string>
+
+    <!-- Tab Titles -->
+    <string name="tab_home">Alian</string>
+    <string name="tab_history">记录</string>
+    <string name="tab_settings">设置</string>
+
+    <!-- Home Screen -->
+    <string name="home_ready">准备就绪，告诉我你想做什么</string>
+    <string name="home_connect_shizuku">请先连接 Shizuku</string>
+    <string name="home_try_these">试试这些指令</string>
+    <string name="home_input_placeholder">告诉Alian你想做什么…</string>
+    <string name="home_executing">正在执行 Step %1$d</string>
+    <string name="home_send">发送</string>
+    <string name="home_stop">停止</string>
+
+    <!-- Preset Commands -->
+    <string name="preset_burger">点汉堡</string>
+    <string name="preset_burger_cmd">帮我点个附近好吃的汉堡</string>
+    <string name="preset_weibo">发微博</string>
+    <string name="preset_weibo_cmd">帮我把最后一张照片发送到微博</string>
+    <string name="preset_bilibili">看B站</string>
+    <string name="preset_bilibili_cmd">我要看B站热门的视频</string>
+    <string name="preset_takeout">点外卖</string>
+    <string name="preset_takeout_cmd">帮我在美团点一份猪脚饭</string>
+    <string name="preset_music">听音乐</string>
+    <string name="preset_music_cmd">打开网易云音乐播放每日推荐</string>
+    <string name="preset_message">发消息</string>
+    <string name="preset_message_cmd">帮我给最近联系人发一条消息说在忙</string>
+
+    <!-- History Screen -->
+    <string name="history_title">执行记录</string>
+    <string name="history_count">共 %1$d 条记录</string>
+    <string name="history_empty">暂无执行记录</string>
+    <string name="history_empty_hint">执行任务后记录会显示在这里</string>
+    <string name="history_steps">%1$d 步</string>
+    <string name="history_delete">删除</string>
+    <string name="history_delete_title">删除记录</string>
+    <string name="history_delete_confirm">确定要删除这条执行记录吗？</string>
+    <string name="history_timeline">执行时间线</string>
+    <string name="history_instruction">任务指令</string>
+
+    <!-- Status -->
+    <string name="status_completed">已完成</string>
+    <string name="status_failed">失败</string>
+    <string name="status_stopped">已停止</string>
+    <string name="status_running">执行中</string>
+    <string name="status_label">状态</string>
+    <string name="steps_label">步骤数</string>
+    <string name="duration_label">耗时</string>
+
+    <!-- Settings Screen -->
+    <string name="settings_title">设置</string>
+    <string name="settings_subtitle">配置 API 和应用选项</string>
+
+    <!-- Settings - Appearance -->
+    <string name="settings_appearance">外观</string>
+    <string name="settings_theme">主题模式</string>
+    <string name="theme_light">浅色模式</string>
+    <string name="theme_dark">深色模式</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_select">选择主题</string>
+
+    <!-- Settings - API -->
+    <string name="settings_api">API 配置</string>
+    <string name="settings_provider">API 服务商</string>
+    <string name="settings_provider_custom">自定义</string>
+    <string name="settings_model">模型</string>
+    <string name="settings_api_key">API Key</string>
+    <string name="settings_api_key_set">已设置 (%1$s)</string>
+    <string name="settings_api_key_unset">未设置</string>
+    <string name="settings_api_key_hint">请输入您的 API Key</string>
+    <string name="settings_show">显示</string>
+    <string name="settings_hide">隐藏</string>
+
+    <!-- Settings - Custom Models -->
+    <string name="settings_custom_models">自定义模型</string>
+    <string name="settings_add_model">添加自定义模型</string>
+    <string name="settings_add_model_hint">添加其他支持的模型</string>
+    <string name="settings_model_name_hint">输入模型名称或 ID</string>
+    <string name="settings_model_name_example">例如: gpt-4-vision</string>
+    <string name="settings_select_model">选择模型</string>
+
+    <!-- Settings - Help -->
+    <string name="settings_help">帮助</string>
+    <string name="settings_shizuku_guide">Shizuku 使用指南</string>
+    <string name="settings_shizuku_guide_desc">了解如何安装和配置 Shizuku</string>
+    <string name="settings_overlay_help">悬浮窗权限说明</string>
+    <string name="settings_overlay_help_desc">了解为什么需要悬浮窗权限</string>
+
+    <!-- Settings - About -->
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本</string>
+    <string name="settings_app_desc">基于视觉语言模型的 Android 自动化工具</string>
+
+    <!-- Shizuku Status -->
+    <string name="shizuku_connected">Shizuku 已连接</string>
+    <string name="shizuku_not_connected">Shizuku 未连接</string>
+    <string name="shizuku_available">设备控制功能可用</string>
+    <string name="shizuku_unavailable">请启动 Shizuku 并授权</string>
+
+    <!-- Shizuku Help -->
+    <string name="shizuku_help_step1_title">下载 Shizuku</string>
+    <string name="shizuku_help_step1_desc">从 Google Play 或 GitHub 下载 Shizuku 应用\n\n• Google Play: 搜索 \"Shizuku\"\n• GitHub: github.com/RikkaApps/Shizuku</string>
+    <string name="shizuku_help_step2_title">启动 Shizuku</string>
+    <string name="shizuku_help_step2_desc">打开 Shizuku 应用，根据您的设备选择启动方式：\n\n• 无线调试（推荐）：需要 Android 11+，在开发者选项中开启无线调试\n• 连接电脑：通过 ADB 命令启动</string>
+    <string name="shizuku_help_step3_title">授权Alian</string>
+    <string name="shizuku_help_step3_desc">在 Shizuku 的「应用管理」中找到Alian Autopilot，点击授权按钮</string>
+    <string name="shizuku_help_step4_title">开始使用</string>
+    <string name="shizuku_help_step4_desc">授权完成后，返回Alian应用，状态卡片会显示「Shizuku 已连接」</string>
+
+    <!-- Overlay Help -->
+    <string name="overlay_why">为什么需要悬浮窗权限？</string>
+    <string name="overlay_reason">Alian在执行任务时需要显示悬浮窗来：</string>
+    <string name="overlay_feature1">显示当前执行进度</string>
+    <string name="overlay_feature2">提供停止按钮，随时中断任务</string>
+    <string name="overlay_feature3">在其他应用上方显示状态信息</string>
+    <string name="overlay_how">如何开启？</string>
+    <string name="overlay_how_desc">1. 点击执行任务时会自动提示\n2. 或前往：设置 > 应用 > Alian > 悬浮窗权限\n3. 开启「允许显示在其他应用上层」</string>
+    <string name="overlay_privacy">隐私安全</string>
+    <string name="overlay_privacy_desc">悬浮窗仅在任务执行期间显示，不会收集任何个人信息。任务完成后悬浮窗会自动消失。</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome">欢迎使用Alian</string>
+    <string name="onboarding_welcome_desc">Alian是一个智能自动化助手，\n可以帮你操作手机完成各种任务</string>
+    <string name="onboarding_ai">AI 驱动</string>
+    <string name="onboarding_ai_desc">基于先进的视觉语言模型，\nAlian能够理解屏幕内容并做出智能决策</string>
+    <string name="onboarding_easy">简单易用</string>
+    <string name="onboarding_easy_desc">只需用自然语言描述你想做的事，\nAlian会自动帮你完成</string>
+    <string name="onboarding_safe">安全可靠</string>
+    <string name="onboarding_safe_desc">遇到敏感页面（如支付、密码）会自动停止，\n保护你的账户安全</string>
+    <string name="onboarding_skip">跳过</string>
+    <string name="onboarding_next">下一步</string>
+    <string name="onboarding_start">开始使用</string>
+
+    <!-- Common -->
+    <string name="btn_confirm">确定</string>
+    <string name="btn_cancel">取消</string>
+    <string name="btn_close">关闭</string>
+    <string name="btn_add">添加</string>
+    <string name="btn_delete">删除</string>
+    <string name="btn_back">返回</string>
+    <string name="btn_got_it">知道了</string>
+
+    <!-- Toast Messages -->
+    <string name="toast_enter_instruction">请输入指令</string>
+    <string name="toast_enter_api_key">请输入 API Key</string>
+    <string name="toast_grant_overlay">请授予悬浮窗权限</string>
+    <string name="toast_shizuku_granted">Shizuku 权限已获取</string>
+    <string name="toast_start_shizuku">请先启动 Shizuku App</string>
+    <string name="toast_shizuku_old">Shizuku 版本过低</string>
+    <string name="toast_task_complete">任务完成</string>
+    <string name="toast_user_stopped">用户停止</string>
+    <string name="toast_sensitive_page">检测到敏感页面（支付/密码），已安全停止</string>
+    <string name="toast_max_steps">达到最大步数限制</string>
+    <string name="toast_error">错误: %1$s</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">Alian无障碍服务，用于获取屏幕元素信息和执行自动化操作</string>
+</resources>

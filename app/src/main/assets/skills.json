@@ -1,0 +1,826 @@
+[
+  {
+    "id": "order_food",
+    "name": "点外卖",
+    "description": "帮你点外卖、订餐",
+    "category": "外卖",
+    "keywords": ["点外卖", "叫外卖", "外卖", "点餐", "订餐", "吃饭", "饿了", "点吃的", "送餐", "订个餐"],
+    "params": [
+      {
+        "name": "food",
+        "type": "string",
+        "description": "想吃什么",
+        "required": false,
+        "examples": ["汉堡", "猪脚饭", "麻辣烫", "炸鸡"]
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，直接对话点餐，最快捷"
+      },
+      {
+        "package": "me.ele",
+        "name": "饿了么",
+        "type": "gui_automation",
+        "priority": 60,
+        "steps": ["打开饿了么", "搜索食物", "选择商家", "下单"]
+      }
+    ]
+  },
+  {
+    "id": "find_food",
+    "name": "找美食",
+    "description": "搜索附近好吃的、美食推荐",
+    "category": "外卖",
+    "keywords": ["附近有什么好吃的", "好吃的", "美食", "推荐吃的", "附近美食", "吃什么", "有啥好吃的", "找吃的", "想吃点什么"],
+    "params": [
+      {
+        "name": "food",
+        "type": "string",
+        "description": "想吃的类型",
+        "required": false,
+        "examples": ["火锅", "烧烤", "日料", "川菜"]
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，智能推荐附近美食"
+      },
+      {
+        "package": "com.dianping.v1",
+        "name": "大众点评",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开大众点评", "搜索或浏览美食", "查看评价"]
+      }
+    ]
+  },
+  {
+    "id": "find_fun",
+    "name": "找好玩的",
+    "description": "搜索附近好玩的地方、娱乐推荐",
+    "category": "生活",
+    "keywords": ["附近有什么好玩的", "好玩的", "玩什么", "周末去哪", "附近景点", "有啥好玩的", "去哪玩", "找地方玩"],
+    "params": [
+      {
+        "name": "keyword",
+        "type": "string",
+        "description": "想玩的类型",
+        "required": false,
+        "examples": ["密室逃脱", "剧本杀", "电影院", "游乐园"]
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，智能推荐附近娱乐"
+      },
+      {
+        "package": "com.dianping.v1",
+        "name": "大众点评",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开大众点评", "搜索或浏览娱乐", "查看评价"]
+      }
+    ]
+  },
+  {
+    "id": "book_hotel",
+    "name": "订酒店",
+    "description": "预订酒店、民宿",
+    "category": "生活",
+    "keywords": ["订酒店", "住酒店", "订房", "找酒店", "住宿", "民宿", "开房"],
+    "params": [
+      {
+        "name": "keyword",
+        "type": "string",
+        "description": "地点或酒店名",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，智能推荐酒店"
+      },
+      {
+        "package": "com.Qunar",
+        "name": "去哪儿",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开去哪儿", "搜索酒店", "选择日期", "预订"]
+      },
+      {
+        "package": "ctrip.android.view",
+        "name": "携程",
+        "type": "gui_automation",
+        "priority": 60,
+        "steps": ["打开携程", "搜索酒店", "选择日期", "预订"]
+      }
+    ]
+  },
+  {
+    "id": "book_movie",
+    "name": "买电影票",
+    "description": "购买电影票",
+    "category": "生活",
+    "keywords": ["买电影票", "看电影", "电影票", "订电影票", "电影院"],
+    "params": [
+      {
+        "name": "keyword",
+        "type": "string",
+        "description": "电影名",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，查电影、买票"
+      },
+      {
+        "package": "com.taobao.movie.android",
+        "name": "淘票票",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开淘票票", "选择电影", "选择场次", "购票"]
+      }
+    ]
+  },
+  {
+    "id": "meituan_general",
+    "name": "问小美",
+    "description": "让美团 AI 助手帮忙处理各种生活服务",
+    "category": "生活",
+    "keywords": ["问小美", "小美", "美团", "帮我查", "帮我找", "帮我订"],
+    "params": [
+      {
+        "name": "message",
+        "type": "string",
+        "description": "问题或需求",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，支持外卖、酒店、电影、美食推荐等"
+      }
+    ]
+  },
+  {
+    "id": "navigate",
+    "name": "导航",
+    "description": "导航到目的地",
+    "category": "出行",
+    "keywords": ["导航", "去", "怎么走", "路线", "地图", "到"],
+    "params": [
+      {
+        "name": "destination",
+        "type": "string",
+        "description": "目的地",
+        "required": true
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.autonavi.minimap",
+        "name": "高德地图",
+        "type": "delegation",
+        "deep_link": "amap://search?keyword={destination}&sourceApplication=alian",
+        "priority": 100
+      },
+      {
+        "package": "com.baidu.BaiduMap",
+        "name": "百度地图",
+        "type": "delegation",
+        "deep_link": "baidumap://map/direction?destination={destination}&mode=driving&src=alian",
+        "priority": 90
+      },
+      {
+        "package": "com.tencent.map",
+        "name": "腾讯地图",
+        "type": "delegation",
+        "deep_link": "qqmap://map/search?keyword={destination}",
+        "priority": 80
+      }
+    ]
+  },
+  {
+    "id": "call_taxi",
+    "name": "打车",
+    "description": "叫车出行",
+    "category": "出行",
+    "keywords": ["打车", "叫车", "出租车", "网约车", "叫个车"],
+    "params": [
+      {
+        "name": "destination",
+        "type": "string",
+        "description": "目的地",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.sdu.didi.psnger",
+        "name": "滴滴出行",
+        "type": "delegation",
+        "deep_link": "diditaxi://",
+        "priority": 100
+      },
+      {
+        "package": "com.autonavi.minimap",
+        "name": "高德地图",
+        "type": "gui_automation",
+        "priority": 80,
+        "description": "高德打车",
+        "steps": ["打开高德", "点击打车", "输入目的地", "叫车"]
+      },
+      {
+        "package": "com.dache.caocao",
+        "name": "曹操出行",
+        "type": "delegation",
+        "deep_link": "caocao://",
+        "priority": 70
+      },
+      {
+        "package": "com.t3go.passenger",
+        "name": "T3出行",
+        "type": "delegation",
+        "deep_link": "t3go://",
+        "priority": 70
+      }
+    ]
+  },
+  {
+    "id": "book_flight",
+    "name": "买机票",
+    "description": "预订机票",
+    "category": "出行",
+    "keywords": ["买机票", "订机票", "飞机票", "坐飞机", "飞", "航班"],
+    "params": [
+      {
+        "name": "origin",
+        "type": "string",
+        "description": "出发地",
+        "required": false
+      },
+      {
+        "name": "destination",
+        "type": "string",
+        "description": "目的地",
+        "required": false
+      },
+      {
+        "name": "date",
+        "type": "string",
+        "description": "日期",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 100,
+        "description": "美团 AI 助手，智能查询和预订机票"
+      },
+      {
+        "package": "ctrip.android.view",
+        "name": "携程",
+        "type": "gui_automation",
+        "priority": 90,
+        "steps": ["打开携程", "进入机票频道", "输入出发地和目的地", "选择日期", "搜索航班", "预订"]
+      },
+      {
+        "package": "com.Qunar",
+        "name": "去哪儿",
+        "type": "gui_automation",
+        "priority": 80,
+        "steps": ["打开去哪儿", "进入机票频道", "输入出发地和目的地", "选择日期", "搜索航班", "预订"]
+      },
+      {
+        "package": "com.sdu.didi.psnger",
+        "name": "滴滴出行",
+        "type": "delegation",
+        "deep_link": "diditaxi://flight",
+        "priority": 70,
+        "description": "滴滴机票"
+      }
+    ]
+  },
+  {
+    "id": "book_train",
+    "name": "买车票",
+    "description": "预订火车票/高铁票",
+    "category": "出行",
+    "keywords": ["买车票", "订火车票", "火车票", "高铁票", "坐火车", "坐高铁", "动车"],
+    "params": [
+      {
+        "name": "origin",
+        "type": "string",
+        "description": "出发地",
+        "required": false
+      },
+      {
+        "name": "destination",
+        "type": "string",
+        "description": "目的地",
+        "required": false
+      },
+      {
+        "name": "date",
+        "type": "string",
+        "description": "日期",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "me.ele",
+        "name": "铁路12306",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开铁路12306", "输入出发地和目的地", "选择日期", "查询车次", "选择座位", "预订"]
+      },
+      {
+        "package": "ctrip.android.view",
+        "name": "携程",
+        "type": "gui_automation",
+        "priority": 90,
+        "steps": ["打开携程", "进入火车票频道", "输入出发地和目的地", "选择日期", "搜索车次", "预订"]
+      },
+      {
+        "package": "com.Qunar",
+        "name": "去哪儿",
+        "type": "gui_automation",
+        "priority": 80,
+        "steps": ["打开去哪儿", "进入火车票频道", "输入出发地和目的地", "选择日期", "搜索车次", "预订"]
+      },
+      {
+        "package": "com.meituan.android.beam",
+        "name": "小美",
+        "type": "delegation",
+        "deep_link": "beam://www.meituan.com/home",
+        "priority": 70,
+        "description": "美团 AI 助手，智能查询和预订火车票"
+      }
+    ]
+  },
+  {
+    "id": "generate_image",
+    "name": "AI画图",
+    "description": "使用 AI 生成图片",
+    "category": "AI",
+    "keywords": ["画图", "生成图片", "AI画图", "生成图", "画一张", "生成一张"],
+    "params": [
+      {
+        "name": "prompt",
+        "type": "string",
+        "description": "图片描述",
+        "required": true
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.volcengine.jimeng",
+        "name": "即梦",
+        "type": "delegation",
+        "deep_link": "jimeng://create?prompt={prompt}",
+        "priority": 100
+      },
+      {
+        "package": "com.lark.bot",
+        "name": "豆包",
+        "type": "delegation",
+        "deep_link": "doubao://chat?message=帮我画{prompt}",
+        "priority": 90
+      }
+    ]
+  },
+  {
+    "id": "ai_chat",
+    "name": "AI对话",
+    "description": "与 AI 助手对话",
+    "category": "AI",
+    "keywords": ["问AI", "AI对话", "AI助手", "问一下", "帮我查"],
+    "params": [
+      {
+        "name": "message",
+        "type": "string",
+        "description": "问题内容",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.lark.bot",
+        "name": "豆包",
+        "type": "delegation",
+        "deep_link": "doubao://chat?message={message}",
+        "priority": 100
+      },
+      {
+        "package": "com.moonshot.kimichat",
+        "name": "Kimi",
+        "type": "delegation",
+        "deep_link": "kimi://chat",
+        "priority": 90
+      },
+      {
+        "package": "com.alibaba.tongyi",
+        "name": "通义千问",
+        "type": "delegation",
+        "deep_link": "tongyi://chat",
+        "priority": 80
+      }
+    ]
+  },
+  {
+    "id": "play_music",
+    "name": "听音乐",
+    "description": "播放音乐",
+    "category": "音乐",
+    "keywords": ["听歌", "放歌", "音乐", "播放", "来首歌", "听音乐"],
+    "params": [
+      {
+        "name": "song",
+        "type": "string",
+        "description": "歌曲名或歌手",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.netease.cloudmusic",
+        "name": "网易云音乐",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开网易云音乐", "搜索歌曲", "播放"]
+      },
+      {
+        "package": "com.tencent.qqmusic",
+        "name": "QQ音乐",
+        "type": "gui_automation",
+        "priority": 90,
+        "steps": ["打开QQ音乐", "搜索歌曲", "播放"]
+      },
+      {
+        "package": "com.kugou.android",
+        "name": "酷狗音乐",
+        "type": "gui_automation",
+        "priority": 80,
+        "steps": ["打开酷狗音乐", "搜索歌曲", "播放"]
+      },
+      {
+        "package": "com.spotify.music",
+        "name": "Spotify",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开Spotify", "搜索歌曲", "播放"]
+      }
+    ]
+  },
+  {
+    "id": "watch_video",
+    "name": "看视频",
+    "description": "看视频/刷视频",
+    "category": "视频",
+    "keywords": ["看视频", "刷视频", "追剧", "看电影", "视频"],
+    "params": [
+      {
+        "name": "keyword",
+        "type": "string",
+        "description": "搜索关键词",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "tv.danmaku.bili",
+        "name": "哔哩哔哩",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开B站", "搜索或浏览视频", "播放"]
+      },
+      {
+        "package": "com.ss.android.ugc.aweme",
+        "name": "抖音",
+        "type": "delegation",
+        "deep_link": "snssdk1128://",
+        "priority": 90
+      },
+      {
+        "package": "com.smile.gifmaker",
+        "name": "快手",
+        "type": "delegation",
+        "deep_link": "kwai://",
+        "priority": 80
+      },
+      {
+        "package": "com.youku.phone",
+        "name": "优酷",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开优酷", "搜索视频", "播放"]
+      },
+      {
+        "package": "com.qiyi.video",
+        "name": "爱奇艺",
+        "type": "gui_automation",
+        "priority": 70,
+        "steps": ["打开爱奇艺", "搜索视频", "播放"]
+      }
+    ]
+  },
+  {
+    "id": "send_message",
+    "name": "发消息",
+    "description": "给好友发消息",
+    "category": "社交",
+    "keywords": ["发消息", "发微信", "聊天", "给谁说"],
+    "params": [
+      {
+        "name": "contact",
+        "type": "string",
+        "description": "联系人",
+        "required": false
+      },
+      {
+        "name": "message",
+        "type": "string",
+        "description": "消息内容",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.tencent.mm",
+        "name": "微信",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开微信", "搜索联系人", "进入聊天", "输入消息", "发送"]
+      },
+      {
+        "package": "com.tencent.mobileqq",
+        "name": "QQ",
+        "type": "gui_automation",
+        "priority": 80,
+        "steps": ["打开QQ", "搜索联系人", "进入聊天", "输入消息", "发送"]
+      }
+    ]
+  },
+  {
+    "id": "post_social",
+    "name": "发动态",
+    "description": "发布社交动态",
+    "category": "社交",
+    "keywords": ["发微博", "发朋友圈", "发动态", "发状态"],
+    "params": [
+      {
+        "name": "content",
+        "type": "string",
+        "description": "内容",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.tencent.mm",
+        "name": "微信",
+        "type": "gui_automation",
+        "priority": 100,
+        "description": "发朋友圈",
+        "steps": ["打开微信", "进入朋友圈", "点击发布", "输入内容", "发布"]
+      },
+      {
+        "package": "com.sina.weibo",
+        "name": "微博",
+        "type": "gui_automation",
+        "priority": 90,
+        "steps": ["打开微博", "点击发布", "输入内容", "发布"]
+      },
+      {
+        "package": "com.ss.android.ugc.aweme",
+        "name": "抖音",
+        "type": "gui_automation",
+        "priority": 80,
+        "description": "发抖音",
+        "steps": ["打开抖音", "点击发布", "录制或选择视频", "发布"]
+      }
+    ]
+  },
+  {
+    "id": "post_xiaohongshu",
+    "name": "发小红书",
+    "description": "在小红书发布笔记",
+    "category": "社交",
+    "keywords": ["发小红书", "小红书", "发笔记", "小红书笔记", "红书"],
+    "params": [
+      {
+        "name": "content",
+        "type": "string",
+        "description": "笔记内容",
+        "required": false
+      }
+    ],
+    "prompt_hint": "小红书笔记内容不能超过100字，请精炼表达",
+    "related_apps": [
+      {
+        "package": "com.xingin.xhs",
+        "name": "小红书",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开小红书", "点击底部+号发布", "选择图片或视频", "输入标题和正文（正文不超过100字）", "添加话题标签", "发布"]
+      }
+    ]
+  },
+  {
+    "id": "pay",
+    "name": "付款",
+    "description": "付款/扫码支付",
+    "category": "支付",
+    "keywords": ["付款", "支付", "付钱", "扫码付款", "买单"],
+    "params": [],
+    "related_apps": [
+      {
+        "package": "com.eg.android.AlipayGphone",
+        "name": "支付宝",
+        "type": "delegation",
+        "deep_link": "alipays://platformapi/startapp?appId=20000056",
+        "priority": 100,
+        "description": "支付宝付款码"
+      },
+      {
+        "package": "com.tencent.mm",
+        "name": "微信",
+        "type": "delegation",
+        "deep_link": "weixin://pay",
+        "priority": 90,
+        "description": "微信付款码"
+      }
+    ]
+  },
+  {
+    "id": "scan",
+    "name": "扫码",
+    "description": "扫描二维码",
+    "category": "支付",
+    "keywords": ["扫码", "扫一扫", "扫描"],
+    "params": [],
+    "related_apps": [
+      {
+        "package": "com.eg.android.AlipayGphone",
+        "name": "支付宝",
+        "type": "delegation",
+        "deep_link": "alipays://platformapi/startapp?appId=10000007",
+        "priority": 100
+      },
+      {
+        "package": "com.tencent.mm",
+        "name": "微信",
+        "type": "delegation",
+        "deep_link": "weixin://scanqrcode",
+        "priority": 90
+      }
+    ]
+  },
+  {
+    "id": "take_photo",
+    "name": "拍照",
+    "description": "打开相机拍照",
+    "category": "工具",
+    "keywords": ["拍照", "照相", "自拍", "拍摄"],
+    "params": [],
+    "related_apps": [
+      {
+        "package": "com.android.camera",
+        "name": "相机",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开相机"]
+      }
+    ]
+  },
+  {
+    "id": "set_alarm",
+    "name": "设闹钟",
+    "description": "设置闹钟提醒",
+    "category": "工具",
+    "keywords": ["闹钟", "提醒", "定时", "叫我起床", "设个闹钟"],
+    "params": [
+      {
+        "name": "time",
+        "type": "string",
+        "description": "时间",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.android.deskclock",
+        "name": "时钟",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开时钟", "进入闹钟", "新建闹钟", "设置时间", "保存"]
+      }
+    ]
+  },
+  {
+    "id": "shopping",
+    "name": "购物",
+    "description": "网上购物",
+    "category": "购物",
+    "keywords": ["买", "购物", "下单", "网购", "买东西"],
+    "params": [
+      {
+        "name": "item",
+        "type": "string",
+        "description": "商品",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.taobao.taobao",
+        "name": "淘宝",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开淘宝", "搜索商品", "选择", "下单"]
+      },
+      {
+        "package": "com.jingdong.app.mall",
+        "name": "京东",
+        "type": "gui_automation",
+        "priority": 90,
+        "steps": ["打开京东", "搜索商品", "选择", "下单"]
+      },
+      {
+        "package": "com.xunmeng.pinduoduo",
+        "name": "拼多多",
+        "type": "gui_automation",
+        "priority": 80,
+        "steps": ["打开拼多多", "搜索商品", "选择", "下单"]
+      }
+    ]
+  },
+  {
+    "id": "read_book",
+    "name": "看书",
+    "description": "阅读电子书",
+    "category": "阅读",
+    "keywords": ["看书", "读书", "阅读", "看小说"],
+    "params": [
+      {
+        "name": "book",
+        "type": "string",
+        "description": "书名",
+        "required": false
+      }
+    ],
+    "related_apps": [
+      {
+        "package": "com.tencent.weread",
+        "name": "微信读书",
+        "type": "gui_automation",
+        "priority": 100,
+        "steps": ["打开微信读书", "搜索或打开书架", "阅读"]
+      },
+      {
+        "package": "com.dragon.read",
+        "name": "番茄小说",
+        "type": "gui_automation",
+        "priority": 80,
+        "steps": ["打开番茄小说", "搜索或打开书架", "阅读"]
+      }
+    ]
+  }
+]

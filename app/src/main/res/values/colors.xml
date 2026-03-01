@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 图标背景 -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <color name="splash_background">#FFFFFF</color>
+
+    <!-- 主题色 -->
+    <color name="primary">#D67744</color>
+    <color name="primary_dark">#B85E2E</color>
+    <color name="primary_light">#E89060</color>
+    <color name="secondary">#EFB773</color>
+    <color name="secondary_dark">#D69B52</color>
+    <color name="secondary_light">#F5CB94</color>
+
+    <!-- 背景色 -->
+    <color name="background_dark">#1A1A1A</color>
+    <color name="background_card">#252525</color>
+    <color name="background_input">#2A2A2A</color>
+
+    <!-- 文字颜色 -->
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B0B0B0</color>
+    <color name="text_hint">#666666</color>
+
+    <!-- 状态颜色 -->
+    <color name="success">#4CAF50</color>
+    <color name="error">#F44336</color>
+    <color name="warning">#FF9800</color>
+</resources>

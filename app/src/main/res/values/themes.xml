@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 主应用主题 - 深色主题 -->
+    <style name="Theme.Baozi" parent="android:Theme.Material.NoActionBar">
+        <!-- 状态栏颜色 -->
+        <item name="android:statusBarColor">@color/background_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <!-- 导航栏颜色 -->
+        <item name="android:navigationBarColor">@color/background_card</item>
+        <item name="android:windowLightNavigationBar">false</item>
+
+        <!-- 窗口背景 -->
+        <item name="android:windowBackground">@color/background_dark</item>
+
+        <!-- 主题色 -->
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorPrimaryDark">@color/primary_dark</item>
+        <item name="android:colorAccent">@color/secondary</item>
+    </style>
+
+    <!-- 启动画面主题 (Android 12+) -->
+    <style name="Theme.Baozi.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/splash_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.Baozi</item>
+    </style>
+</resources>
