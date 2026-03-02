@@ -53,7 +53,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 
 /**
  * 聊天消息
@@ -1170,6 +1172,46 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 // 处理事件列表
                 processSessionEvents(detail.events)
 
+                // 检测是否是新接口（通过事件类型判断）
+                val isNewApi = detail.events.any { event ->
+                    event.event in listOf("user_message", "text_message_start", "plan_started", "plan_finished")
+                }
+
+                // 如果是新接口，获取附件并附加到最后一条 assistant 消息
+                if (isNewApi && _messages.isNotEmpty()) {
+                    val backendClient = getBackendClient()
+                    if (backendClient != null) {
+                        Log.d("AlianViewModel", "检测到新接口，尝试获取附件")
+                        val attachmentsResult = backendClient.getSessionAttachments(sessionId)
+                        if (attachmentsResult.isSuccess) {
+                            val attachments = attachmentsResult.getOrNull()!!
+                            if (attachments.isNotEmpty()) {
+                                // 找到最后一条 assistant 消息在 _messages 中的索引
+                                val lastAssistantIndex = _messages.indexOfLast { !it.isUser }
+                                if (lastAssistantIndex >= 0) {
+                                    val lastMessage = _messages[lastAssistantIndex]
+                                    val updatedMessage = lastMessage.copy(
+                                        attachments = attachments
+                                    )
+                                    _messages[lastAssistantIndex] = updatedMessage
+                                    
+                                    // 同步更新 _unifiedChatTimeline 中的 MessageItem
+                                    val timelineIndex = _unifiedChatTimeline.indexOfFirst { 
+                                        it is MessageItem && it.message.id == lastMessage.id 
+                                    }
+                                    if (timelineIndex >= 0) {
+                                        _unifiedChatTimeline[timelineIndex] = MessageItem(updatedMessage)
+                                    }
+                                    
+                                    Log.d("AlianViewModel", "已将 ${attachments.size} 个附件附加到最后一条 assistant 消息")
+                                }
+                            }
+                        } else {
+                            Log.w("AlianViewModel", "获取附件失败: ${attachmentsResult.exceptionOrNull()?.message}")
+                        }
+                    }
+                }
+
                 Log.d("AlianViewModel", "会话事件处理完成，统一时间线大小: ${_unifiedChatTimeline.size}")
                 Result.success(Unit)
             } else {
@@ -1187,6 +1229,9 @@ class AlianViewModel(private val context: Context) : ViewModel() {
      * 处理会话事件列表，转换为消息和UI事件
      */
     private fun processSessionEvents(events: List<SessionEvent>) {
+        // 辅助函数：将 JsonElement 正确序列化为 JSON 字符串
+        fun JsonElement.toJsonString(): String = json.encodeToString(this)
+
         // 用于合并 message_chunk 的缓冲区
         val messageChunkBuffer = mutableMapOf<String, StringBuilder>()
         val messageTimestamps = mutableMapOf<String, Long>()
@@ -1198,7 +1243,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "message" -> {
                     // 处理完整消息
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val messageData = json.decodeFromString<MessageData>(dataString)
                         Log.d("AlianViewModel", "处理消息事件: role=${messageData.role}, content=${messageData.content.take(50)}...")
 
@@ -1221,7 +1266,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "message_chunk" -> {
                     // 处理流式消息块
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val chunkData = json.decodeFromString<MessageChunkData>(dataString)
                         Log.d("AlianViewModel", "处理消息块事件: messageId=${chunkData.message_id}, chunkIndex=${chunkData.chunk_index}")
 
@@ -1262,7 +1307,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "deep_thinking_chunk" -> {
                     // 处理深度思考块
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val chunkData = json.decodeFromString<DeepThinkingChunkData>(dataString)
                         Log.d("AlianViewModel", "处理深度思考块事件: chunkType=${chunkData.chunk_type}, sectionIndex=${chunkData.section_index}, chunkIndex=${chunkData.chunk_index}, done=${chunkData.done}")
 
@@ -1342,7 +1387,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "tool" -> {
                     // 处理工具调用事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val toolData = json.decodeFromString<ToolData>(dataString)
                         Log.d("AlianViewModel", "处理工具调用事件: name=${toolData.name}, status=${toolData.status}, tool_call_id=${toolData.tool_call_id}")
 
@@ -1371,7 +1416,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "step" -> {
                     // 处理步骤事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val stepData = json.decodeFromString<StepData>(dataString)
                         Log.d("AlianViewModel", "处理步骤事件: id=${stepData.id}, status=${stepData.status}")
 
@@ -1394,7 +1439,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "plan" -> {
                     // 处理计划事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val planData = json.decodeFromString<PlanData>(dataString)
                         Log.d("AlianViewModel", "处理计划事件: steps=${planData.steps.size}")
 
@@ -1456,7 +1501,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "text_message_start" -> {
                     // 处理文本消息开始事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val startData = json.decodeFromString<TextMessageStartData>(dataString)
                         Log.d("AlianViewModel", "处理文本消息开始事件: message_id=${startData.message_id}, message_type=${startData.message_type}")
                         // 初始化消息缓冲区
@@ -1469,7 +1514,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "text_message_chunk" -> {
                     // 处理文本消息块事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val chunkData = json.decodeFromString<TextMessageChunkData>(dataString)
                         Log.d("AlianViewModel", "处理文本消息块事件: message_id=${chunkData.message_id}, delta=${chunkData.delta.take(50)}...")
 
@@ -1484,7 +1529,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "text_message_end" -> {
                     // 处理文本消息结束事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val endData = json.decodeFromString<TextMessageEndData>(dataString)
                         Log.d("AlianViewModel", "处理文本消息结束事件: message_id=${endData.message_id}")
 
@@ -1513,7 +1558,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "user_message" -> {
                     // 处理用户消息事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val userData = json.decodeFromString<UserMessageData>(dataString)
                         Log.d("AlianViewModel", "处理用户消息事件: message_id=${userData.message_id}, message=${userData.message.take(50)}...")
 
@@ -1531,7 +1576,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "tool_call_start" -> {
                     // 处理工具调用开始事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val startData = json.decodeFromString<ToolCallStartData>(dataString)
                         Log.d("AlianViewModel", "处理工具调用开始事件: tool_call_id=${startData.tool_call_id}, tool_call_name=${startData.tool_call_name}")
 
@@ -1563,7 +1608,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "tool_call_result" -> {
                     // 处理工具调用结果事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val resultData = json.decodeFromString<ToolCallResultData>(dataString)
                         Log.d("AlianViewModel", "处理工具调用结果事件: tool_call_id=${resultData.tool_call_id}")
 
@@ -1592,7 +1637,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "tool_call_end" -> {
                     // 处理工具调用结束事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val endData = json.decodeFromString<ToolCallEndData>(dataString)
                         Log.d("AlianViewModel", "处理工具调用结束事件: tool_call_id=${endData.tool_call_id}")
 
@@ -1620,7 +1665,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "plan_started" -> {
                     // 处理计划开始事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val planData = json.decodeFromString<PlanStartedData>(dataString)
                         Log.d("AlianViewModel", "处理计划开始事件: goal=${planData.plan.goal}")
 
@@ -1645,7 +1690,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "plan_finished" -> {
                     // 处理计划完成事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val planData = json.decodeFromString<PlanFinishedData>(dataString)
                         Log.d("AlianViewModel", "处理计划完成事件: goal=${planData.plan.goal}")
 
@@ -1684,7 +1729,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "phase_started" -> {
                     // 处理阶段开始事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val phaseData = json.decodeFromString<PhaseStartedData>(dataString)
                         Log.d("AlianViewModel", "处理阶段开始事件: phase_id=${phaseData.phase_id}, title=${phaseData.title}")
 
@@ -1706,7 +1751,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 "phase_finished" -> {
                     // 处理阶段完成事件
                     try {
-                        val dataString = event.data.toString()
+                        val dataString = event.data.toJsonString()
                         val phaseData = json.decodeFromString<PhaseFinishedData>(dataString)
                         Log.d("AlianViewModel", "处理阶段完成事件: phase_id=${phaseData.phase_id}, title=${phaseData.title}")
 

@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -462,6 +464,18 @@ fun ChatMessageBubble(
                                                 listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp").any { name.endsWith(it) }
                                             }
                                             
+                                            // 检查是否为视频附件
+                                            val isVideo = fileName.lowercase().let { name ->
+                                                listOf(".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp").any { name.endsWith(it) }
+                                            }
+                                            
+                                            // 根据文件类型选择图标
+                                            val iconVector = when {
+                                                isImage -> Icons.Default.Image
+                                                isVideo -> Icons.Default.Videocam
+                                                else -> Icons.Default.Visibility
+                                            }
+                                            
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
@@ -473,7 +487,7 @@ fun ChatMessageBubble(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Visibility,
+                                                    imageVector = iconVector,
                                                     contentDescription = "预览",
                                                     modifier = Modifier.size(14.dp),
                                                     tint = colors.primary

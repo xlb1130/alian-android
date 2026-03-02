@@ -44,6 +44,7 @@ import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceCo
 import com.alian.assistant.presentation.ui.screens.components.AlianAppBar
 import com.alian.assistant.presentation.ui.screens.components.AlianLogoutDialog
 import com.alian.assistant.presentation.ui.screens.components.ImagePreviewScreen
+import com.alian.assistant.presentation.ui.screens.components.VideoPreviewScreen
 import com.alian.assistant.presentation.ui.screens.components.RightActionButton
 import com.alian.assistant.presentation.ui.screens.online.AlianChatHistoryDrawer
 import com.alian.assistant.presentation.ui.screens.online.AlianChatContent
@@ -115,6 +116,9 @@ fun AlianChatScreen(
     var showImagePreview by remember { mutableStateOf(false) }
     var imagePreviewUrl by remember { mutableStateOf("") }
     var imagePreviewTitle by remember { mutableStateOf("") }
+    var showVideoPreview by remember { mutableStateOf(false) }
+    var videoPreviewUrl by remember { mutableStateOf("") }
+    var videoPreviewTitle by remember { mutableStateOf("") }
     var showLogoutDialog by remember { mutableStateOf(false) }
     
     var inputText by remember { mutableStateOf("") }
@@ -320,20 +324,35 @@ fun AlianChatScreen(
                                     fileName.lowercase().endsWith(it)
                                 }
                                 
-                                Log.d("AlianChatScreen", "onLinkClick: url=$url, fileName=$fileName, isImage=$isImage")
+                                // 检查是否为视频文件
+                                val isVideo = listOf(".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp").any {
+                                    fileName.lowercase().endsWith(it)
+                                }
                                 
-                                if (isImage) {
-                                    // 图片文件使用独立的图片预览
-                                    imagePreviewUrl = url
-                                    imagePreviewTitle = fileName
-                                    showImagePreview = true
-                                    Log.d("AlianChatScreen", "打开图片预览: $url")
-                                } else {
-                                    // 其他文件使用 Markdown WebView
-                                    markdownWebViewUrl = url
-                                    markdownWebViewTitle = fileName
-                                    showMarkdownWebView = true
-                                    Log.d("AlianChatScreen", "打开 Markdown 预览: $url")
+                                Log.d("AlianChatScreen", "onLinkClick: url=$url, fileName=$fileName, isImage=$isImage, isVideo=$isVideo")
+                                
+                                when {
+                                    isImage -> {
+                                        // 图片文件使用独立的图片预览
+                                        imagePreviewUrl = url
+                                        imagePreviewTitle = fileName
+                                        showImagePreview = true
+                                        Log.d("AlianChatScreen", "打开图片预览: $url")
+                                    }
+                                    isVideo -> {
+                                        // 视频文件使用独立的视频预览
+                                        videoPreviewUrl = url
+                                        videoPreviewTitle = fileName
+                                        showVideoPreview = true
+                                        Log.d("AlianChatScreen", "打开视频预览: $url")
+                                    }
+                                    else -> {
+                                        // 其他文件使用 Markdown WebView
+                                        markdownWebViewUrl = url
+                                        markdownWebViewTitle = fileName
+                                        showMarkdownWebView = true
+                                        Log.d("AlianChatScreen", "打开 Markdown 预览: $url")
+                                    }
                                 }
                             },
                             userAvatar = userAvatar,
@@ -558,6 +577,27 @@ fun AlianChatScreen(
                         title = imagePreviewTitle,
                         onBackClick = {
                             showImagePreview = false
+                        }
+                    )
+                }
+            }
+
+            // 视频预览对话框
+            AnimatedVisibility(
+                visible = showVideoPreview,
+                enter = fadeIn(animationSpec = tween(300)),
+                exit = fadeOut(animationSpec = tween(300))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(colors.background)
+                ) {
+                    VideoPreviewScreen(
+                        videoUrl = videoPreviewUrl,
+                        title = videoPreviewTitle,
+                        onBackClick = {
+                            showVideoPreview = false
                         }
                     )
                 }

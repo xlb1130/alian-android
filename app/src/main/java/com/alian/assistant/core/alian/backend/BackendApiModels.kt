@@ -154,6 +154,62 @@ data class SessionDetailData(
 )
 
 /**
+ * 会话事件列表响应（新接口）
+ */
+@Serializable
+data class SessionEventsResponse(
+    val code: Int,
+    val msg: String,
+    val data: SessionEventsData?
+)
+
+@Serializable
+data class SessionEventsData(
+    val events: List<SessionEvent>,
+    val cursor: Int? = null,  // 分页游标
+    val has_more: Boolean? = null  // 是否有更多事件
+)
+
+/**
+ * 会话文件列表响应（新接口）
+ */
+@Serializable
+data class SessionFilesResponse(
+    val code: Int,
+    val msg: String,
+    val data: List<SessionFileData>?  // 注意：data 直接是数组
+)
+
+@Serializable
+data class SessionFileData(
+    val file_id: String,
+    val filename: String? = null,
+    val file_path: String? = null,
+    val content_type: String? = null,
+    val size: Long? = null,
+    val upload_date: String? = null,
+    val metadata: Map<String, JsonElement>? = null,
+    val user_id: String? = null,
+    val file_url: String? = null
+)
+
+/**
+ * 文件签名URL响应（新接口）
+ */
+@Serializable
+data class SignedUrlResponse(
+    val code: Int,
+    val msg: String,
+    val data: SignedUrlData?
+)
+
+@Serializable
+data class SignedUrlData(
+    val signed_url: String,
+    val expires_in: Int
+)
+
+/**
  * 会话事件
  */
 @Serializable

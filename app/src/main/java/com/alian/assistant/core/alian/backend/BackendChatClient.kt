@@ -10,6 +10,14 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -1182,6 +1190,9 @@ class BackendChatClient(
 
     /**
      * 获取会话详细信息（包含事件列表）
+     * 兼容新旧两种接口：
+     * - 旧接口：直接在会话详情中返回 events 数组
+     * - 新接口：需要单独调用 /sessions/{sessionId}/events 获取事件列表
      */
     suspend fun getSessionDetail(sessionId: String): Result<SessionDetailData> = withContext(Dispatchers.IO) {
         try {
@@ -1219,8 +1230,108 @@ class BackendChatClient(
                 )
             }
 
-            Result.success(detailResponse.data)
+            val detail = detailResponse.data
+
+            // 兼容新旧接口：如果 events 为空但 event_count > 0，则调用新接口获取事件列表
+            if (detail.events.isEmpty() && detail.event_count > 0) {
+                Log.d("BackendChatClient", "旧接口未返回事件，尝试新接口获取事件列表，event_count=${detail.event_count}")
+                val eventsResult = getSessionEvents(sessionId)
+                if (eventsResult.isSuccess) {
+                    val events = eventsResult.getOrNull()!!
+                    Log.d("BackendChatClient", "新接口获取事件成功，events.size=${events.size}")
+                    return@withContext Result.success(detail.copy(events = events))
+                } else {
+                    Log.w("BackendChatClient", "新接口获取事件失败: ${eventsResult.exceptionOrNull()?.message}")
+                    // 即使获取失败，也返回原始详情（不包含事件）
+                }
+            }
+
+            Result.success(detail)
         } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取会话事件列表（新接口）- 分页循环获取所有事件
+     * 新接口返回扁平格式的事件，需要转换为旧接口的 {event, data} 格式
+     * @param sessionId 会话ID
+     */
+    suspend fun getSessionEvents(sessionId: String): Result<List<SessionEvent>> = withContext(Dispatchers.IO) {
+        try {
+            val allEvents = mutableListOf<SessionEvent>()
+            var cursor = 0
+            val pageSize = 500  // 每页500条，避免超过1000条的限制
+            
+            while (true) {
+                val request = Request.Builder()
+                    .url("$baseUrl/sessions/$sessionId/events?cursor=$cursor&limit=$pageSize")
+                    .get()
+                    .build()
+
+                Log.d("BackendChatClient", "获取会话事件列表: cursor=$cursor, limit=$pageSize")
+
+                val response = client.newCall(request).execute()
+
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string() ?: "Unknown error"
+                    if (checkAndHandleAuthFailure(errorBody)) {
+                        return@withContext Result.failure(Exception("Authentication failed"))
+                    }
+                    return@withContext Result.failure(
+                        Exception("Get session events failed: ${response.code} - $errorBody")
+                    )
+                }
+
+                val responseBody = response.body?.string()
+                    ?: return@withContext Result.failure(Exception("Empty response body"))
+
+                if (checkAndHandleAuthFailure(responseBody)) {
+                    return@withContext Result.failure(Exception("Authentication failed"))
+                }
+
+                // 手动解析响应，将新接口的扁平格式转换为旧接口的 {event, data} 格式
+                val responseJson = json.parseToJsonElement(responseBody).jsonObject
+                val code = (responseJson["code"] as? JsonPrimitive)?.int ?: -1
+                
+                if (code != 0) {
+                    val msg = (responseJson["msg"] as? JsonPrimitive)?.content ?: "Unknown error"
+                    return@withContext Result.failure(Exception(msg))
+                }
+
+                val dataObj = responseJson["data"]?.jsonObject
+                val eventsArray = dataObj?.get("events")?.jsonArray
+                    ?: return@withContext Result.success(allEvents)
+
+                // 转换新格式到旧格式
+                val pageEvents = eventsArray.map { eventElement ->
+                    val eventObj = eventElement.jsonObject
+                    val eventType = (eventObj["type"] as? JsonPrimitive)?.content ?: "unknown"
+                    SessionEvent(
+                        event = eventType,
+                        data = eventObj
+                    )
+                }
+
+                allEvents.addAll(pageEvents)
+                Log.d("BackendChatClient", "本页获取 ${pageEvents.size} 个事件，累计 ${allEvents.size} 个")
+
+                // 检查是否还有更多数据
+                val hasMore = (dataObj?.get("has_more") as? JsonPrimitive)?.booleanOrNull ?: false
+                val nextCursor = (dataObj?.get("cursor") as? JsonPrimitive)?.int
+                
+                if (!hasMore || pageEvents.isEmpty()) {
+                    Log.d("BackendChatClient", "事件获取完成，共 ${allEvents.size} 个事件")
+                    break
+                }
+                
+                // 更新 cursor，如果后端返回了 nextCursor 则使用它，否则使用 cursor + pageSize
+                cursor = nextCursor ?: (cursor + pageSize)
+            }
+
+            Result.success(allEvents)
+        } catch (e: Exception) {
+            Log.e("BackendChatClient", "获取会话事件列表异常", e)
             Result.failure(e)
         }
     }
@@ -1253,6 +1364,150 @@ class BackendChatClient(
             Result.success(Unit)
         } catch (e: Exception) {
             Log.e("BackendChatClient", "Stop session error", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取会话文件列表详情（新接口）
+     * @param sessionId 会话ID
+     */
+    suspend fun getSessionFilesWithDetails(sessionId: String): Result<List<SessionFileData>> = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$baseUrl/sessions/$sessionId/files")
+                .get()
+                .build()
+
+            Log.d("BackendChatClient", "获取会话文件列表: $baseUrl/sessions/$sessionId/files")
+
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                if (checkAndHandleAuthFailure(errorBody)) {
+                    return@withContext Result.failure(Exception("Authentication failed"))
+                }
+                return@withContext Result.failure(
+                    Exception("Get session files failed: ${response.code} - $errorBody")
+                )
+            }
+
+            val responseBody = response.body?.string()
+                ?: return@withContext Result.failure(Exception("Empty response body"))
+
+            if (checkAndHandleAuthFailure(responseBody)) {
+                return@withContext Result.failure(Exception("Authentication failed"))
+            }
+
+            val filesResponse = json.decodeFromString<SessionFilesResponse>(responseBody)
+
+            if (filesResponse.code != 0) {
+                return@withContext Result.failure(Exception(filesResponse.msg))
+            }
+
+            Result.success(filesResponse.data ?: emptyList())
+        } catch (e: Exception) {
+            Log.e("BackendChatClient", "获取会话文件列表异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取文件签名URL（新接口）
+     * @param fileId 文件ID
+     */
+    suspend fun getFileSignedUrl(fileId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val requestBody = """{"expire_minutes":15}""".toRequestBody(mediaType)
+            val request = Request.Builder()
+                .url("$baseUrl/files/$fileId/signed-url")
+                .post(requestBody)
+                .build()
+
+            Log.d("BackendChatClient", "获取文件签名URL: $baseUrl/files/$fileId/signed-url")
+
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                if (checkAndHandleAuthFailure(errorBody)) {
+                    return@withContext Result.failure(Exception("Authentication failed"))
+                }
+                return@withContext Result.failure(
+                    Exception("Get file signed URL failed: ${response.code} - $errorBody")
+                )
+            }
+
+            val responseBody = response.body?.string()
+                ?: return@withContext Result.failure(Exception("Empty response body"))
+
+            if (checkAndHandleAuthFailure(responseBody)) {
+                return@withContext Result.failure(Exception("Authentication failed"))
+            }
+
+            val signedUrlResponse = json.decodeFromString<SignedUrlResponse>(responseBody)
+
+            if (signedUrlResponse.code != 0 || signedUrlResponse.data == null) {
+                return@withContext Result.failure(Exception(signedUrlResponse.msg))
+            }
+
+            Result.success(signedUrlResponse.data.signed_url)
+        } catch (e: Exception) {
+            Log.e("BackendChatClient", "获取文件签名URL异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * 获取会话所有附件（带签名URL）
+     * @param sessionId 会话ID
+     */
+    suspend fun getSessionAttachments(sessionId: String): Result<List<Attachment>> = withContext(Dispatchers.IO) {
+        try {
+            // 1. 获取文件列表
+            val filesResult = getSessionFilesWithDetails(sessionId)
+            if (filesResult.isFailure) {
+                return@withContext Result.failure(filesResult.exceptionOrNull()!!)
+            }
+
+            val files = filesResult.getOrNull()!!
+            if (files.isEmpty()) {
+                return@withContext Result.success(emptyList())
+            }
+
+            Log.d("BackendChatClient", "获取到 ${files.size} 个文件，开始获取签名URL")
+
+            // 2. 获取每个文件的签名URL
+            val attachments = mutableListOf<Attachment>()
+            for (file in files) {
+                val signedUrlResult = getFileSignedUrl(file.file_id)
+                if (signedUrlResult.isSuccess) {
+                    val signedUrl = signedUrlResult.getOrNull()!!
+                    attachments.add(
+                        Attachment(
+                            file_id = file.file_id,
+                            filename = file.filename,
+                            name = file.filename,
+                            path = file.file_path,
+                            size = file.size,
+                            url = signedUrl,
+                            file_url = signedUrl,
+                            content_type = file.content_type,
+                            upload_date = file.upload_date,
+                            metadata = file.metadata
+                        )
+                    )
+                    Log.d("BackendChatClient", "文件 ${file.filename} 签名URL获取成功")
+                } else {
+                    Log.w("BackendChatClient", "文件 ${file.filename} 签名URL获取失败: ${signedUrlResult.exceptionOrNull()?.message}")
+                }
+            }
+
+            Log.d("BackendChatClient", "共获取 ${attachments.size} 个附件")
+            Result.success(attachments)
+        } catch (e: Exception) {
+            Log.e("BackendChatClient", "获取会话附件异常", e)
             Result.failure(e)
         }
     }
