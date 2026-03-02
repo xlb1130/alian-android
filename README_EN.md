@@ -38,6 +38,10 @@
   <img src="docs/screenshots/dark10.jpg" width="180" alt="Screenshot 10">
 </p>
 
+<p align="center">
+  <video src="docs/video/phone-demo.mp4" width="320" autoplay loop muted playsinline></video>
+</p>
+
 ---
 
 ## ✨ Project Overview
@@ -67,11 +71,27 @@ Alian is a fully open-source AI phone assistant that supports voice calls, video
 | 🔌 **MCP Extension** | Custom add MCP Servers, connect weather, maps, search and other external services |
 | ⚙️ **Prompt Custom** | Freely customize AI role, personality, speaking style, independent settings per call type |
 
-> 📥 **Try it now**: Download the latest APK from [Releases](../../releases) page
->
-> 🌐 **Web Demo**: [https://github.com/OA-ai/aliian-samples](https://github.com/OA-ai/aliian-samples)
->
+---
+
+## 🚀 Quick Experience
+
+### 📱 Mobile App
+
+1. **Download** - Go to [Releases](../../releases) page to download the latest APK
+2. **Install** - Install the APK on your Android device
+3. **Configure API Key** - Open the app, go to Settings, and configure your Qwen API Key
+4. **Grant Permissions** - Enable required permissions in Settings (Recording, Overlay, Accessibility, etc.)
+5. **Enable Voice** - Turn on TTS and related voice features in Voice Settings
+6. **Start Using** - Return to home screen, tap the voice button to start conversation with AI
+
 > 💡 **Open-source mobile app - experience all features described here without login**
+>
+> ⚠️ **MCP Feature**: To use MCP functionality, please configure your correct MCP in Settings first (the default one is a demo), then enable the MCP switch
+
+### 🌐 Web Demo
+
+- **Online Demo**: [https://ai.alian-anything.com/](https://ai.alian-anything.com/)
+- **Sample Library**: [https://github.com/OA-ai/aliian-samples](https://github.com/OA-ai/aliian-samples)
 
 ### Use Cases
 
