@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import com.alian.assistant.IShellService
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
 import com.alian.assistant.infrastructure.device.controller.interfaces.IScreenshotProvider
+import com.alian.assistant.infrastructure.device.controller.interfaces.ScreenshotErrorType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -69,7 +70,10 @@ class ShizukuScreenshotProvider(
             // 检查是否截图失败（敏感页面保护）
             if (output.contains("Status: -1") || output.contains("Failed") || output.contains("error")) {
                 println("[ShizukuScreenshotProvider] Screenshot blocked (sensitive screen), returning fallback")
-                return@withContext createFallbackScreenshot(isSensitive = true)
+                return@withContext createFallbackScreenshot(
+                    isSensitive = true,
+                    errorType = ScreenshotErrorType.SENSITIVE_PAGE
+                )
             }
             
             // 尝试直接读取
@@ -97,11 +101,17 @@ class ShizukuScreenshotProvider(
             }
             
             println("[ShizukuScreenshotProvider] Screenshot file empty or not accessible, returning fallback")
-            createFallbackScreenshot(isSensitive = false)
+            createFallbackScreenshot(
+                isSensitive = false,
+                errorType = ScreenshotErrorType.FILE_NOT_ACCESSIBLE
+            )
         } catch (e: Exception) {
             e.printStackTrace()
             println("[ShizukuScreenshotProvider] Screenshot exception, returning fallback")
-            createFallbackScreenshot(isSensitive = false)
+            createFallbackScreenshot(
+                isSensitive = false,
+                errorType = ScreenshotErrorType.SHELL_COMMAND_FAILED
+            )
         }
     }
     
@@ -211,14 +221,18 @@ class ShizukuScreenshotProvider(
     /**
      * 创建黑屏占位图（降级处理）
      */
-    private fun createFallbackScreenshot(isSensitive: Boolean): IDeviceController.ScreenshotResult {
+    private fun createFallbackScreenshot(
+        isSensitive: Boolean,
+        errorType: ScreenshotErrorType = ScreenshotErrorType.UNKNOWN
+    ): IDeviceController.ScreenshotResult {
         val (width, height) = getScreenSize()
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         // 默认是黑色，无需填充
         return IDeviceController.ScreenshotResult(
             bitmap = bitmap,
             isSensitive = isSensitive,
-            isFallback = true
+            isFallback = true,
+            errorType = errorType
         )
     }
 }

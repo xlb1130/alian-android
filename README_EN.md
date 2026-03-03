@@ -622,6 +622,7 @@ cd alian-android
 - [x] **Crash Handling** - CrashHandler crash capture
 - [x] **Log Export** - Support exporting logs for debugging
 - [x] **FileProvider** - File sharing support
+- [x] **Internationalization (i18n)** - Support for Simplified Chinese, English, Japanese, Korean, Traditional Chinese with in-app language switching
 
 ### 🚧 In Development
 

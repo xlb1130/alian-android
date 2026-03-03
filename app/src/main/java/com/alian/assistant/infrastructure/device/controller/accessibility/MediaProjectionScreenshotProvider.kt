@@ -9,6 +9,7 @@ import android.view.WindowManager
 import com.alian.assistant.infrastructure.device.accessibility.AccessibilityKeepAliveService
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
 import com.alian.assistant.infrastructure.device.controller.interfaces.IScreenshotProvider
+import com.alian.assistant.infrastructure.device.controller.interfaces.ScreenshotErrorType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -76,25 +77,40 @@ class MediaProjectionScreenshotProvider(
             return withContext(Dispatchers.IO) {
                 Log.i(TAG, "========== screenshotWithFallback: inside withContext ==========")
 
-                // 直接从 AccessibilityKeepAliveService 获取截图
+                // 检查服务是否运行
                 val instance = AccessibilityKeepAliveService.getInstance()
-                val bitmap = if (instance != null) {
-                    instance.captureScreenshot()
-                } else {
-                    null
+                if (instance == null) {
+                    Log.w(TAG, "========== screenshotWithFallback: SERVICE_NOT_RUNNING ==========")
+                    return@withContext IDeviceController.ScreenshotResult(
+                        bitmap = createFallbackBitmap(),
+                        isFallback = true,
+                        errorType = ScreenshotErrorType.SERVICE_NOT_RUNNING
+                    )
                 }
+
+                // 检查 MediaProjection 是否可用
+                if (!AccessibilityKeepAliveService.isMediaProjectionAvailable()) {
+                    Log.w(TAG, "========== screenshotWithFallback: MEDIA_PROJECTION_NULL ==========")
+                    return@withContext IDeviceController.ScreenshotResult(
+                        bitmap = createFallbackBitmap(),
+                        isFallback = true,
+                        errorType = ScreenshotErrorType.MEDIA_PROJECTION_NULL
+                    )
+                }
+
+                // 尝试截图
+                val bitmap = instance.captureScreenshot()
 
                 if (bitmap != null) {
                     Log.i(TAG, "========== screenshotWithFallback: SUCCESS ==========")
                     return@withContext IDeviceController.ScreenshotResult(bitmap)
                 } else {
                     // 创建黑屏占位图
-                    Log.w(TAG, "========== screenshotWithFallback: FAILED, using fallback ==========")
-                    val fallbackBitmap = createFallbackBitmap()
+                    Log.w(TAG, "========== screenshotWithFallback: NO_IMAGE_AVAILABLE ==========")
                     return@withContext IDeviceController.ScreenshotResult(
-                        bitmap = fallbackBitmap,
-                        isSensitive = false,
-                        isFallback = true
+                        bitmap = createFallbackBitmap(),
+                        isFallback = true,
+                        errorType = ScreenshotErrorType.NO_IMAGE_AVAILABLE
                     )
                 }
             }
@@ -103,11 +119,10 @@ class MediaProjectionScreenshotProvider(
             Log.e(TAG, "Exception: ${e.message}", e)
             e.printStackTrace()
             // 创建黑屏占位图
-            val fallbackBitmap = createFallbackBitmap()
             return IDeviceController.ScreenshotResult(
-                bitmap = fallbackBitmap,
-                isSensitive = false,
-                isFallback = true
+                bitmap = createFallbackBitmap(),
+                isFallback = true,
+                errorType = ScreenshotErrorType.UNKNOWN
             )
         }
     }

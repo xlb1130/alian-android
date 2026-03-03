@@ -9,6 +9,7 @@ import android.view.WindowManager
 import com.alian.assistant.infrastructure.device.accessibility.AlianAccessibilityService
 import com.alian.assistant.infrastructure.device.controller.interfaces.ControllerType
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
+import com.alian.assistant.infrastructure.device.controller.interfaces.ScreenshotErrorType
 
 /**
  * 无障碍服务设备控制器实现
@@ -112,14 +113,14 @@ class AccessibilityController(
             val fallbackBitmap = createFallbackBitmap()
             return IDeviceController.ScreenshotResult(
                 bitmap = fallbackBitmap,
-                isSensitive = false,
-                isFallback = true
+                isFallback = true,
+                errorType = ScreenshotErrorType.MEDIA_PROJECTION_NULL
             )
         }
 
         Log.d(TAG, "screenshotWithFallback: calling provider.screenshotWithFallback()")
         val result = provider.screenshotWithFallback()
-        Log.d(TAG, "screenshotWithFallback: result - isFallback=${result.isFallback}, isSensitive=${result.isSensitive}, bitmap=${if (result.bitmap != null) "${result.bitmap.width}x${result.bitmap.height}" else "null"}")
+        Log.d(TAG, "screenshotWithFallback: result - isFallback=${result.isFallback}, isSensitive=${result.isSensitive}, errorType=${result.errorType}, bitmap=${if (result.bitmap != null) "${result.bitmap.width}x${result.bitmap.height}" else "null"}")
         return result
     }
     

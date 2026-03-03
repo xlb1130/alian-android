@@ -21,6 +21,7 @@ import com.alian.assistant.infrastructure.device.controller.accessibility.Access
 import com.alian.assistant.infrastructure.device.controller.factory.ShizukuPrivilegeLevel
 import com.alian.assistant.infrastructure.device.controller.interfaces.ControllerType
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
+import com.alian.assistant.infrastructure.device.controller.interfaces.ScreenshotErrorType
 import com.alian.assistant.infrastructure.device.controller.shizuku.ShizukuController
 import com.alian.assistant.presentation.ui.overlay.OverlayService
 
@@ -87,6 +88,9 @@ Limitations:
         // 重试参数
         private const val MAX_CLICK_RETRY_COUNT = 3  // 最大点击重试次数
         private const val CLICK_RETRY_DELAY_MS = 500L  // 点击重试延迟（毫秒）
+        
+        // 截图失败处理参数
+        private const val MAX_CONSECUTIVE_SCREENSHOT_FAILURES = 3  // 最大连续截图失败次数
     }
 
     // 组件
@@ -116,6 +120,9 @@ Limitations:
         Log.e(TAG, "SkillManager 加载失败: ${e.message}")
         null
     }
+
+    // 截图失败计数器
+    private var consecutiveScreenshotFailures = 0
 
     // 状态流
     private val _state = MutableStateFlow(AgentState())
@@ -376,7 +383,33 @@ Limitations:
                     }
                     log("用户确认继续（使用黑屏占位图）")
                 } else if (screenshotResult.isFallback) {
-                    log("⚠️ 截图失败，使用黑屏占位图")
+                    // 截图失败，处理连续失败情况
+                    consecutiveScreenshotFailures++
+                    val errorMessage = getScreenshotErrorMessage(screenshotResult.errorType)
+                    log("⚠️ 截图失败: $errorMessage (连续失败: $consecutiveScreenshotFailures/$MAX_CONSECUTIVE_SCREENSHOT_FAILURES)")
+                    
+                    if (consecutiveScreenshotFailures >= MAX_CONSECUTIVE_SCREENSHOT_FAILURES) {
+                        log("❌ 连续截图失败次数过多，任务终止")
+                        OverlayService.update("⚠️ $errorMessage")
+                        delay(2000)
+                        
+                        // 提示用户检查权限
+                        val shouldOpenSettings = withContext(Dispatchers.Main) {
+                            waitForUserConfirm("$errorMessage\n\n点击确认前往设置检查权限")
+                        }
+                        
+                        if (shouldOpenSettings) {
+                            openPermissionSettings()
+                        }
+                        
+                        OverlayService.hide(context)
+                        bringAppToFront()
+                        cleanup()
+                        return AgentResult(success = false, message = "截图权限失效: $errorMessage")
+                    }
+                } else {
+                    // 截图成功，重置计数器
+                    consecutiveScreenshotFailures = 0
                 }
 
                 // 再次检查停止状态
@@ -645,11 +678,14 @@ Limitations:
                     delay(100)
                     log("开始截图，控制器类型: ${controller.javaClass.simpleName}")
                     val afterScreenshotResult = controller.screenshotWithFallback()
-                    log("截图完成 - isFallback=${afterScreenshotResult.isFallback}, isSensitive=${afterScreenshotResult.isSensitive}, bitmap=${if (afterScreenshotResult.bitmap != null) "${afterScreenshotResult.bitmap.width}x${afterScreenshotResult.bitmap.height}" else "null"}")
+                    log("截图完成 - isFallback=${afterScreenshotResult.isFallback}, isSensitive=${afterScreenshotResult.isSensitive}, errorType=${afterScreenshotResult.errorType}, bitmap=${if (afterScreenshotResult.bitmap != null) "${afterScreenshotResult.bitmap.width}x${afterScreenshotResult.bitmap.height}" else "null"}")
                     OverlayService.setVisible(true)
                     val afterScreenshot = afterScreenshotResult.bitmap
                     if (afterScreenshotResult.isFallback) {
-                        log("⚠️ 动作后截图失败，使用黑屏占位图")
+                        consecutiveScreenshotFailures++
+                        log("⚠️ 动作后截图失败: ${getScreenshotErrorMessage(afterScreenshotResult.errorType)} (连续失败: $consecutiveScreenshotFailures/$MAX_CONSECUTIVE_SCREENSHOT_FAILURES)")
+                    } else {
+                        consecutiveScreenshotFailures = 0
                     }
 
                     // 6. 调用 Reflector 验证
@@ -1397,6 +1433,60 @@ Limitations:
     private fun log(message: String) {
         Log.d(TAG, message)
         _logs.value = _logs.value + message
+    }
+
+    /**
+     * 获取截图失败的错误消息
+     */
+    private fun getScreenshotErrorMessage(errorType: ScreenshotErrorType): String {
+        return when (errorType) {
+            ScreenshotErrorType.SERVICE_NOT_RUNNING ->
+                "截图服务未运行，请检查无障碍服务是否开启"
+            ScreenshotErrorType.MEDIA_PROJECTION_NULL ->
+                "屏幕录制权限未授权或已失效，请重新授权"
+            ScreenshotErrorType.IMAGE_READER_NULL ->
+                "截图组件初始化失败，请重启应用"
+            ScreenshotErrorType.VIRTUAL_DISPLAY_NULL ->
+                "虚拟显示未创建，请重启应用"
+            ScreenshotErrorType.NO_IMAGE_AVAILABLE ->
+                "无法获取屏幕图像，请检查屏幕录制权限"
+            ScreenshotErrorType.SENSITIVE_PAGE ->
+                "检测到敏感页面，截图被系统阻止"
+            ScreenshotErrorType.SHELL_COMMAND_FAILED ->
+                "截图命令执行失败，请检查 Shizuku 权限"
+            ScreenshotErrorType.FILE_NOT_ACCESSIBLE ->
+                "截图文件无法访问，请检查存储权限"
+            ScreenshotErrorType.NONE ->
+                "截图成功"
+            ScreenshotErrorType.UNKNOWN ->
+                "截图失败，原因未知"
+        }
+    }
+
+    /**
+     * 打开权限设置页面
+     */
+    private fun openPermissionSettings() {
+        try {
+            // 首先尝试打开无障碍服务设置
+            val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+            log("已打开无障碍服务设置页面")
+        } catch (e: Exception) {
+            log("打开设置页面失败: ${e.message}")
+            // 如果失败，尝试打开应用详情页
+            try {
+                val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                log("打开应用详情页也失败: ${e2.message}")
+            }
+        }
     }
 
     /**

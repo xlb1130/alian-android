@@ -102,10 +102,28 @@ interface IDeviceController {
     data class ScreenshotResult(
         val bitmap: Bitmap,
         val isSensitive: Boolean = false,  // 是否是敏感页面（截图失败）
-        val isFallback: Boolean = false    // 是否是降级的黑屏占位图
+        val isFallback: Boolean = false,   // 是否是降级的黑屏占位图
+        val errorType: ScreenshotErrorType = ScreenshotErrorType.NONE  // 截图失败的具体原因
     )
 
     fun unbindService()
+}
+
+/**
+ * 截图错误类型枚举
+ * 用于区分截图失败的具体原因，以便向用户提供准确的提示信息
+ */
+enum class ScreenshotErrorType {
+    NONE,                    // 成功，无错误
+    SERVICE_NOT_RUNNING,     // AccessibilityKeepAliveService 未运行
+    MEDIA_PROJECTION_NULL,   // MediaProjection 为 null（权限未授权或已失效）
+    IMAGE_READER_NULL,       // ImageReader 未初始化
+    VIRTUAL_DISPLAY_NULL,    // VirtualDisplay 未创建
+    NO_IMAGE_AVAILABLE,      // ImageReader 中没有可用图像
+    SENSITIVE_PAGE,          // 敏感页面（银行等 App）
+    SHELL_COMMAND_FAILED,    // Shell 命令执行失败（Shizuku 模式）
+    FILE_NOT_ACCESSIBLE,     // 截图文件无法访问
+    UNKNOWN                  // 未知错误
 }
 
 /**
