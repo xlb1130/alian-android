@@ -21,7 +21,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.alian.assistant.R
 import com.alian.assistant.data.AppSettings
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.common.utils.CrashHandler
@@ -57,8 +59,8 @@ fun ExecutionSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Build,
-                title = "设备控制器",
-                subtitle = "配置设备控制器的执行策略和性能设置",
+                title = stringResource(R.string.execution_device_controller),
+                subtitle = stringResource(R.string.execution_device_controller_desc),
                 onClick = onNavigateToDeviceController
             )
         }
@@ -66,8 +68,8 @@ fun ExecutionSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(1)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.Speed,
-                title = "优化模式",
-                subtitle = if (settings.enableImproveMode) "已启用（减少 60% VLM 调用，速度提升 2.5x）" else "已禁用（使用标准模式）",
+                title = stringResource(R.string.execution_optimize_mode),
+                subtitle = if (settings.enableImproveMode) stringResource(R.string.execution_optimize_mode_enabled) else stringResource(R.string.execution_optimize_mode_disabled),
                 checked = settings.enableImproveMode,
                 onCheckedChange = onUpdateEnableImproveMode
             )
@@ -76,8 +78,8 @@ fun ExecutionSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(2)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.Settings,
-                title = "多步执行模式",
-                subtitle = if (settings.enableBatchExecution) "已启用（批量执行不冲突的操作）" else "已禁用（逐个执行）",
+                title = stringResource(R.string.execution_batch_mode),
+                subtitle = if (settings.enableBatchExecution) stringResource(R.string.execution_batch_mode_enabled) else stringResource(R.string.execution_batch_mode_disabled),
                 checked = settings.enableBatchExecution,
                 onCheckedChange = onUpdateEnableBatchExecution
             )
@@ -86,8 +88,8 @@ fun ExecutionSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(3)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.PlayArrow,
-                title = "ReactOnly 模式",
-                subtitle = if (settings.reactOnly) "已启用（Manager 仅规划一次，后续全靠 Executor 执行）" else "已禁用（标准模式）",
+                title = stringResource(R.string.execution_react_only_mode),
+                subtitle = if (settings.reactOnly) stringResource(R.string.execution_react_only_enabled) else stringResource(R.string.execution_react_only_disabled),
                 checked = settings.reactOnly,
                 onCheckedChange = onUpdateReactOnly
             )
@@ -96,8 +98,8 @@ fun ExecutionSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(4)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.Chat,
-                title = "ChatAgent 模式",
-                subtitle = if (settings.enableChatAgent) "已启用（支持语音打断和实时交互）" else "已禁用（标准执行模式）",
+                title = stringResource(R.string.execution_chat_agent_mode),
+                subtitle = if (settings.enableChatAgent) stringResource(R.string.execution_chat_agent_enabled) else stringResource(R.string.execution_chat_agent_disabled),
                 checked = settings.enableChatAgent,
                 onCheckedChange = onUpdateEnableChatAgent
             )
@@ -106,16 +108,16 @@ fun ExecutionSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(5)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Settings,
-                title = "最大执行步数",
-                subtitle = "${settings.maxSteps} 步",
+                title = stringResource(R.string.execution_max_steps),
+                subtitle = stringResource(R.string.execution_max_steps_value, settings.maxSteps),
                 onClick = onShowMaxStepsDialog
             )
         }
 
         Box(modifier = Modifier.staggeredFadeIn(6)) {
             InfoCard(
-                title = "说明",
-                description = "• 优化模式：智能跳过不必要的 Manager/Reflector 调用，减少 VLM 调用次数，提升执行速度\n• 多步执行模式：AI 可一次性返回多个不冲突的操作，减少 VLM 调用次数，提升执行效率\n• ReactOnly 模式：Manager 仅在开始时规划一次，后续全靠 Executor 执行，大幅减少 VLM 调用次数\n• ChatAgent 模式：支持语音打断和实时交互，可在执行过程中通过语音与 AI 对话\n• 最大执行步数：决定 Agent 单次任务能够执行的操作数量上限"
+                title = stringResource(R.string.execution_info_title),
+                description = stringResource(R.string.execution_info_desc)
             )
         }
 
@@ -143,11 +145,11 @@ fun ShizukuSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             StatusCard(
                 icon = Icons.Default.Info,
-                title = "当前权限级别",
+                title = stringResource(R.string.shizuku_privilege_level),
                 status = when (shizukuPrivilegeLevel) {
-                    "ROOT" -> "Root 模式 (UID 0)"
-                    "ADB" -> "ADB 模式 (UID 2000)"
-                    else -> "未连接"
+                    "ROOT" -> stringResource(R.string.shizuku_root_mode_uid)
+                    "ADB" -> stringResource(R.string.shizuku_adb_mode_uid)
+                    else -> stringResource(R.string.shizuku_not_connected)
                 },
                 statusColor = when (shizukuPrivilegeLevel) {
                     "ROOT" -> colors.error
@@ -161,11 +163,11 @@ fun ShizukuSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(1)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.Warning,
-                title = "Root 模式",
+                title = stringResource(R.string.shizuku_root_mode),
                 subtitle = when {
-                    !isShizukuRoot -> "需要 Shizuku 以 Root 权限运行"
-                    settings.rootModeEnabled -> "已启用高级权限"
-                    else -> "启用后可使用 Root 功能"
+                    !isShizukuRoot -> stringResource(R.string.shizuku_root_requires)
+                    settings.rootModeEnabled -> stringResource(R.string.shizuku_root_enabled)
+                    else -> stringResource(R.string.shizuku_root_disabled)
                 },
                 checked = settings.rootModeEnabled,
                 onCheckedChange = { enabled ->
@@ -185,8 +187,8 @@ fun ShizukuSettingsContent(
             Box(modifier = Modifier.staggeredFadeIn(2)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Lock,
-                    title = "允许 su -c 命令",
-                    subtitle = if (settings.suCommandEnabled) "AI 可执行 Root 命令" else "禁止执行 su -c",
+                    title = stringResource(R.string.shizuku_su_command),
+                    subtitle = if (settings.suCommandEnabled) stringResource(R.string.shizuku_su_enabled) else stringResource(R.string.shizuku_su_disabled),
                     checked = settings.suCommandEnabled,
                     onCheckedChange = { enabled ->
                         if (enabled) {
@@ -223,8 +225,8 @@ fun TTSSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.Star,
-                title = "启用语音播放",
-                subtitle = if (settings.ttsEnabled) "已开启，机器人回复将支持语音播放" else "已关闭",
+                title = stringResource(R.string.tts_enable),
+                subtitle = if (settings.ttsEnabled) stringResource(R.string.tts_enable_enabled) else stringResource(R.string.tts_enable_disabled),
                 checked = settings.ttsEnabled,
                 onCheckedChange = { enabled ->
                     onUpdateTTSEnabled(enabled)
@@ -237,8 +239,8 @@ fun TTSSettingsContent(
             Box(modifier = Modifier.staggeredFadeIn(1)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Info,
-                    title = "实时播放",
-                    subtitle = if (settings.ttsRealtime) "机器人输出时立即播放" else "点击消息旁的喇叭图标播放",
+                    title = stringResource(R.string.tts_realtime_playback),
+                    subtitle = if (settings.ttsRealtime) stringResource(R.string.tts_realtime_enabled) else stringResource(R.string.tts_realtime_disabled),
                     checked = settings.ttsRealtime,
                     onCheckedChange = { enabled ->
                         onUpdateTTSRealtime(enabled)
@@ -250,8 +252,8 @@ fun TTSSettingsContent(
             Box(modifier = Modifier.staggeredFadeIn(2)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Warning,
-                    title = "实时语音打断",
-                    subtitle = if (settings.ttsInterruptEnabled) "TTS播放时检测到用户说话自动停止" else "不检测用户语音",
+                    title = stringResource(R.string.tts_interrupt),
+                    subtitle = if (settings.ttsInterruptEnabled) stringResource(R.string.tts_interrupt_enabled) else stringResource(R.string.tts_interrupt_disabled),
                     checked = settings.ttsInterruptEnabled,
                     onCheckedChange = { enabled ->
                         onUpdateTTSInterruptEnabled(enabled)
@@ -263,8 +265,8 @@ fun TTSSettingsContent(
             Box(modifier = Modifier.staggeredFadeIn(3)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Build,
-                    title = "回声消除（AEC）",
-                    subtitle = if (settings.enableAEC) "启用 AEC 技术实现更精准的语音打断" else "不使用回声消除",
+                    title = stringResource(R.string.tts_aec),
+                    subtitle = if (settings.enableAEC) stringResource(R.string.tts_aec_enabled) else stringResource(R.string.tts_aec_disabled),
                     checked = settings.enableAEC,
                     onCheckedChange = { enabled ->
                         onUpdateEnableAEC(enabled)
@@ -276,8 +278,8 @@ fun TTSSettingsContent(
             Box(modifier = Modifier.staggeredFadeIn(4)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Speed,
-                    title = "流式播放",
-                    subtitle = if (settings.enableStreaming) "启用流式 LLM + 流式 TTS，降低延迟" else "使用传统播放模式",
+                    title = stringResource(R.string.tts_streaming),
+                    subtitle = if (settings.enableStreaming) stringResource(R.string.tts_streaming_enabled) else stringResource(R.string.tts_streaming_disabled),
                     checked = settings.enableStreaming,
                     onCheckedChange = { enabled ->
                         onUpdateEnableStreaming(enabled)
@@ -304,8 +306,8 @@ fun APISettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.CloudSync,
-                title = "Backend 模式",
-                subtitle = if (settings.useBackend) "已启用 - 使用后端服务" else "未启用 - 使用本地 API",
+                title = stringResource(R.string.api_backend_mode),
+                subtitle = if (settings.useBackend) stringResource(R.string.api_backend_enabled) else stringResource(R.string.api_backend_disabled),
                 checked = settings.useBackend,
                 onCheckedChange = onUpdateUseBackend
             )
@@ -316,7 +318,7 @@ fun APISettingsContent(
             Box(modifier = Modifier.staggeredFadeIn(1)) {
                 SettingsCardWithIcon(
                     icon = Icons.Default.Build,
-                    title = "Backend 服务端地址",
+                    title = stringResource(R.string.api_backend_url),
                     subtitle = settings.backendBaseUrl,
                     onClick = onShowBackendUrlDialog
                 )
@@ -343,7 +345,7 @@ fun ModelConfigSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.CloudSync,
-                title = "API 服务商",
+                title = stringResource(R.string.model_provider),
                 subtitle = settings.currentProvider.name,
                 onClick = onShowBaseUrlDialog
             )
@@ -353,8 +355,8 @@ fun ModelConfigSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(1)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Lock,
-                title = "API Key",
-                subtitle = if (settings.apiKey.isNotEmpty()) "已设置 (${maskApiKey(settings.apiKey)})" else "未设置",
+                title = stringResource(R.string.settings_api_key),
+                subtitle = if (settings.apiKey.isNotEmpty()) stringResource(R.string.model_api_key_set, maskApiKey(settings.apiKey)) else stringResource(R.string.model_api_key_not_set),
                 onClick = onShowApiKeyDialog
             )
         }
@@ -363,7 +365,7 @@ fun ModelConfigSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(2)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Chat,
-                title = "文本模型",
+                title = stringResource(R.string.model_text_model),
                 subtitle = settings.textModel,
                 onClick = onShowTextModelDialog
             )
@@ -373,7 +375,7 @@ fun ModelConfigSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(3)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Build,
-                title = "视觉模型",
+                title = stringResource(R.string.model_vision_model),
                 subtitle = settings.model,
                 onClick = onShowModelDialog
             )
@@ -399,8 +401,8 @@ fun FeedbackSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsCardWithSwitch(
                 icon = Icons.Default.Info,
-                title = "云端崩溃上报",
-                subtitle = if (settings.cloudCrashReportEnabled) "已开启，帮助我们改进应用" else "已关闭",
+                title = stringResource(R.string.feedback_crash_report),
+                subtitle = if (settings.cloudCrashReportEnabled) stringResource(R.string.feedback_crash_report_enabled) else stringResource(R.string.feedback_crash_report_disabled),
                 checked = settings.cloudCrashReportEnabled,
                 onCheckedChange = {
                     // 暂时禁用
@@ -415,7 +417,7 @@ fun FeedbackSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(1)) {
             SettingsItem(
                 icon = Icons.Default.Info,
-                title = "导出日志",
+                title = stringResource(R.string.feedback_export_logs),
                 subtitle = logStats.value,
                 onClick = {
                     CrashHandler.shareLogs(context)
@@ -428,8 +430,8 @@ fun FeedbackSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(2)) {
             SettingsItem(
                 icon = Icons.Default.Close,
-                title = "清除日志",
-                subtitle = "删除所有本地日志文件",
+                title = stringResource(R.string.feedback_clear_logs),
+                subtitle = stringResource(R.string.feedback_clear_logs_desc),
                 onClick = { showClearDialog.value = true }
             )
         }
@@ -438,10 +440,10 @@ fun FeedbackSettingsContent(
             AlertDialog(
                 onDismissRequest = { showClearDialog.value = false },
                 containerColor = BaoziTheme.colors.backgroundCard,
-                title = { Text("确认清除", color = BaoziTheme.colors.textPrimary) },
+                title = { Text(stringResource(R.string.feedback_clear_confirm_title), color = BaoziTheme.colors.textPrimary) },
                 text = {
                     Text(
-                        "确定要删除所有日志文件吗？",
+                        stringResource(R.string.feedback_clear_confirm_desc),
                         color = BaoziTheme.colors.textSecondary
                     )
                 },
@@ -451,16 +453,16 @@ fun FeedbackSettingsContent(
                         showClearDialog.value = false
                         Toast.makeText(
                             context,
-                            "日志已清除",
+                            context.getString(R.string.feedback_logs_cleared),
                             Toast.LENGTH_SHORT
                         ).show()
                     }) {
-                        Text("确定", color = BaoziTheme.colors.error)
+                        Text(stringResource(R.string.btn_confirm), color = BaoziTheme.colors.error)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearDialog.value = false }) {
-                        Text("取消", color = BaoziTheme.colors.textSecondary)
+                        Text(stringResource(R.string.btn_cancel), color = BaoziTheme.colors.textSecondary)
                     }
                 }
             )
@@ -482,8 +484,8 @@ fun HelpSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsItem(
                 icon = Icons.Default.Info,
-                title = "Shizuku 使用指南",
-                subtitle = "了解如何安装和配置 Shizuku",
+                title = stringResource(R.string.help_shizuku_guide),
+                subtitle = stringResource(R.string.help_shizuku_guide_desc),
                 onClick = onShowShizukuHelpDialog
             )
         }
@@ -491,8 +493,8 @@ fun HelpSettingsContent(
         Box(modifier = Modifier.staggeredFadeIn(1)) {
             SettingsItem(
                 icon = Icons.Default.Settings,
-                title = "悬浮窗权限说明",
-                subtitle = "了解为什么需要悬浮窗权限",
+                title = stringResource(R.string.help_overlay_permission),
+                subtitle = stringResource(R.string.help_overlay_permission_desc),
                 onClick = onShowOverlayHelpDialog
             )
         }
@@ -510,7 +512,7 @@ fun AboutSettingsContent() {
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsItem(
                 icon = Icons.Default.Info,
-                title = "版本",
+                title = stringResource(R.string.about_version),
                 subtitle = BuildConfig.VERSION_NAME,
                 onClick = { }
             )
@@ -518,8 +520,8 @@ fun AboutSettingsContent() {
             Box(modifier = Modifier.staggeredFadeIn(1)) {
                 SettingsItem(
                     icon = Icons.Default.Build,
-                    title = "艾莲 Autopilot",
-                    subtitle = "基于视觉语言模型的 Android 自动化工具",
+                    title = stringResource(R.string.about_app_name),
+                    subtitle = stringResource(R.string.about_app_desc),
                     onClick = { }
                 )
             }

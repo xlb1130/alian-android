@@ -29,6 +29,8 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,6 +41,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.zIndex
+import com.alian.assistant.R
 import com.alian.assistant.core.alian.backend.SessionData
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
 import com.alian.assistant.presentation.ui.screens.components.AlianAppBar
@@ -198,8 +201,11 @@ fun AlianChatScreen(
         }
     }
 
+    val context = LocalContext.current
+    
     // 构建更多菜单项
     val moreMenuItems = buildAlianChatMenuItems(
+        context = context,
         useBackend = useBackend,
         isLoggedIn = viewModel.isLoggedIn.value,
         colors = BaoziTheme.colors,
@@ -266,24 +272,22 @@ fun AlianChatScreen(
             ) {
                 // 顶部标题栏 - 使用公共组件
                 AlianAppBar(
-                    title = "Alian",
+                    title = stringResource(R.string.tab_home),
                     onMenuClick = {
                         scope.launch { drawerState.open() }
                     },
                     showSwitchButton = showSwitchButton,
                     onSwitchClick = onSwitchToLocal,
-                    rightActions = remember(ttsRealtime) {
-                        listOf(
-                            RightActionButton(
-                                icon = if (ttsRealtime) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
-                                contentDescription = if (ttsRealtime) "关闭实时语音播放" else "开启实时语音播放",
-                                onClick = {
-                                    onTtsRealtimeChanged(!ttsRealtime)
-                                    HapticUtils.performLightHaptic(context)
-                                }
-                            )
+                    rightActions = listOf(
+                        RightActionButton(
+                            icon = if (ttsRealtime) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                            contentDescription = if (ttsRealtime) stringResource(R.string.tts_realtime_off) else stringResource(R.string.tts_realtime_on),
+                            onClick = {
+                                onTtsRealtimeChanged(!ttsRealtime)
+                                HapticUtils.performLightHaptic(context)
+                            }
                         )
-                    },
+                    ),
                     showMoreMenu = true,
                     moreMenuItems = moreMenuItems
                 )
@@ -609,22 +613,22 @@ fun AlianChatScreen(
                     onDismissRequest = { showLogoutDialog = false },
                     containerColor = colors.backgroundCard,
                     title = {
-                        Text("确认登出", color = colors.textPrimary)
+                        Text(stringResource(R.string.login_logout_confirm_title), color = colors.textPrimary)
                     },
                     text = {
-                        Text("确定要退出登录吗？", color = colors.textSecondary)
+                        Text(stringResource(R.string.login_logout_confirm_desc), color = colors.textSecondary)
                     },
                     confirmButton = {
                         TextButton(onClick = {
                             onLogout()
                             showLogoutDialog = false
                         }) {
-                            Text("登出", color = colors.error)
+                            Text(stringResource(R.string.login_logout), color = colors.error)
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showLogoutDialog = false }) {
-                            Text("取消", color = colors.textSecondary)
+                            Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                         }
                     }
                 )

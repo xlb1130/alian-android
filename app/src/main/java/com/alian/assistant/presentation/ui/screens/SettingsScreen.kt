@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
+import com.alian.assistant.R
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -54,6 +55,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,11 +87,13 @@ import com.alian.assistant.presentation.ui.screens.settings.RootModeWarningDialo
 import com.alian.assistant.presentation.ui.screens.settings.SettingsSubScreen
 import com.alian.assistant.presentation.ui.screens.settings.ShizukuHelpDialog
 import com.alian.assistant.presentation.ui.screens.settings.ShizukuSettingsContent
+import com.alian.assistant.presentation.ui.screens.settings.LanguageSelectDialog
 import com.alian.assistant.presentation.ui.screens.settings.SuCommandWarningDialog
 import com.alian.assistant.presentation.ui.screens.settings.TTSSettingsContent
 import com.alian.assistant.presentation.ui.screens.settings.ThemeSelectDialog
 import com.alian.assistant.presentation.ui.screens.settings.ConnectionStatusIndicator
 import com.alian.assistant.common.utils.AvatarCacheManager
+import com.alian.assistant.common.utils.LanguageManager
 import com.alian.assistant.presentation.ui.screens.settings.SpeechProviderSettingsContent
 import com.alian.assistant.data.model.SpeechProvider
 import com.alian.assistant.data.model.SpeechProviderCredentials
@@ -199,6 +203,7 @@ fun SettingsScreen(
     var showModelDialog by remember { mutableStateOf(false) }
     var showTextModelDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var showMaxStepsDialog by remember { mutableStateOf(false) }
     var showBaseUrlDialog by remember { mutableStateOf(false) }
     var showBackendUrlDialog by remember { mutableStateOf(false) }
@@ -242,7 +247,7 @@ fun SettingsScreen(
                 // 顶部导航栏 - 使用与 AlianLocalScreen 一致的 AlianAppBar
                 item {
                     AlianAppBar(
-                        title = currentSubScreen!!.title,
+                        title = stringResource(currentSubScreen!!.titleResId),
                         onMenuClick = { currentSubScreen = null },
                         menuIcon = Icons.Default.KeyboardArrowLeft,
                         showMoreMenu = false
@@ -418,14 +423,14 @@ fun SettingsScreen(
             // 顶部标题 - 使用与 AlianLocalScreen 一致的 AlianAppBar
             item {
                 AlianAppBar(
-                    title = "设置",
+                    title = stringResource(R.string.settings_title),
                     onMenuClick = onBack,
                     menuIcon = Icons.Default.KeyboardArrowLeft,
                     showMoreMenu = true,
                     moreMenuContent = {
                         ConnectionStatusIndicator(
                             isConnected = shizukuAvailable,
-                            text = if (shizukuAvailable) "Shizuku 已连接" else "Shizuku 未连接"
+                            text = if (shizukuAvailable) stringResource(R.string.shizuku_connected) else stringResource(R.string.shizuku_not_connected)
                         )
                     }
                 )
@@ -478,11 +483,23 @@ fun SettingsScreen(
             // ==================== 🎨 外观与个性化 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(1)) {
-                    SettingsSection(title = "🎨 外观与个性化")
+                    SettingsSection(title = stringResource(R.string.settings_section_appearance))
                 }
             }
             item {
                 Box(modifier = Modifier.staggeredFadeIn(2)) {
+                    val context = LocalContext.current
+                    val currentLanguageCode = remember { LanguageManager.getSelectedLanguageCode(context) }
+                    val currentLanguageName = when (currentLanguageCode) {
+                        "system" -> stringResource(R.string.language_system)
+                        "zh" -> stringResource(R.string.language_zh)
+                        "zh-TW" -> stringResource(R.string.language_zh_tw)
+                        "en" -> stringResource(R.string.language_en)
+                        "ja" -> stringResource(R.string.language_ja)
+                        "ko" -> stringResource(R.string.language_ko)
+                        else -> stringResource(R.string.language_system)
+                    }
+                    
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -493,11 +510,11 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Palette,
-                                title = "主题模式",
+                                title = stringResource(R.string.settings_item_theme),
                                 subtitle = when (settings.themeMode) {
-                                    ThemeMode.LIGHT -> "浅色模式"
-                                    ThemeMode.DARK -> "深色模式"
-                                    ThemeMode.SYSTEM -> "跟随系统"
+                                    ThemeMode.LIGHT -> stringResource(R.string.theme_light)
+                                    ThemeMode.DARK -> stringResource(R.string.theme_dark)
+                                    ThemeMode.SYSTEM -> stringResource(R.string.theme_system)
                                 },
                                 onClick = { showThemeDialog = true }
                             )
@@ -506,13 +523,20 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.PhoneAndroid,
-                                title = "Alian",
-                                subtitle = "头像、音色、语速",
+                                title = stringResource(R.string.settings_item_alian),
+                                subtitle = stringResource(R.string.settings_item_alian_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.ALIAN }
                             )
                         }
-                        // 占位
-                        Box(modifier = Modifier.weight(1f)) {}
+                        // 语言设置
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.Chat,
+                                title = stringResource(R.string.settings_item_language),
+                                subtitle = currentLanguageName,
+                                onClick = { showLanguageDialog = true }
+                            )
+                        }
                     }
                 }
             }
@@ -520,7 +544,7 @@ fun SettingsScreen(
             // ==================== 🧠 AI 模型配置 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(3)) {
-                    SettingsSection(title = "🧠 AI 模型配置")
+                    SettingsSection(title = stringResource(R.string.settings_section_ai))
                 }
             }
             item {
@@ -535,8 +559,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Memory,
-                                title = "模型配置",
-                                subtitle = "LLM/VLM 服务商",
+                                title = stringResource(R.string.settings_item_model_config),
+                                subtitle = stringResource(R.string.settings_item_model_config_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.MODEL_CONFIG }
                             )
                         }
@@ -544,8 +568,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.RecordVoiceOver,
-                                title = "语音服务商",
-                                subtitle = "ASR/TTS 配置",
+                                title = stringResource(R.string.settings_item_speech_provider),
+                                subtitle = stringResource(R.string.settings_item_speech_provider_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.SPEECH_PROVIDER }
                             )
                         }
@@ -553,8 +577,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Api,
-                                title = "API 配置",
-                                subtitle = "Backend 设置",
+                                title = stringResource(R.string.settings_item_api_config),
+                                subtitle = stringResource(R.string.settings_item_api_config_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.API }
                             )
                         }
@@ -565,7 +589,7 @@ fun SettingsScreen(
             // ==================== ⚙️ 执行与控制 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(5)) {
-                    SettingsSection(title = "⚙️ 执行与控制")
+                    SettingsSection(title = stringResource(R.string.settings_section_execution))
                 }
             }
             item {
@@ -580,8 +604,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Settings,
-                                title = "执行设置",
-                                subtitle = "批量执行、优化模式",
+                                title = stringResource(R.string.settings_item_execution),
+                                subtitle = stringResource(R.string.settings_item_execution_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.EXECUTION }
                             )
                         }
@@ -589,8 +613,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.VolumeUp,
-                                title = "语音交互",
-                                subtitle = "TTS、打断、流式",
+                                title = stringResource(R.string.settings_item_voice_interaction),
+                                subtitle = stringResource(R.string.settings_item_voice_interaction_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.VOICE_INTERACTION }
                             )
                         }
@@ -598,8 +622,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.PhoneAndroid,
-                                title = "设备控制器",
-                                subtitle = "执行策略、延迟",
+                                title = stringResource(R.string.settings_item_device_controller),
+                                subtitle = stringResource(R.string.settings_item_device_controller_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.DEVICE_CONTROLLER }
                             )
                         }
@@ -610,7 +634,7 @@ fun SettingsScreen(
             // ==================== 🔐 权限与安全 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(7)) {
-                    SettingsSection(title = "🔐 权限与安全")
+                    SettingsSection(title = stringResource(R.string.settings_section_permission))
                 }
             }
             item {
@@ -625,8 +649,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Security,
-                                title = "权限管理",
-                                subtitle = "基础与核心权限",
+                                title = stringResource(R.string.settings_item_permission),
+                                subtitle = stringResource(R.string.settings_item_permission_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.PERMISSION_MANAGEMENT }
                             )
                         }
@@ -634,8 +658,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Hub,
-                                title = "Shizuku",
-                                subtitle = "Root 模式设置",
+                                title = stringResource(R.string.settings_item_shizuku),
+                                subtitle = stringResource(R.string.settings_item_shizuku_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.SHIZUKU }
                             )
                         }
@@ -648,7 +672,7 @@ fun SettingsScreen(
             // ==================== 🔌 扩展能力 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(9)) {
-                    SettingsSection(title = "🔌 扩展能力")
+                    SettingsSection(title = stringResource(R.string.settings_section_extension))
                 }
             }
             item {
@@ -663,8 +687,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Extension,
-                                title = "MCP",
-                                subtitle = "模型上下文协议",
+                                title = stringResource(R.string.settings_item_mcp),
+                                subtitle = stringResource(R.string.settings_item_mcp_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.MCP }
                             )
                         }
@@ -672,8 +696,8 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.AutoAwesome,
-                                title = "能力",
-                                subtitle = "Skills 技能管理",
+                                title = stringResource(R.string.settings_item_capabilities),
+                                subtitle = stringResource(R.string.settings_item_capabilities_subtitle),
                                 onClick = { navigateToCapabilities() }
                             )
                         }
@@ -686,7 +710,7 @@ fun SettingsScreen(
             // ==================== ❓ 帮助与反馈 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(11)) {
-                    SettingsSection(title = "❓ 帮助与反馈")
+                    SettingsSection(title = stringResource(R.string.settings_section_help))
                 }
             }
             item {
@@ -701,7 +725,7 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.HelpOutline,
-                                title = "帮助",
+                                title = stringResource(R.string.settings_item_help),
                                 onClick = { currentSubScreen = SettingsSubScreen.HELP }
                             )
                         }
@@ -709,7 +733,7 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Feedback,
-                                title = "反馈",
+                                title = stringResource(R.string.settings_item_feedback),
                                 onClick = { currentSubScreen = SettingsSubScreen.FEEDBACK }
                             )
                         }
@@ -717,7 +741,7 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Info,
-                                title = "关于",
+                                title = stringResource(R.string.settings_item_about),
                                 onClick = { currentSubScreen = SettingsSubScreen.ABOUT }
                             )
                         }
@@ -751,13 +775,13 @@ fun SettingsScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "登出",
+                                        contentDescription = stringResource(R.string.login_logout),
                                         tint = Color.White,
                                         modifier = Modifier.size(24.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "登出",
+                                        text = stringResource(R.string.login_logout),
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -770,11 +794,11 @@ fun SettingsScreen(
                                         onDismissRequest = { showLogoutDialog = false },
                                         containerColor = colors.backgroundCard,
                                         title = {
-                                            Text("确认登出", color = colors.textPrimary)
+                                            Text(stringResource(R.string.login_logout_confirm_title), color = colors.textPrimary)
                                         },
                                         text = {
                                             Text(
-                                                "确定要登出吗？登出后需要重新登录才能使用 Alian 功能。",
+                                                stringResource(R.string.login_logout_confirm_desc),
                                                 color = colors.textSecondary
                                             )
                                         },
@@ -786,7 +810,7 @@ fun SettingsScreen(
                                                 showLogoutDialog = false
                                                 onBack()
                                             }) {
-                                                Text("登出", color = colors.error)
+                                                Text(stringResource(R.string.login_logout), color = colors.error)
                                             }
                                         },
                                         dismissButton = {
@@ -795,7 +819,7 @@ fun SettingsScreen(
                                                 performLightHaptic(context)
                                                 showLogoutDialog = false
                                             }) {
-                                                Text("取消", color = colors.textSecondary)
+                                                Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                                             }
                                         }
                                     )
@@ -819,7 +843,7 @@ fun SettingsScreen(
                                 )
                             ) {
                                 Text(
-                                    text = "点击登录",
+                                    text = stringResource(R.string.login_click_to_login),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
@@ -846,6 +870,29 @@ fun SettingsScreen(
             onSelect = {
                 onUpdateThemeMode(it)
                 showThemeDialog = false
+            }
+        )
+    }
+
+    // 语言选择对话框
+    if (showLanguageDialog) {
+        val context = LocalContext.current
+        val activity = context as? android.app.Activity
+        val currentLangCode = LanguageManager.getSelectedLanguageCode(context)
+        
+        LanguageSelectDialog(
+            currentLanguage = currentLangCode,
+            onDismiss = { showLanguageDialog = false },
+            onSelect = { languageCode ->
+                showLanguageDialog = false
+                if (languageCode != currentLangCode) {
+                    // 保存语言设置
+                    LanguageManager.setLanguage(context, languageCode)
+                    // 立即重启应用
+                    activity?.let { 
+                        LanguageManager.changeLanguageAndRestart(it, languageCode)
+                    }
+                }
             }
         )
     }
@@ -897,12 +944,12 @@ fun SettingsScreen(
             onDismissRequest = { showTextModelDialog = false },
             containerColor = colors.backgroundCard,
             title = {
-                Text("文本模型", color = colors.textPrimary)
+                Text(stringResource(R.string.dialog_text_model_title), color = colors.textPrimary)
             },
             text = {
                 Column {
                     Text(
-                        "输入文本模型名称（用于纯文本对话）",
+                        stringResource(R.string.dialog_text_model_hint),
                         fontSize = 14.sp,
                         color = colors.textSecondary
                     )
@@ -925,7 +972,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "常用模型: qwen-max, qwen-plus, qwen-turbo",
+                        stringResource(R.string.dialog_text_model_common),
                         fontSize = 12.sp,
                         color = colors.textHint
                     )
@@ -938,12 +985,12 @@ fun SettingsScreen(
                     }
                     showTextModelDialog = false
                 }) {
-                    Text("确定", color = colors.primary)
+                    Text(stringResource(R.string.btn_confirm), color = colors.primary)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showTextModelDialog = false }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                 }
             }
         )
@@ -972,12 +1019,12 @@ fun SettingsScreen(
             onDismissRequest = { showBackendUrlDialog = false },
             containerColor = colors.backgroundCard,
             title = {
-                Text("Backend 服务端地址", color = colors.textPrimary)
+                Text(stringResource(R.string.dialog_backend_url_title), color = colors.textPrimary)
             },
             text = {
                 Column {
                     Text(
-                        text = "请输入 Backend 服务器的完整地址",
+                        text = stringResource(R.string.dialog_backend_url_hint),
                         fontSize = 14.sp,
                         color = colors.textSecondary,
                         modifier = Modifier.padding(bottom = 12.dp)
@@ -1008,7 +1055,7 @@ fun SettingsScreen(
                         showBackendUrlDialog = false
                     }
                 ) {
-                    Text("确定", color = colors.primary)
+                    Text(stringResource(R.string.btn_confirm), color = colors.primary)
                 }
             },
             dismissButton = {
@@ -1017,7 +1064,7 @@ fun SettingsScreen(
                     performLightHaptic(context)
                     showBackendUrlDialog = false
                 }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                 }
             }
         )

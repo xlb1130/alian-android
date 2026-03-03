@@ -31,6 +31,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziColors
 import java.io.File
 import com.mikepenz.markdown.m3.Markdown
@@ -208,7 +210,7 @@ fun EmptyChatState(
 
             // 副标题/引导语
             Text(
-                text = "随时准备，为您服务",
+                text = stringResource(R.string.chat_ready_title),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Normal,
                 color = colors.textSecondary,
@@ -219,7 +221,7 @@ fun EmptyChatState(
 
             // 提示文字
             Text(
-                text = "输入消息或使用语音开始对话",
+                text = stringResource(R.string.chat_ready_hint),
                 fontSize = 13.sp,
                 color = colors.textHint,
                 letterSpacing = 0.3.sp
@@ -270,7 +272,7 @@ fun ChatMessageBubble(
                             .data(File(assistantAvatar))
                             .crossfade(true)
                             .build(),
-                        contentDescription = "Alian头像",
+                        contentDescription = stringResource(R.string.chat_alian_avatar),
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape),
@@ -447,7 +449,7 @@ fun ChatMessageBubble(
                                         horizontalAlignment = Alignment.Start
                                     ) {
                                         message.attachments.forEach { attachment ->
-                                            val fileName = attachment.filename ?: attachment.name ?: "未知文件"
+                                            val fileName = attachment.filename ?: attachment.name ?: stringResource(R.string.chat_unknown_file)
                                             val originalUrl = attachment.file_url ?: attachment.url ?: attachment.path ?: "#"
                                             // 如果 URL 是相对路径（以 / 开头），则拼接 backendBaseUrl
                                             val url = if (originalUrl.startsWith("/api/v1")) {
@@ -488,7 +490,7 @@ fun ChatMessageBubble(
                                             ) {
                                                 Icon(
                                                     imageVector = iconVector,
-                                                    contentDescription = "预览",
+                                                    contentDescription = stringResource(R.string.chat_preview),
                                                     modifier = Modifier.size(14.dp),
                                                     tint = colors.primary
                                                 )
@@ -543,7 +545,10 @@ fun ChatMessageBubble(
                         Log.d("ChatMessageBubble", "渲染播放按钮: isPlaying=$isPlaying, messageId=${message.id}")
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "停止播放" else "播放",
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.chat_stop_play 
+                                else R.string.chat_play
+                            ),
                             tint = if (isPlaying) colors.error else colors.primary,
                             modifier = Modifier.size(18.dp)
                         )
@@ -583,7 +588,7 @@ fun ChatMessageBubble(
                             .data(File(userAvatar))
                             .crossfade(true)
                             .build(),
-                        contentDescription = "用户头像",
+                        contentDescription = stringResource(R.string.chat_user_avatar),
                         modifier = Modifier
                             .fillMaxSize()
                             .clip(CircleShape),

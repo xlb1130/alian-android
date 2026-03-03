@@ -28,8 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import com.alian.assistant.R
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -70,14 +72,14 @@ fun ThemeSelectDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("选择主题", color = colors.textPrimary)
+            Text(stringResource(R.string.dialog_select_theme), color = colors.textPrimary)
         },
         text = {
             Column {
                 listOf(
-                    ThemeMode.LIGHT to "浅色模式",
-                    ThemeMode.DARK to "深色模式",
-                    ThemeMode.SYSTEM to "跟随系统"
+                    ThemeMode.LIGHT to stringResource(R.string.theme_light),
+                    ThemeMode.DARK to stringResource(R.string.theme_dark),
+                    ThemeMode.SYSTEM to stringResource(R.string.theme_system)
                 ).forEach { (mode, label) ->
                     val isSelected = mode == currentTheme
                     Surface(
@@ -122,7 +124,7 @@ fun ThemeSelectDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_close), color = colors.textSecondary)
             }
         }
     )
@@ -145,12 +147,12 @@ fun ApiKeyDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("API Key", color = colors.textPrimary)
+            Text(stringResource(R.string.dialog_api_key_title), color = colors.textPrimary)
         },
         text = {
             Column {
                 Text(
-                    text = "请输入您的 API Key",
+                    text = stringResource(R.string.dialog_api_key_hint),
                     fontSize = 14.sp,
                     color = colors.textSecondary,
                     modifier = Modifier.padding(bottom = 16.dp)
@@ -180,7 +182,7 @@ fun ApiKeyDialog(
                         )
                         TextButton(onClick = { showKey = !showKey }) {
                             Text(
-                                text = if (showKey) "隐藏" else "显示",
+                                text = if (showKey) stringResource(R.string.settings_hide) else stringResource(R.string.settings_show),
                                 fontSize = 12.sp,
                                 color = colors.textHint
                             )
@@ -191,12 +193,12 @@ fun ApiKeyDialog(
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(key) }) {
-                Text("确定", color = colors.primary)
+                Text(stringResource(R.string.btn_confirm), color = colors.primary)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
             }
         }
     )
@@ -237,7 +239,7 @@ fun ModelSelectDialogWithFetch(
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("选择模型", color = colors.textPrimary)
+            Text(stringResource(R.string.dialog_select_model), color = colors.textPrimary)
         },
         text = {
             Column(
@@ -245,7 +247,7 @@ fun ModelSelectDialogWithFetch(
             ) {
                 // 默认推荐模型
                 Text(
-                    text = "推荐模型",
+                    text = stringResource(R.string.dialog_recommended_model),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.textHint,
@@ -290,7 +292,7 @@ fun ModelSelectDialogWithFetch(
                                 color = if (isDefaultSelected) colors.primary else colors.textPrimary
                             )
                             Text(
-                                text = "阿里云通义千问视觉模型",
+                                text = stringResource(R.string.settings_app_desc),
                                 fontSize = 11.sp,
                                 color = colors.textHint
                             )
@@ -302,7 +304,7 @@ fun ModelSelectDialogWithFetch(
 
                 // 自定义模型输入
                 Text(
-                    text = "自定义模型",
+                    text = stringResource(R.string.dialog_custom_model),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.textHint,
@@ -322,7 +324,7 @@ fun ModelSelectDialogWithFetch(
                     ) {
                         if (customModel.isEmpty()) {
                             Text(
-                                text = "输入模型名称，如 gpt-4o",
+                                text = stringResource(R.string.dialog_custom_model_hint),
                                 color = colors.textHint,
                                 fontSize = 14.sp
                             )
@@ -356,7 +358,7 @@ fun ModelSelectDialogWithFetch(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "确认",
+                                contentDescription = stringResource(R.string.btn_confirm),
                                 tint = if (customModel.isNotBlank()) Color.White else colors.textHint,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -371,7 +373,7 @@ fun ModelSelectDialogWithFetch(
                     Button(
                         onClick = {
                             if (!hasApiKey) {
-                                Toast.makeText(context, "请先设置 API Key", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.dialog_fetch_api_key_first), Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
                             isLoading = true
@@ -379,11 +381,11 @@ fun ModelSelectDialogWithFetch(
                                 { models ->
                                     isLoading = false
                                     onUpdateCachedModels(models)
-                                    Toast.makeText(context, "获取到 ${models.size} 个模型", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.dialog_fetch_success, models.size), Toast.LENGTH_SHORT).show()
                                 },
                                 { error ->
                                     isLoading = false
-                                    Toast.makeText(context, "获取失败: $error", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, context.getString(R.string.dialog_fetch_failed, error), Toast.LENGTH_SHORT).show()
                                 }
                             )
                         },
@@ -402,7 +404,7 @@ fun ModelSelectDialogWithFetch(
                                 color = Color.White
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("获取中...", fontSize = 14.sp, color = Color.White)
+                            Text(stringResource(R.string.dialog_fetching), fontSize = 14.sp, color = Color.White)
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Add,
@@ -412,7 +414,7 @@ fun ModelSelectDialogWithFetch(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                "从 API 获取可用模型",
+                                stringResource(R.string.dialog_fetch_models),
                                 fontSize = 14.sp,
                                 color = if (hasApiKey) Color.White else colors.textHint
                             )
@@ -423,7 +425,7 @@ fun ModelSelectDialogWithFetch(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
-                            text = "API 模型列表 (${cachedModels.size})",
+                            text = stringResource(R.string.dialog_api_model_list, cachedModels.size),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = colors.textHint,
@@ -455,7 +457,7 @@ fun ModelSelectDialogWithFetch(
                                 Box(modifier = Modifier.weight(1f)) {
                                     if (searchQuery.isEmpty()) {
                                         Text(
-                                            text = "搜索模型...",
+                                            text = stringResource(R.string.dialog_search_model),
                                             color = colors.textHint,
                                             fontSize = 14.sp
                                         )
@@ -475,7 +477,7 @@ fun ModelSelectDialogWithFetch(
                                 if (searchQuery.isNotEmpty()) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "清除",
+                                        contentDescription = stringResource(R.string.cd_close),
                                         tint = colors.textHint,
                                         modifier = Modifier
                                             .size(18.dp)
@@ -500,7 +502,7 @@ fun ModelSelectDialogWithFetch(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = if (hasApiKey) "点击「从 API 获取」加载模型列表" else "请先设置 API Key",
+                            text = if (hasApiKey) stringResource(R.string.dialog_click_fetch) else stringResource(R.string.dialog_fetch_api_key_first),
                             fontSize = 13.sp,
                             color = colors.textHint
                         )
@@ -513,7 +515,7 @@ fun ModelSelectDialogWithFetch(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "没有匹配「$searchQuery」的模型",
+                            text = stringResource(R.string.dialog_no_match, searchQuery),
                             fontSize = 13.sp,
                             color = colors.textHint
                         )
@@ -522,7 +524,7 @@ fun ModelSelectDialogWithFetch(
                     // 显示过滤结果数量
                     if (searchQuery.isNotBlank()) {
                         Text(
-                            text = "找到 ${filteredModels.size} 个模型",
+                            text = stringResource(R.string.dialog_found_models, filteredModels.size),
                             fontSize = 11.sp,
                             color = colors.textHint,
                             modifier = Modifier.padding(bottom = 4.dp)
@@ -573,7 +575,7 @@ fun ModelSelectDialogWithFetch(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_close), color = colors.textSecondary)
             }
         }
     )
@@ -591,7 +593,7 @@ fun ShizukuHelpDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("Shizuku 使用指南", color = colors.textPrimary)
+            Text(stringResource(R.string.shizuku_help_step1_title), color = colors.textPrimary)
         },
         text = {
             Column(
@@ -599,8 +601,8 @@ fun ShizukuHelpDialog(onDismiss: () -> Unit) {
             ) {
                 HelpStep(
                     number = "1",
-                    title = "下载 Shizuku",
-                    description = "从 Google Play 或 GitHub 下载 Shizuku 应用"
+                    title = stringResource(R.string.shizuku_help_step1_title),
+                    description = stringResource(R.string.shizuku_help_step1_desc)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 // 下载按钮
@@ -617,31 +619,31 @@ fun ShizukuHelpDialog(onDismiss: () -> Unit) {
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("前往下载 Shizuku", color = Color.White)
+                    Text(stringResource(R.string.shizuku_help_step1_title), color = Color.White)
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 HelpStep(
                     number = "2",
-                    title = "启动 Shizuku",
-                    description = "打开 Shizuku 应用，根据您的设备选择启动方式：\n\n• 无线调试（推荐）：需要 Android 11+，在开发者选项中开启无线调试\n• 连接电脑：通过 ADB 命令启动"
+                    title = stringResource(R.string.shizuku_help_step2_title),
+                    description = stringResource(R.string.shizuku_help_step2_desc)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 HelpStep(
                     number = "3",
-                    title = "授权艾莲",
-                    description = "在 Shizuku 的「应用管理」中找到「艾莲」，点击授权按钮"
+                    title = stringResource(R.string.shizuku_help_step3_title),
+                    description = stringResource(R.string.shizuku_help_step3_desc)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 HelpStep(
                     number = "4",
-                    title = "开始使用",
-                    description = "授权完成后，返回艾莲应用，即可开始使用"
+                    title = stringResource(R.string.shizuku_help_step4_title),
+                    description = stringResource(R.string.shizuku_help_step4_desc)
                 )
             }
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("知道了", color = colors.primary)
+                Text(stringResource(R.string.btn_got_it), color = colors.primary)
             }
         }
     )
@@ -657,39 +659,39 @@ fun OverlayHelpDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("悬浮窗权限说明", color = colors.textPrimary)
+            Text(stringResource(R.string.overlay_help_title), color = colors.textPrimary)
         },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "为什么需要悬浮窗权限？",
+                    text = stringResource(R.string.overlay_help_why),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.primary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "艾莲在执行任务时需要显示悬浮窗来：",
+                    text = stringResource(R.string.overlay_help_reason),
                     fontSize = 14.sp,
                     color = colors.textPrimary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                BulletPoint("显示当前执行进度")
-                BulletPoint("提供停止按钮，随时中断任务")
-                BulletPoint("在其他应用上方显示状态信息")
+                BulletPoint(stringResource(R.string.overlay_help_feature1))
+                BulletPoint(stringResource(R.string.overlay_help_feature2))
+                BulletPoint(stringResource(R.string.overlay_help_feature3))
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "如何开启？",
+                    text = stringResource(R.string.overlay_help_how),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.primary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "1. 点击执行任务时会自动提示\n2. 或前往：设置 > 应用 > 艾莲 > 悬浮窗权限\n3. 开启「允许显示在其他应用上层」",
+                    text = stringResource(R.string.overlay_help_how_desc),
                     fontSize = 14.sp,
                     color = colors.textPrimary,
                     lineHeight = 22.sp
@@ -697,14 +699,14 @@ fun OverlayHelpDialog(onDismiss: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "隐私安全",
+                    text = stringResource(R.string.overlay_help_privacy),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.primary
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "悬浮窗仅在任务执行期间显示，不会收集任何个人信息。任务完成后悬浮窗会自动消失。",
+                    text = stringResource(R.string.overlay_help_privacy_desc),
                     fontSize = 14.sp,
                     color = colors.textSecondary
                 )
@@ -712,7 +714,7 @@ fun OverlayHelpDialog(onDismiss: () -> Unit) {
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("知道了", color = colors.primary)
+                Text(stringResource(R.string.btn_got_it), color = colors.primary)
             }
         }
     )
@@ -735,12 +737,12 @@ fun MaxStepsDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("最大执行步数", color = colors.textPrimary)
+            Text(stringResource(R.string.dialog_max_steps_title), color = colors.textPrimary)
         },
         text = {
             Column {
                 Text(
-                    text = "设置 Agent 单次任务的最大执行步数。步数越多，能完成的任务越复杂，但消耗的 token 也越多。",
+                    text = stringResource(R.string.dialog_max_steps_desc),
                     fontSize = 14.sp,
                     color = colors.textSecondary,
                     modifier = Modifier.padding(bottom = 16.dp)
@@ -748,7 +750,7 @@ fun MaxStepsDialog(
 
                 // 当前值显示
                 Text(
-                    text = "${steps.toInt()} 步",
+                    text = stringResource(R.string.dialog_max_steps_unit, steps.toInt()),
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.primary,
@@ -821,12 +823,12 @@ fun MaxStepsDialog(
         },
         confirmButton = {
             TextButton(onClick = { onConfirm(steps.toInt()) }) {
-                Text("确定", color = colors.primary)
+                Text(stringResource(R.string.btn_confirm), color = colors.primary)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
             }
         }
     )
@@ -852,14 +854,14 @@ fun ProviderSelectDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("API 服务商", color = colors.textPrimary)
+            Text(stringResource(R.string.dialog_provider_title), color = colors.textPrimary)
         },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "选择 API 服务商（支持 OpenAI 兼容接口）",
+                    text = stringResource(R.string.dialog_provider_hint),
                     fontSize = 14.sp,
                     color = colors.textSecondary,
                     modifier = Modifier.padding(bottom = 16.dp)
@@ -953,7 +955,7 @@ fun ProviderSelectDialog(
                             )
                         }
                         Text(
-                            text = if (provider.id == "mai_ui") "留空使用默认地址 (localhost:8000)" else "输入自定义 API 端点地址",
+                            text = if (provider.id == "mai_ui") stringResource(R.string.dialog_custom_url_mai_hint) else stringResource(R.string.dialog_custom_url_hint),
                             fontSize = 11.sp,
                             color = colors.textHint,
                             modifier = Modifier.padding(start = 28.dp, top = 4.dp)
@@ -964,7 +966,7 @@ fun ProviderSelectDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("完成", color = colors.primary)
+                Text(stringResource(R.string.btn_confirm), color = colors.primary)
             }
         }
     )
@@ -992,7 +994,7 @@ fun RootModeWarningDialog(
         },
         title = {
             Text(
-                "启用 Root 模式",
+                stringResource(R.string.dialog_root_mode_title),
                 color = colors.error,
                 fontWeight = FontWeight.Bold
             )
@@ -1000,24 +1002,24 @@ fun RootModeWarningDialog(
         text = {
             Column {
                 Text(
-                    text = "Root 模式将允许应用使用更高级的系统权限。",
+                    text = stringResource(R.string.dialog_root_mode_desc),
                     fontSize = 14.sp,
                     color = colors.textPrimary,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
                 Text(
-                    text = "警告：",
+                    text = stringResource(R.string.dialog_root_mode_warning),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.error
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                BulletPoint("Root 权限可能导致系统不稳定")
-                BulletPoint("不当操作可能损坏设备数据")
-                BulletPoint("请确保您了解 Root 权限的风险")
+                BulletPoint(stringResource(R.string.dialog_root_mode_risk1))
+                BulletPoint(stringResource(R.string.dialog_root_mode_risk2))
+                BulletPoint(stringResource(R.string.dialog_root_mode_risk3))
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "仅在您完全了解风险并需要高级功能时才启用此选项。",
+                    text = stringResource(R.string.dialog_root_mode_hint),
                     fontSize = 13.sp,
                     color = colors.textSecondary
                 )
@@ -1028,12 +1030,12 @@ fun RootModeWarningDialog(
                 onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = colors.error)
             ) {
-                Text("我了解风险，启用", color = Color.White)
+                Text(stringResource(R.string.dialog_root_mode_confirm), color = Color.White)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
             }
         }
     )
@@ -1061,7 +1063,7 @@ fun SuCommandWarningDialog(
         },
         title = {
             Text(
-                "允许 su -c 命令",
+                stringResource(R.string.dialog_su_command_title),
                 color = colors.error,
                 fontWeight = FontWeight.Bold
             )
@@ -1069,25 +1071,25 @@ fun SuCommandWarningDialog(
         text = {
             Column {
                 Text(
-                    text = "此选项将允许 AI 执行 su -c 命令，这意味着 AI 可以以 Root 权限执行任意 Shell 命令。",
+                    text = stringResource(R.string.dialog_su_command_desc),
                     fontSize = 14.sp,
                     color = colors.textPrimary,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
                 Text(
-                    text = "极度危险：",
+                    text = stringResource(R.string.dialog_su_command_extreme_danger),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = colors.error
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                BulletPoint("AI 可能执行危险的系统命令")
-                BulletPoint("可能导致数据丢失或系统损坏")
-                BulletPoint("可能被恶意指令利用")
-                BulletPoint("不建议在日常使用中启用")
+                BulletPoint(stringResource(R.string.dialog_su_command_risk1))
+                BulletPoint(stringResource(R.string.dialog_su_command_risk2))
+                BulletPoint(stringResource(R.string.dialog_su_command_risk3))
+                BulletPoint(stringResource(R.string.dialog_su_command_risk4))
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "强烈建议：仅在完全可控的测试环境中使用，并在使用完毕后立即关闭。",
+                    text = stringResource(R.string.dialog_su_command_hint),
                     fontSize = 13.sp,
                     color = colors.error,
                     fontWeight = FontWeight.Medium
@@ -1099,12 +1101,12 @@ fun SuCommandWarningDialog(
                 onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = colors.error)
             ) {
-                Text("我了解风险，启用", color = Color.White)
+                Text(stringResource(R.string.dialog_root_mode_confirm), color = Color.White)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
             }
         }
     )
@@ -1124,17 +1126,17 @@ fun TTSVoiceSelectDialog(
 
     // 可用的音色列表
     val voices = listOf(
-        "longxiaochun_v3" to "龙晓春（女声）",
-        "longyingtao_v3" to "龙应桃（女声）",
-        "longanwen_v3" to "龙安温（女声）",
-        "longyingmu_v3" to "龙应沐（女声）"
+        "longxiaochun_v3" to stringResource(R.string.tts_voice_longxiaochun),
+        "longyingtao_v3" to stringResource(R.string.tts_voice_longyingtao),
+        "longanwen_v3" to stringResource(R.string.tts_voice_longanwen),
+        "longyingmu_v3" to stringResource(R.string.tts_voice_longyingmu)
     )
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = colors.backgroundCard,
         title = {
-            Text("选择音色", color = colors.textPrimary)
+            Text(stringResource(R.string.tts_voice_title), color = colors.textPrimary)
         },
         text = {
             Column(
@@ -1192,7 +1194,7 @@ fun TTSVoiceSelectDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("关闭", color = colors.textSecondary)
+                Text(stringResource(R.string.btn_close), color = colors.textSecondary)
             }
         }
     )
@@ -1259,4 +1261,84 @@ private fun BulletPoint(text: String) {
             color = colors.textPrimary
         )
     }
+}
+
+/**
+ * 语言选择对话框
+ */
+@Composable
+fun LanguageSelectDialog(
+    currentLanguage: String,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit
+) {
+    val colors = BaoziTheme.colors
+    val context = LocalContext.current
+    
+    val languages = listOf(
+        "system" to stringResource(R.string.language_system),
+        "zh" to stringResource(R.string.language_zh),
+        "zh-TW" to stringResource(R.string.language_zh_tw),
+        "en" to stringResource(R.string.language_en),
+        "ja" to stringResource(R.string.language_ja),
+        "ko" to stringResource(R.string.language_ko)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.backgroundCard,
+        title = {
+            Text(stringResource(R.string.dialog_select_language), color = colors.textPrimary)
+        },
+        text = {
+            Column {
+                languages.forEach { (code, label) ->
+                    val isSelected = code == currentLanguage
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable { 
+                                performLightHaptic(context)
+                                onSelect(code)
+                            },
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) colors.primary.copy(alpha = 0.15f) else Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = colors.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .border(2.dp, colors.textHint, CircleShape)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = label,
+                                fontSize = 15.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                                color = if (isSelected) colors.primary else colors.textPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.btn_close), color = colors.textSecondary)
+            }
+        }
+    )
 }

@@ -51,12 +51,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Context
 import android.media.AudioManager
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.screens.components.HapticUtils
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 
@@ -114,10 +116,11 @@ fun StackedCarouselView(
         ) { page ->
             val realIndex = page % presetCommands.size
             val pageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+            val commandText = stringResource(presetCommands[realIndex].commandResId)
             
             StackedPresetCard(
                 preset = presetCommands[realIndex],
-                onClick = { onCommandClick(presetCommands[realIndex].command) },
+                onClick = { onCommandClick(commandText) },
                 pageOffset = pageOffset,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -245,7 +248,7 @@ private fun ModernCardContent(
             
             // 命令文字 - 更优雅的排版
             Text(
-                text = preset.command,
+                text = stringResource(preset.commandResId),
                 fontSize = 17.sp,
                 lineHeight = 26.sp,
                 fontWeight = FontWeight.Normal,
@@ -334,7 +337,7 @@ fun GradientTryButton(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                text = "试一试",
+                text = stringResource(R.string.preset_try),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.White,
@@ -388,7 +391,7 @@ fun ModernTryButton(
             horizontalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "试一试",
+                text = stringResource(R.string.preset_try),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 color = Color.White,

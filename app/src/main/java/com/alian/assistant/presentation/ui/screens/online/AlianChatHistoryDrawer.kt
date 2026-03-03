@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alian.assistant.R
 import com.alian.assistant.core.alian.backend.SessionData
 import com.alian.assistant.presentation.ui.theme.BaoziColors
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
@@ -136,13 +137,13 @@ fun AlianChatHistoryDrawer(
                     // 标题区域优化 - 渐变文字
                     Column {
                         Text(
-                            text = "对话历史",
+                            text = context.getString(R.string.chat_history_title),
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = colors.textPrimary
                         )
                         Text(
-                            text = "${sessions.size} 个对话",
+                            text = context.getString(R.string.chat_history_count, sessions.size),
                             fontSize = 12.sp,
                             color = colors.textSecondary
                         )
@@ -180,7 +181,7 @@ fun AlianChatHistoryDrawer(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "关闭",
+                                contentDescription = context.getString(R.string.cd_close),
                                 tint = if (closeIsPressed) colors.error else colors.textSecondary
                             )
                         }
@@ -262,13 +263,13 @@ fun AlianChatHistoryDrawer(
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "创建新对话",
+                        text = context.getString(R.string.chat_new_session),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.primary
                     )
                     Text(
-                        text = "开始一个新的对话会话",
+                        text = context.getString(R.string.chat_new_session_hint),
                         fontSize = 14.sp,
                         color = colors.textSecondary
                     )
@@ -297,7 +298,7 @@ fun AlianChatHistoryDrawer(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "暂无对话历史",
+                            text = context.getString(R.string.chat_history_empty),
                             fontSize = 14.sp,
                             color = colors.textSecondary
                         )
@@ -375,10 +376,10 @@ fun SessionDrawerItem(
             onDismissRequest = { showDeleteDialog = false },
             containerColor = colors.backgroundCard,
             title = {
-                Text("确认删除", color = colors.textPrimary)
+                Text(context.getString(R.string.chat_delete_title), color = colors.textPrimary)
             },
             text = {
-                Text("确定要删除这条对话吗？", color = colors.textSecondary)
+                Text(context.getString(R.string.chat_delete_confirm), color = colors.textSecondary)
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -386,12 +387,12 @@ fun SessionDrawerItem(
                     onDelete()
                     showDeleteDialog = false
                 }) {
-                    Text("删除", color = colors.error)
+                    Text(context.getString(R.string.btn_delete), color = colors.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text(context.getString(R.string.btn_cancel), color = colors.textSecondary)
                 }
             }
         )
@@ -527,7 +528,7 @@ fun SessionDrawerItem(
                 Spacer(modifier = Modifier.height(4.dp))
                 // 时间戳美化 - 更柔和的颜色和更小的字号
                 Text(
-                    text = formatTimestamp(session.latest_message_at),
+                    text = formatTimestamp(session.latest_message_at, context),
                     fontSize = 12.sp,
                     color = if (isSelected) colors.primary.copy(alpha = 0.7f) else colors.textHint,
                     fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
@@ -572,7 +573,7 @@ fun SessionDrawerItem(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "删除",
+                        contentDescription = context.getString(R.string.cd_delete),
                         tint = when {
                             deleteIsPressed -> colors.error
                             deleteIsHovered -> colors.error.copy(alpha = 0.9f)
@@ -585,17 +586,17 @@ fun SessionDrawerItem(
     }
 }
 
-private fun formatTimestamp(timestamp: Long?): String {
-    if (timestamp == null) return "未知时间"
+private fun formatTimestamp(timestamp: Long?, context: Context): String {
+    if (timestamp == null) return context.getString(R.string.time_unknown)
 
     val now = System.currentTimeMillis()
     val diff = now - (timestamp * 1000)
 
     return when {
-        diff < 60000 -> "刚刚"
-        diff < 3600000 -> "${diff / 60000}分钟前"
-        diff < 86400000 -> "${diff / 3600000}小时前"
-        diff < 604800000 -> "${diff / 86400000}天前"
+        diff < 60000 -> context.getString(R.string.time_just_now)
+        diff < 3600000 -> context.getString(R.string.time_minutes_ago, diff / 60000)
+        diff < 86400000 -> context.getString(R.string.time_hours_ago, diff / 3600000)
+        diff < 604800000 -> context.getString(R.string.time_days_ago, diff / 86400000)
         else -> {
             val date = Date(timestamp * 1000)
             val format = SimpleDateFormat("MM月dd日", Locale.getDefault())

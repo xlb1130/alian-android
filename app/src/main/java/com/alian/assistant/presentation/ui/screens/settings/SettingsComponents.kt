@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -454,7 +455,7 @@ fun LoginStatusCard(
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = if (isLoggedIn) "已登录" else "未登录",
+                text = if (isLoggedIn) stringResource(R.string.login_status_logged_in) else stringResource(R.string.login_status_not_logged_in),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (isLoggedIn) colors.textPrimary else colors.textSecondary,
@@ -465,9 +466,9 @@ fun LoginStatusCard(
             Text(
                 text = when {
                     isLoggedIn && userEmail != null -> userEmail.take(20) + if (userEmail.length > 20) "..." else ""
-                    isLoggedIn -> "Backend 模式已登录"
-                    useBackend -> "请先登录 Alian 账号"
-                    else -> "使用 OpenAI 兼容 API"
+                    isLoggedIn -> stringResource(R.string.login_status_backend_logged_in)
+                    useBackend -> stringResource(R.string.login_status_please_login)
+                    else -> stringResource(R.string.login_status_use_openai_api)
                 },
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,

@@ -1,7 +1,9 @@
 package com.alian.assistant
 
 import android.app.Application
+import android.content.Context
 import android.content.pm.PackageManager
+import com.alian.assistant.common.utils.LanguageManager
 import com.alian.assistant.infrastructure.device.AppScanner
 import com.alian.assistant.infrastructure.device.DeviceController
 import com.alian.assistant.core.skills.SkillManager
@@ -33,6 +35,10 @@ class App : Application() {
 
     // Token刷新间隔（10分钟）
     private val TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000L
+
+    override fun attachBaseContext(base: Context?) {
+        super.attachBaseContext(LanguageManager.applyLanguage(base))
+    }
 
     override fun onCreate() {
         super.onCreate()

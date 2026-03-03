@@ -404,7 +404,7 @@ class OverlayService : Service() {
 
     private fun startForegroundNotification() {
         val channelId = "baozi_overlay"
-        val channelName = "艾莲状态"
+        val channelName = getString(R.string.overlay_channel_name)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -413,7 +413,7 @@ class OverlayService : Service() {
                     channelName,
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
-                    description = "显示艾莲执行状态"
+                    description = getString(R.string.overlay_channel_desc)
                     setShowBadge(false)
                 }
                 val notificationManager = this.getSystemService(NotificationManager::class.java)
@@ -428,8 +428,8 @@ class OverlayService : Service() {
             )
 
             val notification = NotificationCompat.Builder(this, channelId)
-                .setContentTitle("艾莲运行中")
-                .setContentText("正在执行自动化任务...")
+                .setContentTitle(getString(R.string.overlay_notification_title))
+                .setContentText(getString(R.string.overlay_notification_text))
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
@@ -448,7 +448,7 @@ class OverlayService : Service() {
             // 降级：使用最简单的通知确保 startForeground 被调用
             try {
                 val fallbackNotification = NotificationCompat.Builder(this, channelId)
-                    .setContentTitle("艾莲")
+                    .setContentTitle(getString(R.string.overlay_app_name))
                     .setSmallIcon(R.mipmap.ic_launcher)
                     .build()
                 startForeground(1001, fallbackNotification)
@@ -565,7 +565,7 @@ class OverlayService : Service() {
 
         // 状态文字 - 不带箭头
         textView = TextView(this).apply {
-            text = "艾莲"
+            text = getString(R.string.overlay_app_name)
             textSize = 13.5f
             setTextColor(textPrimary)
             gravity = Gravity.CENTER
@@ -587,7 +587,7 @@ class OverlayService : Service() {
 
         // 动作按钮（停止/继续/确认）- 现代圆角按钮
         actionButton = TextView(this).apply {
-            text = "停止"
+            text = getString(R.string.overlay_stop)
             textSize = 12.5f
             setTextColor(textPrimary)
             gravity = Gravity.CENTER
@@ -650,7 +650,7 @@ class OverlayService : Service() {
 
         // 取消按钮（确认模式用）- 红色警告样式
         cancelButton = TextView(this).apply {
-            text = "取消"
+            text = getString(R.string.overlay_cancel)
             textSize = 12.5f
             setTextColor(textPrimary)
             gravity = Gravity.CENTER
@@ -895,7 +895,7 @@ class OverlayService : Service() {
             }
             textView?.text = "👆 $displayMessage"
 
-            actionButton?.text = "继续"
+            actionButton?.text = getString(R.string.overlay_continue)
             actionButton?.visibility = View.VISIBLE  // 确保按钮可见
 
             // 绿色按钮背景
@@ -921,7 +921,7 @@ class OverlayService : Service() {
     private fun setNormalMode() {
         Log.d(TAG, "setNormalMode")
         overlayView?.post {
-            actionButton?.text = "停止"
+            actionButton?.text = getString(R.string.overlay_stop)
             actionButton?.visibility = View.VISIBLE  // 确保按钮可见
 
             // Indigo 按钮背景
@@ -957,7 +957,7 @@ class OverlayService : Service() {
             }
             textView?.text = "⚠️ $displayMessage"
 
-            actionButton?.text = "确认"
+            actionButton?.text = getString(R.string.overlay_confirm)
             actionButton?.visibility = View.VISIBLE  // 确保按钮可见
 
             // 绿色确认按钮背景
@@ -984,9 +984,9 @@ class OverlayService : Service() {
         overlayView?.post {
             overlayView?.visibility = View.VISIBLE
 
-            textView?.text = "💬 问答模式"
+            textView?.text = getString(R.string.overlay_chat_mode)
 
-            actionButton?.text = "问答"
+            actionButton?.text = getString(R.string.overlay_chat)
             actionButton?.visibility = View.VISIBLE  // 确保按钮可见
 
             // 紫色按钮背景

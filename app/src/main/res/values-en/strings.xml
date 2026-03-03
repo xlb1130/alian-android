@@ -30,6 +30,40 @@
     <string name="preset_music_cmd">Open NetEase Cloud Music and play daily recommendations</string>
     <string name="preset_message">Send Message</string>
     <string name="preset_message_cmd">Send a message to my recent contact saying I\'m busy</string>
+    <string name="preset_xiaohongshu">Post to Xiaohongshu</string>
+    <string name="preset_xiaohongshu_cmd">Post to Xiaohongshu with today\'s good mood</string>
+    <string name="preset_travel">Travel Guide</string>
+    <string name="preset_travel_cmd">Check Sanya travel guide with Xiaomei</string>
+    <string name="preset_clean_background">Clean Background</string>
+    <string name="preset_clean_background_cmd">Clean up background running apps</string>
+    <string name="preset_power_saving">Power Saving</string>
+    <string name="preset_power_saving_cmd">Enable power saving mode and lower brightness</string>
+    <string name="preset_night_mode">Night Mode</string>
+    <string name="preset_night_mode_cmd">Enable dark mode</string>
+    <string name="preset_camera">Take Photo</string>
+    <string name="preset_camera_cmd">Open camera and take a photo</string>
+    <string name="preset_exercise">Exercise Check-in</string>
+    <string name="preset_exercise_cmd">Open exercise tracking and start running</string>
+    <string name="preset_coffee">Order Coffee</string>
+    <string name="preset_coffee_cmd">Order a Starbucks latte</string>
+    <string name="preset_taxi">Call a Taxi</string>
+    <string name="preset_taxi_cmd">Call a taxi to the nearest subway station</string>
+    <string name="preset_smart_home">Smart Home</string>
+    <string name="preset_smart_home_cmd">Turn on the living room light</string>
+    <string name="preset_schedule">Schedule Reminder</string>
+    <string name="preset_schedule_cmd">Set a meeting reminder for tomorrow at 9 AM</string>
+    <string name="preset_alarm">Set Alarm</string>
+    <string name="preset_alarm_cmd">Set an alarm for tomorrow at 7 AM</string>
+    <string name="preset_navigation">Navigate</string>
+    <string name="preset_navigation_cmd">Navigate to the nearest supermarket</string>
+    <string name="preset_weather">Weather Forecast</string>
+    <string name="preset_weather_cmd">Check tomorrow\'s weather</string>
+    <string name="preset_wechat">Send WeChat</string>
+    <string name="preset_wechat_cmd">Send a WeChat message to Mom saying I\'m home</string>
+    <string name="preset_notes">Take Notes</string>
+    <string name="preset_notes_cmd">Record today\'s to-do items</string>
+    <string name="preset_reconnect">Reconnect</string>
+    <string name="preset_try">Try it</string>
 
     <!-- History Screen -->
     <string name="history_title">Execution History</string>
@@ -63,6 +97,18 @@
     <string name="theme_dark">Dark Mode</string>
     <string name="theme_system">Follow System</string>
     <string name="theme_select">Select Theme</string>
+
+    <!-- Settings - Language -->
+    <string name="settings_language">Language</string>
+    <string name="settings_language_desc">Switch app display language</string>
+    <string name="language_system">Follow System</string>
+    <string name="language_zh">Simplified Chinese</string>
+    <string name="language_zh_tw">Traditional Chinese</string>
+    <string name="language_en">English</string>
+    <string name="language_ja">Japanese</string>
+    <string name="language_ko">Korean</string>
+    <string name="language_select">Select Language</string>
+    <string name="language_restart_hint">App needs to restart for language change to take effect</string>
 
     <!-- Settings - API -->
     <string name="settings_api">API Configuration</string>
@@ -157,4 +203,547 @@
     <string name="toast_sensitive_page">Detected sensitive page (payment/password), safely stopped</string>
     <string name="toast_max_steps">Reached maximum steps limit</string>
     <string name="toast_error">Error: %1$s</string>
+
+    <!-- Accessibility Service -->
+    <string name="accessibility_service_description">Alian accessibility service for getting screen element info and performing automation</string>
+
+    <!-- Overlay Service -->
+    <string name="overlay_channel_name">Alian Status</string>
+    <string name="overlay_channel_desc">Display Alian execution status</string>
+    <string name="overlay_notification_title">Alian Running</string>
+    <string name="overlay_notification_text">Executing automation tasks...</string>
+    <string name="overlay_app_name">Alian</string>
+    <string name="overlay_stop">Stop</string>
+    <string name="overlay_cancel">Cancel</string>
+    <string name="overlay_continue">Continue</string>
+    <string name="overlay_confirm">Confirm</string>
+    <string name="overlay_chat_mode">💬 Q&amp;A Mode</string>
+    <string name="overlay_chat">Q&amp;A</string>
+
+    <!-- Call Features -->
+    <string name="call_video">Video Call</string>
+    <string name="call_voice">Voice Call</string>
+    <string name="call_phone">Phone Call</string>
+    <string name="call_mic">Microphone</string>
+
+    <!-- Menu Items -->
+    <string name="menu_login">Login</string>
+    <string name="menu_logout">Logout</string>
+    <string name="menu_settings">Settings</string>
+    <string name="menu_new_session">New Session</string>
+
+    <!-- Chat History -->
+    <string name="chat_history_title">Chat History</string>
+    <string name="chat_history_count">%1$d conversations</string>
+    <string name="chat_history_empty">No chat history</string>
+    <string name="chat_history_empty_hint">Records will appear here after starting a conversation</string>
+    <string name="chat_new_session">New Conversation</string>
+    <string name="chat_new_session_hint">Start a new conversation session</string>
+    <string name="chat_delete_title">Confirm Delete</string>
+    <string name="chat_delete_confirm">Are you sure you want to delete this conversation?</string>
+
+    <!-- Time Format -->
+    <string name="time_just_now">Just now</string>
+    <string name="time_minutes_ago">%1$d min ago</string>
+    <string name="time_hours_ago">%1$d hr ago</string>
+    <string name="time_days_ago">%1$d days ago</string>
+    <string name="time_unknown">Unknown time</string>
+
+    <!-- Voice Input -->
+    <string name="voice_recording">Recording</string>
+    <string name="voice_hold_to_speak">Hold to speak</string>
+    <string name="voice_release_to_send">Release to send</string>
+    <string name="voice_processing">Processing...</string>
+    <string name="voice_permission_title">Microphone Permission Required</string>
+    <string name="voice_permission_desc">Voice input requires microphone permission to work properly.</string>
+    <string name="voice_go_authorize">Authorize</string>
+    <string name="voice_switch_keyboard">Switch to keyboard input</string>
+    <string name="voice_switch_voice">Switch to voice input</string>
+    <string name="voice_say_something">Say something...</string>
+
+    <!-- Chat Components -->
+    <string name="chat_ready_title">Ready to assist you</string>
+    <string name="chat_ready_hint">Type a message or use voice to start conversation</string>
+    <string name="chat_alian_avatar">Alian Avatar</string>
+    <string name="chat_user_avatar">User Avatar</string>
+    <string name="chat_unknown_file">Unknown file</string>
+    <string name="chat_preview">Preview</string>
+    <string name="chat_play">Play</string>
+    <string name="chat_stop_play">Stop playing</string>
+
+    <!-- Content Description -->
+    <string name="cd_close">Close</string>
+    <string name="cd_delete">Delete</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_stop">Stop</string>
+    <string name="cd_send">Send</string>
+
+    <!-- Alian Local Screen -->
+    <string name="local_title">Alian Local</string>
+    <string name="local_ready">Ready</string>
+    <string name="local_shizuku_connected">Shizuku Connected</string>
+    <string name="local_shizuku_disconnected">Shizuku Not Connected</string>
+
+    <!-- Local History Drawer -->
+    <string name="local_history_title">Execution History</string>
+    <string name="local_history_count">%1$d records</string>
+    <string name="local_history_empty">No execution records</string>
+    <string name="local_history_delete_title">Confirm Delete</string>
+    <string name="local_history_delete_confirm">Are you sure you want to delete this record?</string>
+    <string name="local_status_completed">Completed</string>
+    <string name="local_status_failed">Failed</string>
+    <string name="local_status_stopped">Stopped</string>
+    <string name="local_status_running">Running</string>
+
+    <!-- Settings Screen Sections -->
+    <string name="settings_section_appearance">🎨 Appearance</string>
+    <string name="settings_section_ai">🧠 AI Model Config</string>
+    <string name="settings_section_execution">⚙️ Execution &amp; Control</string>
+    <string name="settings_section_permission">🔐 Permission &amp; Security</string>
+    <string name="settings_section_extension">🔌 Extensions</string>
+    <string name="settings_section_help">❓ Help &amp; Feedback</string>
+
+    <!-- Settings Screen Items -->
+    <string name="settings_item_theme">Theme</string>
+    <string name="settings_item_alian">Alian</string>
+    <string name="settings_item_alian_subtitle">Avatar, Voice, Speed</string>
+    <string name="settings_item_language">Language</string>
+    <string name="settings_item_model_config">Model Config</string>
+    <string name="settings_item_model_config_subtitle">LLM/VLM Provider</string>
+    <string name="settings_item_speech_provider">Speech Provider</string>
+    <string name="settings_item_speech_provider_subtitle">ASR/TTS Config</string>
+    <string name="settings_item_api_config">API Config</string>
+    <string name="settings_item_api_config_subtitle">Backend Settings</string>
+    <string name="settings_item_execution">Execution</string>
+    <string name="settings_item_execution_subtitle">Batch, Optimize Mode</string>
+    <string name="settings_item_voice_interaction">Voice Interaction</string>
+    <string name="settings_item_voice_interaction_subtitle">TTS, Interrupt, Streaming</string>
+    <string name="settings_item_device_controller">Device Controller</string>
+    <string name="settings_item_device_controller_subtitle">Strategy, Delay</string>
+    <string name="settings_item_permission">Permissions</string>
+    <string name="settings_item_permission_subtitle">Core Permissions</string>
+    <string name="settings_item_shizuku">Shizuku</string>
+    <string name="settings_item_shizuku_subtitle">Root Mode Settings</string>
+    <string name="settings_item_mcp">MCP</string>
+    <string name="settings_item_mcp_subtitle">Model Context Protocol</string>
+    <string name="settings_item_capabilities">Capabilities</string>
+    <string name="settings_item_capabilities_subtitle">Skills Management</string>
+    <string name="settings_item_help">Help</string>
+    <string name="settings_item_feedback">Feedback</string>
+    <string name="settings_item_about">About</string>
+
+    <!-- Settings Dialogs -->
+    <string name="dialog_select_theme">Select Theme</string>
+    <string name="dialog_select_language">Select Language</string>
+    <string name="dialog_select_model">Select Model</string>
+    <string name="dialog_api_key_title">API Key</string>
+    <string name="dialog_api_key_hint">Enter your API Key</string>
+    <string name="dialog_text_model_title">Text Model</string>
+    <string name="dialog_text_model_hint">Enter text model name (for text-only chat)</string>
+    <string name="dialog_text_model_common">Common models: qwen-max, qwen-plus, qwen-turbo</string>
+    <string name="dialog_backend_url_title">Backend URL</string>
+    <string name="dialog_backend_url_hint">Enter the full Backend server address</string>
+    <string name="dialog_max_steps_title">Max Execution Steps</string>
+    <string name="dialog_max_steps_desc">Set the maximum steps for Agent single task. More steps allow more complex tasks but consume more tokens.</string>
+    <string name="dialog_max_steps_unit">%1$d steps</string>
+    <string name="dialog_provider_title">API Provider</string>
+    <string name="dialog_provider_hint">Select API provider (OpenAI compatible)</string>
+    <string name="dialog_custom_url_hint">Enter custom API endpoint</string>
+    <string name="dialog_custom_url_mai_hint">Leave empty for default (localhost:8000)</string>
+    <string name="dialog_recommended_model">Recommended Model</string>
+    <string name="dialog_custom_model">Custom Model</string>
+    <string name="dialog_custom_model_hint">Enter model name, e.g. gpt-4o</string>
+    <string name="dialog_fetch_models">Fetch available models from API</string>
+    <string name="dialog_fetching">Fetching...</string>
+    <string name="dialog_api_model_list">API Models (%1$d)</string>
+    <string name="dialog_search_model">Search models...</string>
+    <string name="dialog_no_match">No models matching \"%1$s\"</string>
+    <string name="dialog_found_models">Found %1$d models</string>
+    <string name="dialog_fetch_api_key_first">Please set API Key first</string>
+    <string name="dialog_fetch_success">Fetched %1$d models</string>
+    <string name="dialog_fetch_failed">Fetch failed: %1$s</string>
+    <string name="dialog_click_fetch">Click \"Fetch from API\" to load models</string>
+
+    <!-- Warning Dialogs -->
+    <string name="dialog_root_mode_title">Enable Root Mode</string>
+    <string name="dialog_root_mode_desc">Root mode allows the app to use advanced system privileges.</string>
+    <string name="dialog_root_mode_warning">Warning:</string>
+    <string name="dialog_root_mode_risk1">Root privileges may cause system instability</string>
+    <string name="dialog_root_mode_risk2">Improper operations may damage device data</string>
+    <string name="dialog_root_mode_risk3">Make sure you understand the risks of Root privileges</string>
+    <string name="dialog_root_mode_hint">Only enable this option when you fully understand the risks and need advanced features.</string>
+    <string name="dialog_root_mode_confirm">I understand the risks, enable</string>
+    <string name="dialog_su_command_title">Allow su -c Command</string>
+    <string name="dialog_su_command_desc">This option allows AI to execute su -c commands, meaning AI can run any shell command with Root privileges.</string>
+    <string name="dialog_su_command_extreme_danger">Extremely Dangerous:</string>
+    <string name="dialog_su_command_risk1">AI may execute dangerous system commands</string>
+    <string name="dialog_su_command_risk2">May cause data loss or system damage</string>
+    <string name="dialog_su_command_risk3">May be exploited by malicious instructions</string>
+    <string name="dialog_su_command_risk4">Not recommended for daily use</string>
+    <string name="dialog_su_command_hint">Strongly recommended: Only use in fully controlled test environments and disable immediately after use.</string>
+
+    <!-- Voice Call Screen -->
+    <string name="voice_call_title">Voice Call</string>
+    <string name="voice_call_start_hint">Click button below to start</string>
+    <string name="voice_call_recording">Recording</string>
+    <string name="voice_call_speak">Please speak</string>
+    <string name="voice_call_thinking">Thinking</string>
+    <string name="voice_call_playing">Playing</string>
+    <string name="voice_call_error">Error occurred</string>
+    <string name="voice_call_retry">Retry</string>
+    <string name="voice_call_end">End Call</string>
+    <string name="voice_call_start">Start Call</string>
+
+    <!-- Video Call Screen -->
+    <string name="video_call_title">Video Call</string>
+    <string name="video_call_start_hint">Click button below to start</string>
+    <string name="video_call_recording">Recording</string>
+    <string name="video_call_speak">Please speak</string>
+    <string name="video_call_thinking">Thinking</string>
+    <string name="video_call_playing">Playing</string>
+    <string name="video_call_error">Error occurred</string>
+    <string name="video_call_retry">Retry</string>
+    <string name="video_call_end">End Call</string>
+    <string name="video_call_start">Start Call</string>
+
+    <!-- VLM Only Video Call Screen -->
+    <string name="vlm_video_call_title">VLM Video Call</string>
+    <string name="vlm_video_call_recording">Recording</string>
+    <string name="vlm_video_call_thinking">Thinking</string>
+    <string name="vlm_video_call_playing">Playing</string>
+    <string name="vlm_video_call_error">Error</string>
+    <string name="vlm_video_call_retry">Retry</string>
+    <string name="vlm_video_call_start_hint">Click button below to start</string>
+    <string name="vlm_video_call_speak">Please speak</string>
+    <string name="vlm_video_call_thinking_hint">AI is thinking...</string>
+    <string name="vlm_video_call_playing_hint">AI is responding</string>
+    <string name="vlm_video_call_error_hint">Error occurred, please retry</string>
+    <string name="vlm_video_call_recording_status">Recording</string>
+    <string name="vlm_video_call_thinking_status">Thinking</string>
+    <string name="vlm_video_call_playing_status">Playing</string>
+    <string name="vlm_video_call_frames_captured">%1$d/%2$d frames captured</string>
+    <string name="vlm_video_call_feature_capture">Smart Capture</string>
+    <string name="vlm_video_call_feature_capture_desc">Capture when you speak</string>
+    <string name="vlm_video_call_feature_vision">Vision Understanding</string>
+    <string name="vlm_video_call_feature_vision_desc">AI understands your environment</string>
+    <string name="vlm_video_call_feature_realtime">Real-time Response</string>
+    <string name="vlm_video_call_feature_realtime_desc">Streaming conversation</string>
+    <string name="vlm_video_call_close">Close</string>
+
+    <!-- Phone Call Screen -->
+    <string name="phone_call_title">Phone Call</string>
+    <string name="phone_call_start_hint">Click button below to start</string>
+    <string name="phone_call_active">In Call</string>
+    <string name="phone_call_error">Error occurred</string>
+    <string name="phone_call_retry">Retry</string>
+    <string name="phone_call_end">End Call</string>
+    <string name="phone_call_start">Start Call</string>
+    <string name="phone_call_screen_preview">Screen Preview</string>
+    <string name="phone_call_fullscreen_mode">Fullscreen</string>
+    <string name="phone_call_minimize">Minimize</string>
+    <string name="phone_call_expand">Expand</string>
+    <string name="phone_call_close">Close</string>
+    <string name="phone_call_permission_title">Permission Required</string>
+    <string name="phone_call_permission_hint">Please grant screen recording permission in settings and try again.</string>
+    <string name="phone_call_go_settings">Settings</string>
+    <string name="phone_call_cancel">Cancel</string>
+
+    <!-- TTS Voice Selection -->
+    <string name="tts_voice_title">Select Voice</string>
+    <string name="tts_voice_longxiaochun">Long Xiaochun (Female)</string>
+    <string name="tts_voice_longyingtao">Long Yingtao (Female)</string>
+    <string name="tts_voice_longanwen">Long Anwen (Female)</string>
+    <string name="tts_voice_longyingmu">Long Yingmu (Female)</string>
+
+    <!-- Login/Logout -->
+    <string name="login_click_to_login">Click to Login</string>
+    <string name="login_logout">Logout</string>
+    <string name="login_logout_confirm_title">Confirm Logout</string>
+    <string name="login_logout_confirm_desc">Are you sure you want to logout? You\'ll need to login again to use Alian features.</string>
+
+    <!-- Overlay Help Dialog -->
+    <string name="overlay_help_title">Overlay Permission</string>
+    <string name="overlay_help_why">Why is overlay permission needed?</string>
+    <string name="overlay_help_reason">Alian needs to display overlay during task execution to:</string>
+    <string name="overlay_help_feature1">Show current execution progress</string>
+    <string name="overlay_help_feature2">Provide stop button to interrupt tasks anytime</string>
+    <string name="overlay_help_feature3">Display status information above other apps</string>
+    <string name="overlay_help_how">How to enable?</string>
+    <string name="overlay_help_how_desc">1. You\'ll be prompted when executing a task\n2. Or go to: Settings > Apps > Alian > Overlay permission\n3. Enable \"Allow display over other apps\"</string>
+    <string name="overlay_help_privacy">Privacy &amp; Security</string>
+    <string name="overlay_help_privacy_desc">The overlay is only shown during task execution and does not collect any personal information. It automatically disappears after the task is complete.</string>
+
+    <!-- Format Strings -->
+    <string name="format_time_minutes_ago">%1$d min ago</string>
+    <string name="format_time_hours_ago">%1$d hr ago</string>
+    <string name="format_time_days_ago">%1$d days ago</string>
+    <string name="format_time_just_now">Just now</string>
+    <string name="format_time_unknown">Unknown time</string>
+    <string name="format_date_month_day">%1$s/%2$s</string>
+
+    <!-- Time-based Greetings -->
+    <string name="greeting_morning">Good morning</string>
+    <string name="greeting_forenoon">Good morning</string>
+    <string name="greeting_noon">Good noon</string>
+    <string name="greeting_afternoon">Good afternoon</string>
+    <string name="greeting_evening">Good evening</string>
+    <string name="greeting_night">Good night</string>
+    <string name="greeting_prompt">What can I help you today?</string>
+
+    <!-- Permission Dialogs -->
+    <string name="permission_title_record_audio">Microphone Permission Required</string>
+    <string name="permission_title_camera">Camera Permission Required</string>
+    <string name="permission_title_post_notifications">Notification Permission Required</string>
+    <string name="permission_title_system_alert_window">Overlay Permission Required</string>
+    <string name="permission_title_accessibility_service">Accessibility Service Required</string>
+    <string name="permission_title_media_projection">Screen Recording Permission Required</string>
+    <string name="permission_title_shizuku">Shizuku Permission Required</string>
+    
+    <string name="permission_desc_record_audio">Voice input and voice call features require microphone permission to work properly.</string>
+    <string name="permission_desc_camera">Video call feature requires camera permission to work properly.</string>
+    <string name="permission_desc_post_notifications">Display background running notifications to prevent the app from being killed by the system.</string>
+    <string name="permission_desc_system_alert_window">Overlay interface requires overlay permission to display properly.</string>
+    <string name="permission_desc_accessibility_service">Automation features require accessibility service permission to control other apps.</string>
+    <string name="permission_desc_media_projection">Automation features require screen recording permission to capture screen content for visual recognition.\n\nNote: This permission is only used for screenshots, not for recording video or audio.</string>
+    <string name="permission_desc_shizuku">Shizuku is an efficient device control tool that requires installing and authorizing the Shizuku App.\n\nAuthorization steps:\n1. Make sure Shizuku App is installed\n2. Authorize via ADB (recommended) or Root\n3. Grant Alian permission in Shizuku App</string>
+    
+    <string name="permission_name_record_audio">Microphone Permission</string>
+    <string name="permission_name_camera">Camera Permission</string>
+    <string name="permission_name_post_notifications">Notification Permission</string>
+    <string name="permission_name_system_alert_window">Overlay Permission</string>
+    <string name="permission_name_accessibility_service">Accessibility Service</string>
+    <string name="permission_name_media_projection">Screen Recording Permission</string>
+    <string name="permission_name_shizuku">Shizuku Permission</string>
+    
+    <string name="permission_go_authorize">Authorize</string>
+
+    <!-- Execution Prompt -->
+    <string name="execution_prompt_ready_title">Ready</string>
+    <string name="execution_prompt_ready_desc">Tell me what you want to do</string>
+    <string name="execution_prompt_shizuku_title">Shizuku Connection Required</string>
+    <string name="execution_prompt_shizuku_desc">Please connect Shizuku first</string>
+    <string name="execution_prompt_accessibility_title">Accessibility Service Required</string>
+    <string name="execution_prompt_accessibility_desc">Please enable accessibility service first</string>
+    <string name="execution_prompt_media_projection_title">Screen Recording Permission Required</string>
+    <string name="execution_prompt_media_projection_desc">Please grant screen recording permission first</string>
+    <string name="execution_prompt_shizuku_or_accessibility_title">Shizuku or Accessibility Service Required</string>
+    <string name="execution_prompt_shizuku_or_accessibility_desc">Please connect Shizuku or enable accessibility service first</string>
+    <string name="execution_prompt_shizuku_unavailable_title">Shizuku Unavailable</string>
+    <string name="execution_prompt_shizuku_unavailable_desc">Fallback to accessibility mode</string>
+
+    <!-- Settings SubScreen Titles -->
+    <string name="settings_subscreen_theme">Theme</string>
+    <string name="settings_subscreen_alian">Alian Settings</string>
+    <string name="settings_subscreen_model_config">Model Config</string>
+    <string name="settings_subscreen_speech_provider">Speech Provider</string>
+    <string name="settings_subscreen_api">API Config</string>
+    <string name="settings_subscreen_execution">Execution</string>
+    <string name="settings_subscreen_voice_interaction">Voice Interaction</string>
+    <string name="settings_subscreen_device_controller">Device Controller</string>
+    <string name="settings_subscreen_permission_management">Permissions</string>
+    <string name="settings_subscreen_shizuku">Shizuku Settings</string>
+    <string name="settings_subscreen_mcp">MCP Management</string>
+    <string name="settings_subscreen_help">Help</string>
+    <string name="settings_subscreen_feedback">Feedback &amp; Debug</string>
+    <string name="settings_subscreen_about">About</string>
+
+    <!-- TTS Realtime -->
+    <string name="tts_realtime_off">Turn off realtime speech</string>
+    <string name="tts_realtime_on">Turn on realtime speech</string>
+
+    <!-- Voice Call Top Bar States -->
+    <string name="voice_call_state_idle">Voice Call</string>
+    <string name="voice_call_state_recording">Recording</string>
+    <string name="voice_call_state_processing">Thinking</string>
+    <string name="voice_call_state_playing">Playing</string>
+    <string name="voice_call_state_error">Connection Error</string>
+
+    <!-- Voice Call Components -->
+    <string name="voice_call_empty_hint">Click the button below to start voice call</string>
+    <string name="voice_call_loading_text">Thinking...</string>
+    <string name="voice_call_recording_text">Recording</string>
+
+    <!-- Login Status Card -->
+    <string name="login_status_logged_in">Logged in</string>
+    <string name="login_status_not_logged_in">Not logged in</string>
+    <string name="login_status_backend_logged_in">Backend mode logged in</string>
+    <string name="login_status_please_login">Please login to Alian account</string>
+    <string name="login_status_use_openai_api">Using OpenAI compatible API</string>
+
+    <!-- Execution Settings -->
+    <string name="execution_device_controller">Device Controller</string>
+    <string name="execution_device_controller_desc">Configure device controller execution strategy and performance</string>
+    <string name="execution_optimize_mode">Optimize Mode</string>
+    <string name="execution_optimize_mode_enabled">Enabled (60% less VLM calls, 2.5x faster)</string>
+    <string name="execution_optimize_mode_disabled">Disabled (standard mode)</string>
+    <string name="execution_batch_mode">Batch Execution Mode</string>
+    <string name="execution_batch_mode_enabled">Enabled (batch execute non-conflicting operations)</string>
+    <string name="execution_batch_mode_disabled">Disabled (execute one by one)</string>
+    <string name="execution_react_only_mode">ReactOnly Mode</string>
+    <string name="execution_react_only_enabled">Enabled (Manager plans once, Executor handles rest)</string>
+    <string name="execution_react_only_disabled">Disabled (standard mode)</string>
+    <string name="execution_chat_agent_mode">ChatAgent Mode</string>
+    <string name="execution_chat_agent_enabled">Enabled (voice interrupt and real-time interaction)</string>
+    <string name="execution_chat_agent_disabled">Disabled (standard execution mode)</string>
+    <string name="execution_max_steps">Max Execution Steps</string>
+    <string name="execution_max_steps_value">%1$d steps</string>
+    <string name="execution_info_title">Info</string>
+    <string name="execution_info_desc">• Optimize Mode: Skip unnecessary Manager/Reflector calls to reduce VLM calls and speed up execution\n• Batch Execution Mode: AI can return multiple non-conflicting operations at once, reducing VLM calls\n• ReactOnly Mode: Manager plans only at the start, Executor handles the rest, greatly reducing VLM calls\n• ChatAgent Mode: Supports voice interrupt and real-time interaction during execution\n• Max Steps: Sets the upper limit of operations for a single Agent task</string>
+
+    <!-- Shizuku Settings -->
+    <string name="shizuku_privilege_level">Current Privilege Level</string>
+    <string name="shizuku_root_mode">Root Mode</string>
+    <string name="shizuku_root_mode_uid">Root Mode (UID 0)</string>
+    <string name="shizuku_adb_mode_uid">ADB Mode (UID 2000)</string>
+    <string name="shizuku_status_not_connected">Not Connected</string>
+    <string name="shizuku_root_requires">Requires Shizuku running with Root privileges</string>
+    <string name="shizuku_root_enabled">Advanced privileges enabled</string>
+    <string name="shizuku_root_disabled">Enable to use Root features</string>
+    <string name="shizuku_su_command">Allow su -c Command</string>
+    <string name="shizuku_su_enabled">AI can execute Root commands</string>
+    <string name="shizuku_su_disabled">Block su -c execution</string>
+
+    <!-- TTS Settings -->
+    <string name="tts_enable">Enable Voice Playback</string>
+    <string name="tts_enable_enabled">Enabled, bot responses support voice playback</string>
+    <string name="tts_enable_disabled">Disabled</string>
+    <string name="tts_realtime_playback">Realtime Playback</string>
+    <string name="tts_realtime_enabled">Play immediately when bot outputs</string>
+    <string name="tts_realtime_disabled">Click speaker icon next to message to play</string>
+    <string name="tts_interrupt">Realtime Voice Interrupt</string>
+    <string name="tts_interrupt_enabled">Auto-stop TTS when user speaks during playback</string>
+    <string name="tts_interrupt_disabled">No user voice detection</string>
+    <string name="tts_aec">Echo Cancellation (AEC)</string>
+    <string name="tts_aec_enabled">Enable AEC for more precise voice interrupt</string>
+    <string name="tts_aec_disabled">No echo cancellation</string>
+    <string name="tts_streaming">Streaming Playback</string>
+    <string name="tts_streaming_enabled">Enable streaming LLM + streaming TTS for lower latency</string>
+    <string name="tts_streaming_disabled">Use traditional playback mode</string>
+
+    <!-- API Settings -->
+    <string name="api_backend_mode">Backend Mode</string>
+    <string name="api_backend_enabled">Enabled - using backend service</string>
+    <string name="api_backend_disabled">Disabled - using local API</string>
+    <string name="api_backend_url">Backend Server URL</string>
+
+    <!-- Model Config Settings -->
+    <string name="model_provider">API Provider</string>
+    <string name="model_api_key_set">Set (%1$s)</string>
+    <string name="model_api_key_not_set">Not set</string>
+    <string name="model_text_model">Text Model</string>
+    <string name="model_vision_model">Vision Model</string>
+
+    <!-- Feedback Settings -->
+    <string name="feedback_crash_report">Cloud Crash Report</string>
+    <string name="feedback_crash_report_enabled">Enabled, help us improve the app</string>
+    <string name="feedback_crash_report_disabled">Disabled</string>
+    <string name="feedback_export_logs">Export Logs</string>
+    <string name="feedback_clear_logs">Clear Logs</string>
+    <string name="feedback_clear_logs_desc">Delete all local log files</string>
+    <string name="feedback_clear_confirm_title">Confirm Clear</string>
+    <string name="feedback_clear_confirm_desc">Are you sure you want to delete all log files?</string>
+    <string name="feedback_logs_cleared">Logs cleared</string>
+
+    <!-- Help Settings -->
+    <string name="help_shizuku_guide">Shizuku Guide</string>
+    <string name="help_shizuku_guide_desc">Learn how to install and configure Shizuku</string>
+    <string name="help_overlay_permission">Overlay Permission</string>
+    <string name="help_overlay_permission_desc">Learn why overlay permission is needed</string>
+
+    <!-- About Settings -->
+    <string name="about_version">Version</string>
+    <string name="about_app_name">Alian Autopilot</string>
+    <string name="about_app_desc">VLM-based Android automation tool</string>
+
+    <!-- Login Screen -->
+    <string name="login_welcome_back">Welcome back, please login to your account</string>
+    <string name="login_email_label">Email Address</string>
+    <string name="login_password_label">Password</string>
+    <string name="login_show_password">Show password</string>
+    <string name="login_hide_password">Hide password</string>
+    <string name="login_forgot_password">Forgot password?</string>
+    <string name="login_button">Login</string>
+    <string name="login_loading">Logging in...</string>
+    <string name="login_or">or</string>
+    <string name="login_no_account">Don\'t have an account?</string>
+    <string name="login_register_now">Register now</string>
+    <string name="login_back">Back</string>
+
+    <!-- Permission Management -->
+    <string name="permission_basic">Basic Permissions</string>
+    <string name="permission_core">Core Permissions</string>
+    <string name="permission_other">Other Permissions</string>
+    <string name="permission_granted">Granted</string>
+    <string name="permission_denied">Denied</string>
+    <string name="permission_not_requested">Not Requested</string>
+
+    <!-- Device Controller Settings -->
+    <string name="device_execution_strategy">Execution Strategy</string>
+    <string name="device_execution_strategy_desc">Select how the device controller executes</string>
+    <string name="device_strategy_auto">Auto</string>
+    <string name="device_strategy_shizuku_only">Shizuku Only</string>
+    <string name="device_strategy_accessibility_only">Accessibility Only</string>
+    <string name="device_strategy_hybrid">Hybrid Mode</string>
+    <string name="device_fallback_strategy">Fallback Strategy</string>
+    <string name="device_fallback_strategy_desc">Fallback method when preferred method is unavailable</string>
+    <string name="device_fallback_auto">Auto</string>
+    <string name="device_fallback_shizuku_first">Shizuku First</string>
+    <string name="device_fallback_accessibility_first">Accessibility First</string>
+    <string name="device_performance_settings">Performance Settings</string>
+    <string name="device_screenshot_cache">Screenshot Cache</string>
+    <string name="device_screenshot_cache_desc">Enable screenshot cache to improve performance</string>
+    <string name="device_gesture_delay">Gesture Delay</string>
+    <string name="device_input_delay">Input Delay</string>
+    <string name="device_mediaprojection_title">Screen Recording Permission</string>
+    <string name="device_mediaprojection_desc">Accessibility controller needs screen recording permission to capture screenshots</string>
+    <string name="device_mediaprojection_request">Request Screen Recording Permission</string>
+    <string name="device_mediaprojection_hint">Note: Shizuku controller does not need this permission</string>
+    <string name="device_accessibility_required_title">Accessibility Service Required</string>
+    <string name="device_accessibility_required_desc">The selected execution strategy requires accessibility service to work properly.</string>
+    <string name="device_accessibility_required_hint">Please enable \"Alian\" accessibility service in system settings.</string>
+    <string name="device_mediaprojection_required_title">Screen Recording Permission Required</string>
+    <string name="device_mediaprojection_required_desc">The selected execution strategy requires screen recording permission to capture screenshots.</string>
+    <string name="device_mediaprojection_required_hint">After granting this permission, the accessibility controller can capture screen content for visual recognition.</string>
+    <string name="device_shizuku_required_title">Shizuku Permission Required</string>
+    <string name="device_shizuku_required_desc">The selected execution strategy requires Shizuku permission to work properly.</string>
+    <string name="device_shizuku_required_hint">Shizuku is an efficient device control tool that requires installing and authorizing Shizuku App.</string>
+    <string name="device_shizuku_required_steps">Authorization steps:\n1. Make sure Shizuku App is installed\n2. Authorize via ADB (recommended) or Root\n3. Grant Alian permission in Shizuku App</string>
+    <string name="device_accessibility_not_enabled">Accessibility service not enabled, please go to settings to enable</string>
+    <string name="device_go_authorize">Authorize</string>
+    <string name="device_authorize_guide">Authorization Guide</string>
+    <string name="device_later">Later</string>
+
+    <!-- Alian Settings -->
+    <string name="alian_avatar_section">Avatar Settings</string>
+    <string name="alian_avatar_upload">Upload Custom Avatar</string>
+    <string name="alian_avatar_saving">Saving...</string>
+    <string name="alian_avatar_change_hint">Click avatar or button to change</string>
+    <string name="alian_avatar_default_hint">Default uses voice tone avatar</string>
+    <string name="alian_voice_settings">Voice Settings</string>
+    <string name="alian_voice_select">Voice Tone</string>
+    <string name="alian_speed">Speed</string>
+    <string name="alian_speed_slow">Slow - Suitable for detailed explanation</string>
+    <string name="alian_speed_normal">Normal - Standard speed</string>
+    <string name="alian_speed_fast">Fast - Suitable for quick communication</string>
+    <string name="alian_speed_very_fast">Very Fast - Suitable for quick browsing</string>
+    <string name="alian_volume">Volume</string>
+    <string name="alian_volume_mute">Mute</string>
+    <string name="alian_volume_low">Low Volume</string>
+    <string name="alian_volume_normal">Normal Volume</string>
+    <string name="alian_volume_high">High Volume</string>
+    <string name="alian_prompt_settings">Prompt Settings</string>
+    <string name="alian_voice_call_prompt">Voice Call Prompt</string>
+    <string name="alian_voice_call_prompt_desc">Set the system prompt for voice calls to define AI\'s role and behavior.</string>
+    <string name="alian_voice_call_prompt_hint">Enter voice call system prompt...</string>
+    <string name="alian_video_call_prompt">Video Call Prompt</string>
+    <string name="alian_video_call_prompt_desc">Set the system prompt for video calls to define AI\'s role and behavior.</string>
+    <string name="alian_video_call_prompt_hint">Enter video call system prompt...</string>
+    <string name="alian_not_set">Not set</string>
+    <string name="alian_stop">Stop</string>
+    <string name="alian_audition">Audition</string>
+    <string name="alian_save">Save</string>
+
+    <!-- Common Dialog -->
+    <string name="dialog_unit_ms">%1$d ms</string>
+    <string name="dialog_current_value">Current value: %1$d %2$s</string>
 </resources>

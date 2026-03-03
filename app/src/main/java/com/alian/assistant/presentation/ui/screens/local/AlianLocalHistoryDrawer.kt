@@ -35,6 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.alian.assistant.R
 import com.alian.assistant.data.ExecutionRecord
 import com.alian.assistant.data.ExecutionStatus
 import com.alian.assistant.presentation.ui.theme.BaoziColors
@@ -138,13 +140,13 @@ fun AlianLocalHistoryDrawer(
                     // 标题区域优化 - 渐变文字
                     Column {
                         Text(
-                            text = "执行记录",
+                            text = stringResource(R.string.local_history_title),
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = colors.textPrimary
                         )
                         Text(
-                            text = "${records.size} 条记录",
+                            text = stringResource(R.string.local_history_count, records.size),
                             fontSize = 12.sp,
                             color = colors.textSecondary
                         )
@@ -182,7 +184,7 @@ fun AlianLocalHistoryDrawer(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "关闭",
+                                contentDescription = stringResource(R.string.cd_close),
                                 tint = if (closeIsPressed) colors.error else colors.textSecondary
                             )
                         }
@@ -219,7 +221,7 @@ fun AlianLocalHistoryDrawer(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "暂无执行记录",
+                            text = stringResource(R.string.local_history_empty),
                             fontSize = 14.sp,
                             color = colors.textSecondary
                         )
@@ -291,22 +293,22 @@ fun LocalHistoryDrawerItem(
             onDismissRequest = { showDeleteDialog = false },
             containerColor = colors.backgroundCard,
             title = {
-                Text("确认删除", color = colors.textPrimary)
+                Text(stringResource(R.string.local_history_delete_title), color = colors.textPrimary)
             },
             text = {
-                Text("确定要删除这条执行记录吗？", color = colors.textSecondary)
+                Text(stringResource(R.string.local_history_delete_confirm), color = colors.textSecondary)
             },
             confirmButton = {
                 TextButton(onClick = {
                     onDelete()
                     showDeleteDialog = false
                 }) {
-                    Text("删除", color = colors.error)
+                    Text(stringResource(R.string.btn_delete), color = colors.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                 }
             }
         )
@@ -397,25 +399,25 @@ fun LocalHistoryDrawerItem(
                     // 状态标签 - 美化
                     val (statusText, statusBgColor, statusTextColor) = when (record.status) {
                         ExecutionStatus.COMPLETED -> Triple(
-                            "已完成",
+                            stringResource(R.string.local_status_completed),
                             colors.success.copy(alpha = 0.2f),
                             colors.success
                         )
 
                         ExecutionStatus.FAILED -> Triple(
-                            "失败",
+                            stringResource(R.string.local_status_failed),
                             colors.error.copy(alpha = 0.2f),
                             colors.error
                         )
 
                         ExecutionStatus.STOPPED -> Triple(
-                            "已停止",
+                            stringResource(R.string.local_status_stopped),
                             colors.warning.copy(alpha = 0.2f),
                             colors.warning
                         )
 
                         ExecutionStatus.RUNNING -> Triple(
-                            "执行中",
+                            stringResource(R.string.local_status_running),
                             colors.primary.copy(alpha = 0.2f),
                             colors.primary
                         )
@@ -458,7 +460,7 @@ fun LocalHistoryDrawerItem(
                 ) {
                     // 时间 - 美化，更柔和的颜色和更小的字号
                     Text(
-                        text = formatTimestamp(record.startTime),
+                        text = formatTimestamp(record.startTime, context),
                         fontSize = 10.sp,
                         color = colors.textHint,
                         fontWeight = FontWeight.Medium
@@ -502,7 +504,7 @@ fun LocalHistoryDrawerItem(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "删除",
+                                contentDescription = stringResource(R.string.cd_delete),
                                 tint = when {
                                     deleteIsPressed -> colors.error
                                     deleteIsHovered -> colors.error.copy(alpha = 0.9f)
@@ -529,17 +531,17 @@ fun LocalHistoryDrawerItem(
     }
 }
 
-private fun formatTimestamp(timestamp: Long?): String {
-    if (timestamp == null) return "未知时间"
+private fun formatTimestamp(timestamp: Long?, context: Context): String {
+    if (timestamp == null) return context.getString(R.string.format_time_unknown)
 
     val now = System.currentTimeMillis()
     val diff = now - timestamp
 
     return when {
-        diff < 60000 -> "刚刚"
-        diff < 3600000 -> "${diff / 60000}分钟前"
-        diff < 86400000 -> "${diff / 3600000}小时前"
-        diff < 604800000 -> "${diff / 86400000}天前"
+        diff < 60000 -> context.getString(R.string.format_time_just_now)
+        diff < 3600000 -> context.getString(R.string.format_time_minutes_ago, diff / 60000)
+        diff < 86400000 -> context.getString(R.string.format_time_hours_ago, diff / 3600000)
+        diff < 604800000 -> context.getString(R.string.format_time_days_ago, diff / 86400000)
         else -> {
             val date = Date(timestamp)
             val format = SimpleDateFormat("MM月dd日", Locale.getDefault())

@@ -43,11 +43,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.presentation.viewmodel.VLMOnlyVideoCallViewModel
 import com.alian.assistant.presentation.viewmodel.VideoCallState
@@ -353,7 +355,7 @@ fun VLMOnlyVideoCallScreen(
 
                                     // 渐变标题
                                     Text(
-                                        text = "视觉大模型视频通话",
+                                        text = stringResource(R.string.vlm_video_call_title),
                                         fontSize = 26.sp,
                                         fontWeight = FontWeight.Bold,
                                         style = TextStyle(
@@ -369,7 +371,7 @@ fun VLMOnlyVideoCallScreen(
                                     Spacer(modifier = Modifier.height(12.dp))
 
                                     Text(
-                                        text = "点击下方按钮开始",
+                                        text = stringResource(R.string.vlm_video_call_start_hint),
                                         fontSize = 14.sp,
                                         color = colors.textSecondary
                                     )
@@ -382,18 +384,18 @@ fun VLMOnlyVideoCallScreen(
                                     ) {
                                         FeatureCard(
                                             icon = "📷",
-                                            title = "智能捕获",
-                                            description = "说话时立即捕获画面"
+                                            title = stringResource(R.string.vlm_video_call_feature_capture),
+                                            description = stringResource(R.string.vlm_video_call_feature_capture_desc)
                                         )
                                         FeatureCard(
                                             icon = "🤖",
-                                            title = "视觉理解",
-                                            description = "AI 理解你的视觉环境"
+                                            title = stringResource(R.string.vlm_video_call_feature_vision),
+                                            description = stringResource(R.string.vlm_video_call_feature_vision_desc)
                                         )
                                         FeatureCard(
                                             icon = "⚡",
-                                            title = "实时响应",
-                                            description = "流式对话体验"
+                                            title = stringResource(R.string.vlm_video_call_feature_realtime),
+                                            description = stringResource(R.string.vlm_video_call_feature_realtime_desc)
                                         )
                                     }
                                 }
@@ -458,7 +460,7 @@ fun VLMOnlyVideoCallScreen(
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = "正在录音...",
+                                        text = stringResource(R.string.vlm_video_call_recording) + "...",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color.White,
@@ -518,7 +520,7 @@ fun VLMOnlyVideoCallScreen(
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = "正在思考...",
+                                        text = stringResource(R.string.vlm_video_call_thinking_hint),
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color.White,
@@ -575,14 +577,14 @@ fun VLMOnlyVideoCallScreen(
                                     Icons.Default.VolumeUp.let { icon ->
                                         Icon(
                                             imageVector = icon,
-                                            contentDescription = "正在播放",
+                                            contentDescription = stringResource(R.string.vlm_video_call_playing),
                                             tint = Color.White,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = "正在播放...",
+                                        text = stringResource(R.string.vlm_video_call_playing) + "...",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color.White,
@@ -609,7 +611,7 @@ fun VLMOnlyVideoCallScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Error,
-                                    contentDescription = "错误",
+                                    contentDescription = stringResource(R.string.vlm_video_call_error),
                                     tint = colors.error,
                                     modifier = Modifier.size(80.dp)
                                 )
@@ -617,7 +619,7 @@ fun VLMOnlyVideoCallScreen(
                                 Spacer(modifier = Modifier.height(16.dp))
 
                                 Text(
-                                    text = "发生错误",
+                                    text = stringResource(R.string.vlm_video_call_error),
                                     fontSize = 20.sp,
                                     color = colors.textPrimary
                                 )
@@ -644,7 +646,7 @@ fun VLMOnlyVideoCallScreen(
                                         )
                                     ) {
                                         Text(
-                                            text = "重试",
+                                            text = stringResource(R.string.vlm_video_call_retry),
                                             color = Color.White
                                         )
                                     }
@@ -659,7 +661,7 @@ fun VLMOnlyVideoCallScreen(
                                         )
                                     ) {
                                         Text(
-                                            text = "关闭",
+                                            text = stringResource(R.string.vlm_video_call_close),
                                             color = Color.White
                                         )
                                     }
@@ -799,7 +801,7 @@ private fun VLMOnlyVideoCallTopBar(
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "返回",
+                        contentDescription = stringResource(R.string.cd_back),
                         tint = colors.textPrimary,
                         modifier = Modifier.size(22.dp)
                     )
@@ -809,11 +811,11 @@ private fun VLMOnlyVideoCallTopBar(
                     // 渐变标题文字 - 与AlianChat的标题样式一致
                     Text(
                         text = when (state) {
-                            is VideoCallState.Idle -> "视觉大模型视频通话"
-                            is VideoCallState.Recording -> "正在录音"
-                            is VideoCallState.Processing -> "正在思考"
-                            is VideoCallState.Playing -> "正在播放"
-                            is VideoCallState.Error -> "错误"
+                            is VideoCallState.Idle -> stringResource(R.string.vlm_video_call_title)
+                            is VideoCallState.Recording -> stringResource(R.string.vlm_video_call_recording)
+                            is VideoCallState.Processing -> stringResource(R.string.vlm_video_call_thinking)
+                            is VideoCallState.Playing -> stringResource(R.string.vlm_video_call_playing)
+                            is VideoCallState.Error -> stringResource(R.string.vlm_video_call_error)
                         },
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
@@ -821,11 +823,11 @@ private fun VLMOnlyVideoCallTopBar(
                     )
                     // 动态副标题
                     val subtitleText = when (state) {
-                        is VideoCallState.Idle -> "点击下方按钮开始"
-                        is VideoCallState.Recording -> "请说话"
-                        is VideoCallState.Processing -> "AI 正在思考中..."
-                        is VideoCallState.Playing -> "AI 正在回答"
-                        is VideoCallState.Error -> "发生错误，请重试"
+                        is VideoCallState.Idle -> stringResource(R.string.vlm_video_call_start_hint)
+                        is VideoCallState.Recording -> stringResource(R.string.vlm_video_call_speak)
+                        is VideoCallState.Processing -> stringResource(R.string.vlm_video_call_thinking_hint)
+                        is VideoCallState.Playing -> stringResource(R.string.vlm_video_call_playing_hint)
+                        is VideoCallState.Error -> stringResource(R.string.vlm_video_call_error_hint)
                     }
                     Text(
                         text = subtitleText,
@@ -854,9 +856,9 @@ private fun VLMOnlyVideoCallTopBar(
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             text = when (state) {
-                                is VideoCallState.Recording -> "录音中"
-                                is VideoCallState.Processing -> "思考中"
-                                is VideoCallState.Playing -> "播放中"
+                                is VideoCallState.Recording -> stringResource(R.string.vlm_video_call_recording_status)
+                                is VideoCallState.Processing -> stringResource(R.string.vlm_video_call_thinking_status)
+                                is VideoCallState.Playing -> stringResource(R.string.vlm_video_call_playing_status)
                                 else -> ""
                             },
                             fontSize = 12.sp,
@@ -864,7 +866,7 @@ private fun VLMOnlyVideoCallTopBar(
                             color = stateColor
                         )
                         Text(
-                            text = "已捕获 $imageHistorySize/$maxImageHistorySize 帧",
+                            text = stringResource(R.string.vlm_video_call_frames_captured, imageHistorySize, maxImageHistorySize),
                             fontSize = 10.sp,
                             color = colors.textSecondary
                         )
@@ -934,7 +936,7 @@ private fun VLMOnlyVideoCallControlBar(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Phone,
-                            contentDescription = "开始通话",
+                            contentDescription = stringResource(R.string.video_call_start),
                             tint = Color.White,
                             modifier = Modifier.size(32.dp)
                         )
@@ -981,7 +983,7 @@ private fun VLMOnlyVideoCallControlBar(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CallEnd,
-                            contentDescription = "挂断",
+                            contentDescription = stringResource(R.string.video_call_end),
                             tint = Color.White,
                             modifier = Modifier.size(32.dp)
                         )

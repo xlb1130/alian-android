@@ -41,6 +41,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziColors
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import kotlin.math.PI
@@ -108,7 +110,7 @@ fun AlianLoginScreen(
         ) {
             Icon(
                 imageVector = Icons.Default.KeyboardArrowLeft,
-                contentDescription = "返回",
+                contentDescription = stringResource(R.string.login_back),
                 tint = colors.textPrimary,
                 modifier = Modifier
                     .fillMaxSize()
@@ -142,7 +144,7 @@ fun AlianLoginScreen(
 
             // 副标题 - 更柔和
             Text(
-                text = "欢迎回来，请登录您的账号",
+                text = stringResource(R.string.login_welcome_back),
                 fontSize = 15.sp,
                 color = colors.textSecondary,
                 fontWeight = FontWeight.Normal,
@@ -155,7 +157,7 @@ fun AlianLoginScreen(
             AnimatedInputField(
                 value = email,
                 onValueChange = onEmailChange,
-                label = "邮箱地址",
+                label = stringResource(R.string.login_email_label),
                 leadingIcon = Icons.Default.Email,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 modifier = Modifier.fillMaxWidth(),
@@ -172,7 +174,7 @@ fun AlianLoginScreen(
                     onPasswordChange(it)
                     performLightHaptic(context)
                 },
-                label = "密码",
+                label = stringResource(R.string.login_password_label),
                 leadingIcon = Icons.Default.Lock,
                 trailingIcon = {
                     IconButton(
@@ -184,7 +186,7 @@ fun AlianLoginScreen(
                     ) {
                         Icon(
                             imageVector = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                            contentDescription = if (passwordVisible) stringResource(R.string.login_hide_password) else stringResource(R.string.login_show_password),
                             tint = colors.textSecondary
                         )
                     }
@@ -203,7 +205,7 @@ fun AlianLoginScreen(
                 horizontalArrangement = Arrangement.End
             ) {
                 Text(
-                    text = "忘记密码？",
+                    text = stringResource(R.string.login_forgot_password),
                     fontSize = 14.sp,
                     color = colors.primary,
                     fontWeight = FontWeight.SemiBold,
@@ -256,7 +258,7 @@ fun AlianLoginScreen(
 
             // 登录按钮 - 增强交互反馈
             ModernLoginButton(
-                text = "登录",
+                text = stringResource(R.string.login_button),
                 isLoading = isLoading,
                 enabled = email.isNotBlank() && password.isNotBlank(),
                 onClick = {
@@ -281,7 +283,7 @@ fun AlianLoginScreen(
                     thickness = 1.dp
                 )
                 Text(
-                    text = "或",
+                    text = stringResource(R.string.login_or),
                     modifier = Modifier.padding(horizontal = 16.dp),
                     fontSize = 13.sp,
                     color = colors.textSecondary,
@@ -308,14 +310,14 @@ fun AlianLoginScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "还没有账号？",
+                    text = stringResource(R.string.login_no_account),
                     fontSize = 14.sp,
                     color = colors.textSecondary,
                     fontWeight = FontWeight.Normal
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "立即注册",
+                    text = stringResource(R.string.login_register_now),
                     fontSize = 14.sp,
                     color = colors.primary,
                     fontWeight = FontWeight.Bold,
@@ -618,7 +620,7 @@ private fun ModernLoginButton(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "登录中...",
+                    text = stringResource(R.string.login_loading),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,

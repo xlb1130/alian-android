@@ -1,5 +1,6 @@
 package com.alian.assistant.presentation.ui.screens.online
 
+import android.content.Context
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ExitToApp
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.screens.components.MenuItem
 import com.alian.assistant.presentation.ui.theme.BaoziColors
 
@@ -19,6 +21,7 @@ import com.alian.assistant.presentation.ui.theme.BaoziColors
  * @param useBackend 是否使用 Backend 模式
  * @param isLoggedIn 是否已登录
  * @param colors 主题颜色
+ * @param context Context 用于获取字符串资源
  * @param onVideoCall 视频通话回调
  * @param onVoiceCall 语音通话回调
  * @param onPhoneCall 手机通话回调
@@ -32,6 +35,7 @@ fun buildAlianChatMenuItems(
     useBackend: Boolean,
     isLoggedIn: Boolean,
     colors: BaoziColors,
+    context: Context,
     onVideoCall: () -> Unit,
     onVoiceCall: () -> Unit,
     onPhoneCall: () -> Unit = {},
@@ -43,21 +47,21 @@ fun buildAlianChatMenuItems(
         val items = mutableListOf<MenuItem>()
         
         items.add(MenuItem(
-            text = "视频通话",
+            text = context.getString(R.string.call_video),
             icon = Icons.Default.Videocam,
             iconColor = Color(0xFF6366F1),
             onClick = onVideoCall
         ))
         
         items.add(MenuItem(
-            text = "语音通话",
+            text = context.getString(R.string.call_voice),
             icon = Icons.Default.Phone,
             iconColor = Color(0xFF10B981),
             onClick = onVoiceCall
         ))
         
         items.add(MenuItem(
-            text = "手机通话",
+            text = context.getString(R.string.call_phone),
             icon = Icons.Default.PhoneAndroid,
             iconColor = Color(0xFF8B5CF6),
             onClick = onPhoneCall
@@ -65,7 +69,7 @@ fun buildAlianChatMenuItems(
         
         if (useBackend && isLoggedIn) {
             items.add(MenuItem(
-                text = "创建新会话",
+                text = context.getString(R.string.menu_new_session),
                 icon = Icons.Default.Add,
                 iconColor = colors.primary,
                 onClick = onCreateNewSession
@@ -73,14 +77,14 @@ fun buildAlianChatMenuItems(
         }
         
         items.add(MenuItem(
-            text = "设置",
+            text = context.getString(R.string.menu_settings),
             icon = Icons.Default.Settings,
             iconColor = colors.secondary,
             onClick = onNavigateToSettings
         ))
         
         items.add(MenuItem(
-            text = "登出",
+            text = context.getString(R.string.menu_logout),
             icon = Icons.Default.ExitToApp,
             iconColor = colors.error,
             onClick = onLogout

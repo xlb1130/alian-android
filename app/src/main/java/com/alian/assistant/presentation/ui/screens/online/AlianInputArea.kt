@@ -49,7 +49,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import com.alian.assistant.R
 import com.alian.assistant.core.alian.backend.BackendChatClient
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -289,7 +291,7 @@ fun AlianInputArea(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Stop,
-                            contentDescription = "停止",
+                            contentDescription = stringResource(R.string.cd_stop),
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
                         )
@@ -317,7 +319,7 @@ fun AlianInputArea(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Keyboard,
-                        contentDescription = "切换到键盘输入",
+                        contentDescription = stringResource(R.string.voice_switch_keyboard),
                         tint = colors.textPrimary,
                         modifier = Modifier.size(20.dp)
                     )
@@ -523,7 +525,10 @@ fun AlianInputArea(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Mic,
-                        contentDescription = if (isRecording) "正在录音" else "按住说话",
+                        contentDescription = stringResource(
+                            if (isRecording) R.string.voice_recording 
+                            else R.string.voice_hold_to_speak
+                        ),
                         tint = when {
                             isProcessing -> colors.textSecondary
                             isRecording -> colors.primary
@@ -535,7 +540,13 @@ fun AlianInputArea(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isProcessing) "处理中..." else if (isRecording) "松开发送" else "按住说话",
+                        text = stringResource(
+                            when {
+                                isProcessing -> R.string.voice_processing
+                                isRecording -> R.string.voice_release_to_send
+                                else -> R.string.voice_hold_to_speak
+                            }
+                        ),
                         color = when {
                             isProcessing -> colors.textSecondary
                             isRecording -> colors.primary
@@ -640,11 +651,11 @@ fun AlianInputArea(
                                     Icon(Icons.Default.Mic, contentDescription = null, tint = colors.primary)
                                 },
                                 title = {
-                                    Text("需要录音权限", color = colors.textPrimary)
+                                    Text(stringResource(R.string.voice_permission_title), color = colors.textPrimary)
                                 },
                                 text = {
                                     Text(
-                                        "语音输入功能需要录音权限才能正常工作。",
+                                        stringResource(R.string.voice_permission_desc),
                                         color = colors.textSecondary
                                     )
                                 },
@@ -656,7 +667,7 @@ fun AlianInputArea(
                                             onVoiceInputModeChanged?.let { it(true) }
                                         }
                                     ) {
-                                        Text("去授权", color = colors.primary)
+                                        Text(stringResource(R.string.voice_go_authorize), color = colors.primary)
                                     }
                                 },
                                 dismissButton = {
@@ -666,7 +677,7 @@ fun AlianInputArea(
                                             pendingVoiceInputMode = false
                                         }
                                     ) {
-                                        Text("取消", color = colors.textSecondary)
+                                        Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                                     }
                                 }
                             )
@@ -700,7 +711,10 @@ fun AlianInputArea(
                         ) {
                             Icon(
                                 imageVector = if (isVoiceInputMode) Icons.Default.Keyboard else Icons.Default.Mic,
-                                contentDescription = if (isVoiceInputMode) "切换到键盘输入" else "切换到语音输入",
+                                contentDescription = stringResource(
+                                    if (isVoiceInputMode) R.string.voice_switch_keyboard 
+                                    else R.string.voice_switch_voice
+                                ),
                                 tint = colors.textPrimary,
                                 modifier = Modifier.size(16.dp)
                             )
@@ -731,7 +745,10 @@ fun AlianInputArea(
                                         label = "placeholderAlpha"
                                     )
                                     Text(
-                                        text = if (isProcessing) "处理中..." else "说点什么吧...",
+                                        text = stringResource(
+                                            if (isProcessing) R.string.voice_processing 
+                                            else R.string.voice_say_something
+                                        ),
                                         color = colors.textHint.copy(alpha = placeholderAlpha),
                                         fontSize = 15.sp
                                     )
@@ -788,7 +805,7 @@ fun AlianInputArea(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Stop,
-                                    contentDescription = "停止",
+                                    contentDescription = stringResource(R.string.cd_stop),
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -814,7 +831,7 @@ fun AlianInputArea(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Send,
-                                contentDescription = "发送",
+                                contentDescription = stringResource(R.string.cd_send),
                                 tint = if (inputText.isNotBlank()) colors.primary else colors.textSecondary,
                                 modifier = Modifier.size(16.dp)
                             )

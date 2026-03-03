@@ -23,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.presentation.viewmodel.VoiceCallState
 import com.alian.assistant.presentation.viewmodel.VoiceCallViewModel
@@ -226,14 +228,14 @@ fun VoiceCallScreen(
 
                                 // 提示文本
                                 Text(
-                                    text = "语音通话",
+                                    text = stringResource(R.string.voice_call_title),
                                     fontSize = 28.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = colors.textPrimary
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = "点击下方按钮开始",
+                                    text = stringResource(R.string.voice_call_start_hint),
                                     fontSize = 15.sp,
                                     color = colors.textSecondary
                                 )
@@ -262,7 +264,7 @@ fun VoiceCallScreen(
                                 // 状态图标
                                 Icon(
                                     imageVector = Icons.Default.Mic,
-                                    contentDescription = "录音中",
+                                    contentDescription = stringResource(R.string.voice_call_recording),
                                     tint = stateColor,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -271,14 +273,14 @@ fun VoiceCallScreen(
 
                                 // 状态文本
                                 Text(
-                                    text = "正在录音",
+                                    text = stringResource(R.string.voice_call_recording),
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.textPrimary
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "请说话",
+                                    text = stringResource(R.string.voice_call_speak),
                                     fontSize = 15.sp,
                                     color = colors.textSecondary
                                 )
@@ -304,7 +306,7 @@ fun VoiceCallScreen(
 
                                 // 状态文本
                                 Text(
-                                    text = "正在思考",
+                                    text = stringResource(R.string.voice_call_thinking),
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.textPrimary
@@ -334,7 +336,7 @@ fun VoiceCallScreen(
                                 // 状态图标
                                 Icon(
                                     imageVector = Icons.Default.VolumeUp,
-                                    contentDescription = "播放中",
+                                    contentDescription = stringResource(R.string.voice_call_playing),
                                     tint = stateColor,
                                     modifier = Modifier.size(32.dp)
                                 )
@@ -343,7 +345,7 @@ fun VoiceCallScreen(
 
                                 // 状态文本
                                 Text(
-                                    text = "正在播放",
+                                    text = stringResource(R.string.voice_call_playing),
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.textPrimary
@@ -361,7 +363,7 @@ fun VoiceCallScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Error,
-                                    contentDescription = "错误",
+                                    contentDescription = stringResource(R.string.voice_call_error),
                                     tint = colors.error,
                                     modifier = Modifier.size(72.dp)
                                 )
@@ -369,7 +371,7 @@ fun VoiceCallScreen(
                                 Spacer(modifier = Modifier.height(20.dp))
 
                                 Text(
-                                    text = "发生错误",
+                                    text = stringResource(R.string.voice_call_error),
                                     fontSize = 22.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = colors.textPrimary
@@ -399,7 +401,7 @@ fun VoiceCallScreen(
                                     )
                                 ) {
                                     Text(
-                                        text = "重试",
+                                        text = stringResource(R.string.voice_call_retry),
                                         color = Color.White,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Medium

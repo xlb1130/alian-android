@@ -74,6 +74,7 @@ import com.alian.assistant.data.model.SpeechProviderCredentials
 import com.alian.assistant.data.model.SpeechModels
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.common.utils.AccessibilityUtils
+import com.alian.assistant.common.utils.LanguageManager
 import com.alian.assistant.common.utils.PermissionManager
 import com.alian.assistant.data.UserSkillsManager
 import com.alian.assistant.common.utils.PermissionType
@@ -112,6 +113,10 @@ class MainActivity : ComponentActivity() {
 
     private val mobileAgent = mutableStateOf<Agent?>(null)
     private var shizukuAvailable = mutableStateOf(false)
+
+    override fun attachBaseContext(newBase: Context?) {
+        super.attachBaseContext(LanguageManager.applyLanguage(newBase))
+    }
 
 
     // 执行记录列表
@@ -677,6 +682,7 @@ class MainActivity : ComponentActivity() {
 
                 // 使用 PermissionManager 获取执行提示信息
                 val promptInfo = PermissionManager.getExecutionPromptInfo(
+                    context = this@MainActivity,
                     executionStrategy = settings.executionStrategy,
                     shizukuAvailable = isShizukuAvailable,
                     accessibilityEnabled = AccessibilityUtils.isAccessibilityServiceEnabled(this@MainActivity),

@@ -17,10 +17,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
-import com.alian.assistant.common.utils.PermissionManager.getPermissionDetailedDescription
-import com.alian.assistant.common.utils.PermissionManager.getPermissionDialogTitle
 import rikka.shizuku.Shizuku
 
 /**
@@ -72,36 +73,38 @@ object PermissionManager {
     /**
      * 获取权限的详细用途描述（用于引导对话框）
      * 
+     * @param context Context
      * @param type 权限类型
      * @return 详细描述文本
      */
-    fun getPermissionDetailedDescription(type: PermissionType): String {
+    fun getPermissionDetailedDescription(context: Context, type: PermissionType): String {
         return when (type) {
-            PermissionType.RECORD_AUDIO -> "语音输入和语音通话功能需要录音权限才能正常工作。"
-            PermissionType.CAMERA -> "视频通话功能需要相机权限才能正常工作。"
-            PermissionType.POST_NOTIFICATIONS -> "显示后台运行通知，防止应用被系统回收。"
-            PermissionType.SYSTEM_ALERT_WINDOW -> "悬浮窗界面需要悬浮窗权限才能正常显示。"
-            PermissionType.ACCESSIBILITY_SERVICE -> "自动化功能需要无障碍服务权限才能控制其他应用。"
-            PermissionType.MEDIA_PROJECTION -> "自动化功能需要屏幕录制权限才能截取屏幕内容进行视觉识别。\n\n注意：此权限仅用于截图，不会录制视频或音频。"
-            PermissionType.SHIZUKU -> "Shizuku 是一个高效的设备控制工具，需要安装并授权 Shizuku App。\n\n授权方式：\n1. 确保已安装 Shizuku App\n2. 通过 ADB 授权（推荐）或 Root 授权\n3. 在 Shizuku App 中授予艾莲权限"
+            PermissionType.RECORD_AUDIO -> context.getString(R.string.permission_desc_record_audio)
+            PermissionType.CAMERA -> context.getString(R.string.permission_desc_camera)
+            PermissionType.POST_NOTIFICATIONS -> context.getString(R.string.permission_desc_post_notifications)
+            PermissionType.SYSTEM_ALERT_WINDOW -> context.getString(R.string.permission_desc_system_alert_window)
+            PermissionType.ACCESSIBILITY_SERVICE -> context.getString(R.string.permission_desc_accessibility_service)
+            PermissionType.MEDIA_PROJECTION -> context.getString(R.string.permission_desc_media_projection)
+            PermissionType.SHIZUKU -> context.getString(R.string.permission_desc_shizuku)
         }
     }
 
     /**
      * 获取权限引导对话框的标题
      * 
+     * @param context Context
      * @param type 权限类型
      * @return 对话框标题
      */
-    fun getPermissionDialogTitle(type: PermissionType): String {
+    fun getPermissionDialogTitle(context: Context, type: PermissionType): String {
         return when (type) {
-            PermissionType.RECORD_AUDIO -> "需要录音权限"
-            PermissionType.CAMERA -> "需要相机权限"
-            PermissionType.POST_NOTIFICATIONS -> "需要通知权限"
-            PermissionType.SYSTEM_ALERT_WINDOW -> "需要悬浮窗权限"
-            PermissionType.ACCESSIBILITY_SERVICE -> "需要无障碍服务权限"
-            PermissionType.MEDIA_PROJECTION -> "需要屏幕录制权限"
-            PermissionType.SHIZUKU -> "需要 Shizuku 权限"
+            PermissionType.RECORD_AUDIO -> context.getString(R.string.permission_title_record_audio)
+            PermissionType.CAMERA -> context.getString(R.string.permission_title_camera)
+            PermissionType.POST_NOTIFICATIONS -> context.getString(R.string.permission_title_post_notifications)
+            PermissionType.SYSTEM_ALERT_WINDOW -> context.getString(R.string.permission_title_system_alert_window)
+            PermissionType.ACCESSIBILITY_SERVICE -> context.getString(R.string.permission_title_accessibility_service)
+            PermissionType.MEDIA_PROJECTION -> context.getString(R.string.permission_title_media_projection)
+            PermissionType.SHIZUKU -> context.getString(R.string.permission_title_shizuku)
         }
     }
 
@@ -408,30 +411,30 @@ object PermissionManager {
     /**
      * 获取权限的用途描述
      */
-    fun getPermissionDescription(type: PermissionType): String {
+    fun getPermissionDescription(context: Context, type: PermissionType): String {
         return when (type) {
-            PermissionType.RECORD_AUDIO -> "用于语音输入和语音通话功能"
-            PermissionType.CAMERA -> "用于视频通话功能"
-            PermissionType.POST_NOTIFICATIONS -> "用于显示后台运行通知，防止应用被系统回收"
-            PermissionType.SYSTEM_ALERT_WINDOW -> "用于显示悬浮窗界面"
-            PermissionType.ACCESSIBILITY_SERVICE -> "用于自动化操作和控制其他应用"
-            PermissionType.MEDIA_PROJECTION -> "用于屏幕截图和录制功能"
-            PermissionType.SHIZUKU -> "用于更高效的设备控制（需要安装 Shizuku App）"
+            PermissionType.RECORD_AUDIO -> context.getString(R.string.permission_desc_record_audio)
+            PermissionType.CAMERA -> context.getString(R.string.permission_desc_camera)
+            PermissionType.POST_NOTIFICATIONS -> context.getString(R.string.permission_desc_post_notifications)
+            PermissionType.SYSTEM_ALERT_WINDOW -> context.getString(R.string.permission_desc_system_alert_window)
+            PermissionType.ACCESSIBILITY_SERVICE -> context.getString(R.string.permission_desc_accessibility_service)
+            PermissionType.MEDIA_PROJECTION -> context.getString(R.string.permission_desc_media_projection)
+            PermissionType.SHIZUKU -> context.getString(R.string.permission_desc_shizuku)
         }
     }
 
     /**
      * 获取权限的名称
      */
-    fun getPermissionName(type: PermissionType): String {
+    fun getPermissionName(context: Context, type: PermissionType): String {
         return when (type) {
-            PermissionType.RECORD_AUDIO -> "录音权限"
-            PermissionType.CAMERA -> "相机权限"
-            PermissionType.POST_NOTIFICATIONS -> "通知权限"
-            PermissionType.SYSTEM_ALERT_WINDOW -> "悬浮窗权限"
-            PermissionType.ACCESSIBILITY_SERVICE -> "无障碍服务"
-            PermissionType.MEDIA_PROJECTION -> "屏幕录制权限"
-            PermissionType.SHIZUKU -> "Shizuku 权限"
+            PermissionType.RECORD_AUDIO -> context.getString(R.string.permission_name_record_audio)
+            PermissionType.CAMERA -> context.getString(R.string.permission_name_camera)
+            PermissionType.POST_NOTIFICATIONS -> context.getString(R.string.permission_name_post_notifications)
+            PermissionType.SYSTEM_ALERT_WINDOW -> context.getString(R.string.permission_name_system_alert_window)
+            PermissionType.ACCESSIBILITY_SERVICE -> context.getString(R.string.permission_name_accessibility_service)
+            PermissionType.MEDIA_PROJECTION -> context.getString(R.string.permission_name_media_projection)
+            PermissionType.SHIZUKU -> context.getString(R.string.permission_name_shizuku)
         }
     }
 
@@ -477,6 +480,7 @@ object PermissionManager {
     /**
      * 根据执行策略和权限状态获取执行提示信息
      * 
+     * @param context Context
      * @param executionStrategy 执行策略
      * @param shizukuAvailable Shizuku 是否可用
      * @param accessibilityEnabled 无障碍服务是否已启用
@@ -484,6 +488,7 @@ object PermissionManager {
      * @return 执行提示信息
      */
     fun getExecutionPromptInfo(
+        context: Context,
         executionStrategy: String,
         shizukuAvailable: Boolean,
         accessibilityEnabled: Boolean,
@@ -497,14 +502,14 @@ object PermissionManager {
             "shizuku_only" -> {
                 when {
                     !shizukuAvailable -> ExecutionPromptInfo(
-                        title = "需要连接 Shizuku",
-                        description = "请先连接 Shizuku",
+                        title = context.getString(R.string.execution_prompt_shizuku_title),
+                        description = context.getString(R.string.execution_prompt_shizuku_desc),
                         showRefreshButton = true,
                         canExecute = false
                     )
                     else -> ExecutionPromptInfo(
-                        title = "准备就绪",
-                        description = "告诉我你想做什么",
+                        title = context.getString(R.string.execution_prompt_ready_title),
+                        description = context.getString(R.string.execution_prompt_ready_desc),
                         showRefreshButton = false,
                         canExecute = true
                     )
@@ -513,20 +518,20 @@ object PermissionManager {
             "accessibility_only" -> {
                 when {
                     !accessibilityEnabled -> ExecutionPromptInfo(
-                        title = "需要无障碍服务",
-                        description = "请先启用无障碍服务",
+                        title = context.getString(R.string.execution_prompt_accessibility_title),
+                        description = context.getString(R.string.execution_prompt_accessibility_desc),
                         showRefreshButton = false,
                         canExecute = false
                     )
                     !needsMediaProjectionPermission(executionStrategy) || mediaProjectionAvailable -> ExecutionPromptInfo(
-                        title = "准备就绪",
-                        description = "告诉我你想做什么",
+                        title = context.getString(R.string.execution_prompt_ready_title),
+                        description = context.getString(R.string.execution_prompt_ready_desc),
                         showRefreshButton = false,
                         canExecute = true
                     )
                     else -> ExecutionPromptInfo(
-                        title = "需要屏幕录制权限",
-                        description = "请先授予屏幕录制权限",
+                        title = context.getString(R.string.execution_prompt_media_projection_title),
+                        description = context.getString(R.string.execution_prompt_media_projection_desc),
                         showRefreshButton = false,
                         canExecute = false
                     )
@@ -535,32 +540,32 @@ object PermissionManager {
             "hybrid" -> {
                 when {
                     !shizukuAvailable && !accessibilityEnabled -> ExecutionPromptInfo(
-                        title = "需要连接 Shizuku 或无障碍服务",
-                        description = "请先连接 Shizuku 或启用无障碍服务",
+                        title = context.getString(R.string.execution_prompt_shizuku_or_accessibility_title),
+                        description = context.getString(R.string.execution_prompt_shizuku_or_accessibility_desc),
                         showRefreshButton = true,
                         canExecute = false
                     )
                     !shizukuAvailable -> ExecutionPromptInfo(
-                        title = "Shizuku 不可用",
-                        description = "已降级到无障碍模式",
+                        title = context.getString(R.string.execution_prompt_shizuku_unavailable_title),
+                        description = context.getString(R.string.execution_prompt_shizuku_unavailable_desc),
                         showRefreshButton = true,
                         canExecute = accessibilityEnabled
                     )
                     !accessibilityEnabled -> ExecutionPromptInfo(
-                        title = "需要无障碍服务",
-                        description = "请先启用无障碍服务",
+                        title = context.getString(R.string.execution_prompt_accessibility_title),
+                        description = context.getString(R.string.execution_prompt_accessibility_desc),
                         showRefreshButton = false,
                         canExecute = false
                     )
                     needsMediaProjectionPermission(executionStrategy) && !mediaProjectionAvailable -> ExecutionPromptInfo(
-                        title = "需要屏幕录制权限",
-                        description = "请先授予屏幕录制权限",
+                        title = context.getString(R.string.execution_prompt_media_projection_title),
+                        description = context.getString(R.string.execution_prompt_media_projection_desc),
                         showRefreshButton = false,
                         canExecute = false
                     )
                     else -> ExecutionPromptInfo(
-                        title = "准备就绪",
-                        description = "告诉我你想做什么",
+                        title = context.getString(R.string.execution_prompt_ready_title),
+                        description = context.getString(R.string.execution_prompt_ready_desc),
                         showRefreshButton = false,
                         canExecute = true
                     )
@@ -569,40 +574,40 @@ object PermissionManager {
             "auto" -> {
                 when {
                     !shizukuAvailable && !accessibilityEnabled -> ExecutionPromptInfo(
-                        title = "需要连接 Shizuku 或无障碍服务",
-                        description = "请先连接 Shizuku 或启用无障碍服务",
+                        title = context.getString(R.string.execution_prompt_shizuku_or_accessibility_title),
+                        description = context.getString(R.string.execution_prompt_shizuku_or_accessibility_desc),
                         showRefreshButton = true,
                         canExecute = false
                     )
                     !shizukuAvailable -> ExecutionPromptInfo(
-                        title = "Shizuku 不可用",
-                        description = "已降级到无障碍模式",
+                        title = context.getString(R.string.execution_prompt_shizuku_unavailable_title),
+                        description = context.getString(R.string.execution_prompt_shizuku_unavailable_desc),
                         showRefreshButton = true,
                         canExecute = accessibilityEnabled
                     )
                     !accessibilityEnabled -> ExecutionPromptInfo(
-                        title = "需要无障碍服务",
-                        description = "请先启用无障碍服务",
+                        title = context.getString(R.string.execution_prompt_accessibility_title),
+                        description = context.getString(R.string.execution_prompt_accessibility_desc),
                         showRefreshButton = false,
                         canExecute = false
                     )
                     needsMediaProjectionPermission(executionStrategy) && !mediaProjectionAvailable -> ExecutionPromptInfo(
-                        title = "需要屏幕录制权限",
-                        description = "请先授予屏幕录制权限",
+                        title = context.getString(R.string.execution_prompt_media_projection_title),
+                        description = context.getString(R.string.execution_prompt_media_projection_desc),
                         showRefreshButton = false,
                         canExecute = false
                     )
                     else -> ExecutionPromptInfo(
-                        title = "准备就绪",
-                        description = "告诉我你想做什么",
+                        title = context.getString(R.string.execution_prompt_ready_title),
+                        description = context.getString(R.string.execution_prompt_ready_desc),
                         showRefreshButton = false,
                         canExecute = true
                     )
                 }
             }
             else -> ExecutionPromptInfo(
-                title = "准备就绪",
-                description = "告诉我你想做什么",
+                title = context.getString(R.string.execution_prompt_ready_title),
+                description = context.getString(R.string.execution_prompt_ready_desc),
                 showRefreshButton = false,
                 canExecute = true
             )
@@ -692,6 +697,7 @@ fun PermissionDialog(
     if (!showDialog) return
 
     val colors = BaoziTheme.colors
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -706,14 +712,14 @@ fun PermissionDialog(
         },
         title = {
             Text(
-                text = getPermissionDialogTitle(permissionType),
+                text = PermissionManager.getPermissionDialogTitle(context, permissionType),
                 color = colors.textPrimary
             )
         },
         text = {
             Column {
                 Text(
-                    text = getPermissionDetailedDescription(permissionType),
+                    text = PermissionManager.getPermissionDetailedDescription(context, permissionType),
                     color = colors.textSecondary
                 )
             }
@@ -726,7 +732,7 @@ fun PermissionDialog(
                 }
             ) {
                 Text(
-                    text = "去授权",
+                    text = stringResource(R.string.permission_go_authorize),
                     color = colors.primary
                 )
             }
@@ -736,7 +742,7 @@ fun PermissionDialog(
                 onClick = onDismiss
             ) {
                 Text(
-                    text = "取消",
+                    text = stringResource(R.string.btn_cancel),
                     color = colors.textSecondary
                 )
             }

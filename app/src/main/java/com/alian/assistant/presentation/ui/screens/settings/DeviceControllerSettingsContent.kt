@@ -17,7 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.alian.assistant.R
 import com.alian.assistant.data.AppSettings
 import com.alian.assistant.presentation.ui.screens.components.HapticUtils.performLightHaptic
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
@@ -119,17 +121,17 @@ fun DeviceControllerSettingsContent(
                 Icon(Icons.Default.Warning, contentDescription = null, tint = colors.warning)
             },
             title = {
-                Text("需要无障碍服务权限", color = colors.textPrimary)
+                Text(stringResource(R.string.device_accessibility_required_title), color = colors.textPrimary)
             },
             text = {
                 Column {
                     Text(
-                        "您选择的执行策略需要启用无障碍服务才能正常工作。",
+                        stringResource(R.string.device_accessibility_required_desc),
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "请前往系统设置中开启「艾莲」无障碍服务。",
+                        stringResource(R.string.device_accessibility_required_hint),
                         color = colors.textSecondary
                     )
                 }
@@ -141,7 +143,7 @@ fun DeviceControllerSettingsContent(
                         AccessibilityUtils.openAccessibilitySettings(context)
                     }
                 ) {
-                    Text("去设置", color = colors.primary)
+                    Text(stringResource(R.string.settings_show), color = colors.primary)
                 }
             },
             dismissButton = {
@@ -151,7 +153,7 @@ fun DeviceControllerSettingsContent(
                         pendingExecutionStrategy = null
                     }
                 ) {
-                    Text("取消", color = colors.textSecondary)
+                    Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
                 }
             }
         )
@@ -168,17 +170,17 @@ fun DeviceControllerSettingsContent(
                 Icon(Icons.Default.Tune, contentDescription = null, tint = colors.primary)
             },
             title = {
-                Text("需要屏幕录制权限", color = colors.textPrimary)
+                Text(stringResource(R.string.device_mediaprojection_required_title), color = colors.textPrimary)
             },
             text = {
                 Column {
                     Text(
-                        "您选择的执行策略需要屏幕录制权限才能进行截图操作。",
+                        stringResource(R.string.device_mediaprojection_required_desc),
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "授予此权限后，无障碍控制器可以截取屏幕内容以进行视觉识别。",
+                        stringResource(R.string.device_mediaprojection_required_hint),
                         color = colors.textSecondary
                     )
                 }
@@ -194,7 +196,7 @@ fun DeviceControllerSettingsContent(
                         onRequestMediaProjectionPermission()
                     }
                 ) {
-                    Text("去授权", color = colors.primary)
+                    Text(stringResource(R.string.device_go_authorize), color = colors.primary)
                 }
             },
             dismissButton = {
@@ -204,7 +206,7 @@ fun DeviceControllerSettingsContent(
                         pendingExecutionStrategy = null
                     }
                 ) {
-                    Text("稍后", color = colors.textSecondary)
+                    Text(stringResource(R.string.device_later), color = colors.textSecondary)
                 }
             }
         )
@@ -221,22 +223,22 @@ fun DeviceControllerSettingsContent(
                 Icon(Icons.Default.Tune, contentDescription = null, tint = colors.primary)
             },
             title = {
-                Text("需要 Shizuku 权限", color = colors.textPrimary)
+                Text(stringResource(R.string.device_shizuku_required_title), color = colors.textPrimary)
             },
             text = {
                 Column {
                     Text(
-                        "您选择的执行策略需要 Shizuku 权限才能正常工作。",
+                        stringResource(R.string.device_shizuku_required_desc),
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Shizuku 是一个高效的设备控制工具，需要您安装并授权 Shizuku App。",
+                        stringResource(R.string.device_shizuku_required_hint),
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "授权方式：\n1. 确保已安装 Shizuku App\n2. 通过 ADB 授权（推荐）或 Root 授权\n3. 在 Shizuku App 中授予艾莲权限",
+                        stringResource(R.string.device_shizuku_required_steps),
                         color = colors.textSecondary
                     )
                 }
@@ -267,7 +269,7 @@ fun DeviceControllerSettingsContent(
                         }
                     }
                 ) {
-                    Text("去授权", color = colors.primary)
+                    Text(stringResource(R.string.device_go_authorize), color = colors.primary)
                 }
             },
             dismissButton = {
@@ -283,7 +285,7 @@ fun DeviceControllerSettingsContent(
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("授权引导", color = colors.primary)
+                        Text(stringResource(R.string.device_authorize_guide), color = colors.primary)
                     }
                     // 稍后按钮
                     TextButton(
@@ -293,7 +295,7 @@ fun DeviceControllerSettingsContent(
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("稍后", color = colors.textSecondary)
+                        Text(stringResource(R.string.device_later), color = colors.textSecondary)
                     }
                 }
             }
@@ -315,13 +317,13 @@ fun DeviceControllerSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "执行策略",
+                    text = stringResource(R.string.device_execution_strategy),
                     style = MaterialTheme.typography.titleMedium,
                     color = colors.textPrimary
                 )
                 
                 Text(
-                    text = "选择设备控制器的执行方式",
+                    text = stringResource(R.string.device_execution_strategy_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary
                 )
@@ -330,10 +332,10 @@ fun DeviceControllerSettingsContent(
                 
                 // 执行策略选择
                 val executionStrategies = listOf(
-                    "自动" to "auto",
-                    "仅 Shizuku" to "shizuku_only",
-                    "仅无障碍" to "accessibility_only",
-                    "混合模式" to "hybrid"
+                    stringResource(R.string.device_strategy_auto) to "auto",
+                    stringResource(R.string.device_strategy_shizuku_only) to "shizuku_only",
+                    stringResource(R.string.device_strategy_accessibility_only) to "accessibility_only",
+                    stringResource(R.string.device_strategy_hybrid) to "hybrid"
                 )
 
                 executionStrategies.forEach { (label, value) ->
@@ -376,7 +378,7 @@ fun DeviceControllerSettingsContent(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "无障碍服务未启用，请前往设置开启",
+                            text = stringResource(R.string.device_accessibility_not_enabled),
                             style = MaterialTheme.typography.bodySmall,
                             color = colors.warning
                         )
@@ -394,13 +396,13 @@ fun DeviceControllerSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "降级策略",
+                    text = stringResource(R.string.device_fallback_strategy),
                     style = MaterialTheme.typography.titleMedium,
                     color = colors.textPrimary
                 )
                 
                 Text(
-                    text = "当首选方式不可用时的降级方式",
+                    text = stringResource(R.string.device_fallback_strategy_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary
                 )
@@ -409,9 +411,9 @@ fun DeviceControllerSettingsContent(
                 
                 // 降级策略选择
                 val fallbackStrategies = listOf(
-                    "自动" to "auto",
-                    "优先 Shizuku" to "shizuku_first",
-                    "优先无障碍" to "accessibility_first"
+                    stringResource(R.string.device_fallback_auto) to "auto",
+                    stringResource(R.string.device_fallback_shizuku_first) to "shizuku_first",
+                    stringResource(R.string.device_fallback_accessibility_first) to "accessibility_first"
                 )
                 
                 fallbackStrategies.forEach { (label, value) ->
@@ -446,15 +448,15 @@ fun DeviceControllerSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "性能设置",
+                    text = stringResource(R.string.device_performance_settings),
                     style = MaterialTheme.typography.titleMedium,
                     color = colors.textPrimary
                 )
                 
                 // 截图缓存
                 SettingsSwitch(
-                    title = "截图缓存",
-                    description = "启用截图缓存以提升性能",
+                    title = stringResource(R.string.device_screenshot_cache),
+                    description = stringResource(R.string.device_screenshot_cache_desc),
                     checked = settings.screenshotCacheEnabled,
                     onCheckedChange = onUpdateScreenshotCacheEnabled
                 )
@@ -464,14 +466,14 @@ fun DeviceControllerSettingsContent(
 
                 SettingsItem(
                     icon = Icons.Default.Tune,
-                    title = "手势延迟",
-                    subtitle = "${settings.gestureDelayMs} ms",
+                    title = stringResource(R.string.device_gesture_delay),
+                    subtitle = stringResource(R.string.dialog_unit_ms, settings.gestureDelayMs),
                     onClick = { showGestureDelayDialog = true }
                 )
                 
                 if (showGestureDelayDialog) {
                     DelayInputDialog(
-                        title = "手势延迟",
+                        title = stringResource(R.string.device_gesture_delay),
                         currentValue = settings.gestureDelayMs,
                         range = 0..1000,
                         unit = "ms",
@@ -485,14 +487,14 @@ fun DeviceControllerSettingsContent(
 
                 SettingsItem(
                     icon = Icons.Default.Tune,
-                    title = "输入延迟",
-                    subtitle = "${settings.inputDelayMs} ms",
+                    title = stringResource(R.string.device_input_delay),
+                    subtitle = stringResource(R.string.dialog_unit_ms, settings.inputDelayMs),
                     onClick = { showInputDelayDialog = true }
                 )
                 
                 if (showInputDelayDialog) {
                     DelayInputDialog(
-                        title = "输入延迟",
+                        title = stringResource(R.string.device_input_delay),
                         currentValue = settings.inputDelayMs,
                         range = 0..500,
                         unit = "ms",
@@ -512,13 +514,13 @@ fun DeviceControllerSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "屏幕录制权限",
+                    text = stringResource(R.string.device_mediaprojection_title),
                     style = MaterialTheme.typography.titleMedium,
                     color = colors.textPrimary
                 )
                 
                 Text(
-                    text = "无障碍控制器需要屏幕录制权限才能截图",
+                    text = stringResource(R.string.device_mediaprojection_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary
                 )
@@ -532,13 +534,13 @@ fun DeviceControllerSettingsContent(
                         containerColor = colors.primary
                     )
                 ) {
-                    Text("请求屏幕录制权限")
+                    Text(stringResource(R.string.device_mediaprojection_request))
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    text = "提示: Shizuku 控制器不需要此权限",
+                    text = stringResource(R.string.device_mediaprojection_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.textSecondary
                 )

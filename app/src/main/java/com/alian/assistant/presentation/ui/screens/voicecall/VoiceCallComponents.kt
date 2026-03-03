@@ -15,10 +15,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.presentation.viewmodel.VoiceCallMessage
 import com.alian.assistant.presentation.viewmodel.VoiceCallState
@@ -34,11 +37,11 @@ fun VoiceCallTopBar(
 ) {
     val colors = BaoziTheme.colors
     val stateDescription = when (state) {
-        is VoiceCallState.Idle -> "语音通话"
-        is VoiceCallState.Recording -> "正在录音"
-        is VoiceCallState.Processing -> "正在思考"
-        is VoiceCallState.Playing -> "正在播放"
-        is VoiceCallState.Error -> "连接错误"
+        is VoiceCallState.Idle -> stringResource(R.string.voice_call_state_idle)
+        is VoiceCallState.Recording -> stringResource(R.string.voice_call_state_recording)
+        is VoiceCallState.Processing -> stringResource(R.string.voice_call_state_processing)
+        is VoiceCallState.Playing -> stringResource(R.string.voice_call_state_playing)
+        is VoiceCallState.Error -> stringResource(R.string.voice_call_state_error)
     }
 
     val stateColor = when (state) {
@@ -78,7 +81,7 @@ fun VoiceCallTopBar(
             ) {
                 Icon(
                     imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "返回",
+                    contentDescription = stringResource(R.string.btn_back),
                     tint = colors.textPrimary,
                     modifier = Modifier.size(24.dp)
                 )
@@ -232,7 +235,7 @@ fun CurrentRecognizedTextBubble(
             // 录音图标
             Icon(
                 imageVector = Icons.Default.Mic,
-                contentDescription = "录音中",
+                contentDescription = stringResource(R.string.voice_call_recording_text),
                 tint = Color(0xFF4CAF50).copy(alpha = animatedAlpha),
                 modifier = Modifier.size(20.dp)
             )
@@ -284,7 +287,7 @@ fun CurrentPlayingTextBubble(
             ) {
                 Icon(
                     imageVector = Icons.Default.VolumeUp,
-                    contentDescription = "播放中",
+                    contentDescription = stringResource(R.string.voice_call_state_playing),
                     tint = Color.White,
                     modifier = Modifier.size(14.dp)
                 )
@@ -358,7 +361,7 @@ fun MessageBubble(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Mic,
-                        contentDescription = "录音中",
+                        contentDescription = stringResource(R.string.voice_call_recording_text),
                         tint = colors.background,
                         modifier = Modifier.size(14.dp)
                     )
@@ -454,13 +457,12 @@ fun VoiceCallControlBar(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.Phone,
-                        contentDescription = "开始通话",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+                                    Icon(
+                                        Icons.Default.Phone,
+                                        contentDescription = stringResource(R.string.voice_call_start),
+                                        tint = Color.White,
+                                        modifier = Modifier.size(36.dp)
+                                    )                }
             } else {
                 // 挂断按钮 - 圆形悬浮按钮
                 Box(
@@ -478,13 +480,12 @@ fun VoiceCallControlBar(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.PhoneDisabled,
-                        contentDescription = "挂断",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+                                    Icon(
+                                        Icons.Default.PhoneDisabled,
+                                        contentDescription = stringResource(R.string.voice_call_end),
+                                        tint = Color.White,
+                                        modifier = Modifier.size(36.dp)
+                                    )                }
             }
         }
     }
@@ -516,7 +517,7 @@ fun VoiceCallEmptyState(
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "点击下方按钮开始语音通话",
+                text = stringResource(R.string.voice_call_empty_hint),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 color = colors.textHint
@@ -560,7 +561,7 @@ fun VoiceCallLoadingBubble() {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "正在思考...",
+                text = stringResource(R.string.voice_call_loading_text),
                 color = colors.textSecondary,
                 fontSize = 14.sp
             )

@@ -17,6 +17,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.alian.assistant.R
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.common.utils.PermissionManager
 import com.alian.assistant.common.utils.PermissionStatus
@@ -71,7 +73,7 @@ fun PermissionManagementSettingsContent(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 基础权限
-        SettingsSection(title = "基础权限")
+        SettingsSection(title = stringResource(R.string.permission_basic))
         basicPermissions.forEachIndexed { index, permissionType ->
             PermissionItem(
                 permissionType = permissionType,
@@ -86,7 +88,7 @@ fun PermissionManagementSettingsContent(
 
         // 核心权限
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsSection(title = "核心权限")
+        SettingsSection(title = stringResource(R.string.permission_core))
         corePermissions.forEachIndexed { index, permissionType ->
             if (permissionType == PermissionType.SHIZUKU) {
                 PermissionItem(
@@ -113,7 +115,7 @@ fun PermissionManagementSettingsContent(
 
         // 其他权限
         Spacer(modifier = Modifier.height(8.dp))
-        SettingsSection(title = "其他权限")
+        SettingsSection(title = stringResource(R.string.permission_other))
         otherPermissions.forEachIndexed { index, permissionType ->
             PermissionItem(
                 permissionType = permissionType,
@@ -146,17 +148,17 @@ fun PermissionItem(
     val (statusIcon, statusText, statusColor) = when (permissionState.status) {
         PermissionStatus.GRANTED -> Triple(
             Icons.Default.CheckCircle,
-            "已授予",
+            stringResource(R.string.permission_granted),
             Color(0xFF4CAF50)
         )
         PermissionStatus.DENIED -> Triple(
             Icons.Default.Cancel,
-            "已拒绝",
+            stringResource(R.string.permission_denied),
             Color(0xFFF44336)
         )
         PermissionStatus.NOT_REQUESTED -> Triple(
             Icons.Default.Warning,
-            "未授权",
+            stringResource(R.string.permission_not_requested),
             Color(0xFFFF9800)
         )
     }
@@ -199,14 +201,14 @@ fun PermissionItem(
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = PermissionManager.getPermissionName(permissionType),
+                    text = PermissionManager.getPermissionName(context, permissionType),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.textPrimary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = PermissionManager.getPermissionDescription(permissionType),
+                    text = PermissionManager.getPermissionDescription(context, permissionType),
                     fontSize = 12.sp,
                     color = colors.textSecondary
                 )

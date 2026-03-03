@@ -39,7 +39,9 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
+import com.alian.assistant.R
 import com.alian.assistant.core.agent.AgentPermissionCheck
 import com.alian.assistant.core.agent.PhoneCallMessage
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
@@ -266,7 +268,7 @@ fun PhoneCallScreen(
             containerColor = colors.backgroundCard,
             title = {
                 Text(
-                    text = viewModel.getPermissionTitle(permissionCheckResult!!),
+                    text = stringResource(R.string.phone_call_permission_title),
                     color = colors.textPrimary
                 )
             },
@@ -280,7 +282,7 @@ fun PhoneCallScreen(
                     if (permissionCheckResult is AgentPermissionCheck.CheckResult.NeedsMediaProjection) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "请在设置页面授予屏幕录制权限，然后返回重试。",
+                            text = stringResource(R.string.phone_call_permission_hint),
                             color = colors.textSecondary,
                             fontSize = 12.sp
                         )
@@ -316,12 +318,12 @@ fun PhoneCallScreen(
                         }
                     }
                 }) {
-                    Text("去设置", color = colors.primary)
+                    Text(stringResource(R.string.phone_call_go_settings), color = colors.primary)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showPermissionDialog = false }) {
-                    Text("取消", color = colors.textSecondary)
+                    Text(stringResource(R.string.phone_call_cancel), color = colors.textSecondary)
                 }
             }
         )
@@ -472,7 +474,7 @@ private fun FullScreenPhoneCallUI(
                         val bitmap = currentScreen
                         Image(
                             bitmap = bitmap!!.asImageBitmap(),
-                            contentDescription = "屏幕预览",
+                            contentDescription = stringResource(R.string.phone_call_screen_preview),
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
                         )
@@ -484,13 +486,13 @@ private fun FullScreenPhoneCallUI(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PhoneAndroid,
-                                contentDescription = "屏幕预览",
+                                contentDescription = stringResource(R.string.phone_call_screen_preview),
                                 tint = colors.textHint,
                                 modifier = Modifier.size(64.dp)
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "屏幕预览",
+                                text = stringResource(R.string.phone_call_screen_preview),
                                 color = colors.textHint,
                                 fontSize = 14.sp
                             )
@@ -660,7 +662,7 @@ private fun FloatingWindowPhoneCallUI(
                             is FloatingWindowState.Minimized -> Icons.Default.OpenInFull
                             else -> Icons.Default.Minimize
                         },
-                        contentDescription = "最小化",
+                        contentDescription = stringResource(R.string.phone_call_minimize),
                         tint = colors.textPrimary,
                         modifier = Modifier.size(18.dp)
                     )
@@ -668,7 +670,7 @@ private fun FloatingWindowPhoneCallUI(
 
                 // 标题
                 Text(
-                    text = "手机通话",
+                    text = stringResource(R.string.phone_call_title),
                     color = colors.textPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
@@ -684,7 +686,7 @@ private fun FloatingWindowPhoneCallUI(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭",
+                        contentDescription = stringResource(R.string.phone_call_close),
                         tint = colors.error,
                         modifier = Modifier.size(18.dp)
                     )
@@ -822,7 +824,7 @@ private fun PhoneCallTopBar(
         ) {
             Icon(
                 imageVector = Icons.Default.ArrowBack,
-                contentDescription = "返回",
+                contentDescription = stringResource(R.string.cd_back),
                 tint = colors.textPrimary,
                 modifier = Modifier.size(24.dp)
             )
@@ -833,7 +835,7 @@ private fun PhoneCallTopBar(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "手机通话",
+                text = stringResource(R.string.phone_call_title),
                 color = colors.textPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium
@@ -855,7 +857,7 @@ private fun PhoneCallTopBar(
         ) {
             Icon(
                 imageVector = Icons.Default.PhoneAndroid,
-                contentDescription = "切换模式",
+                contentDescription = stringResource(R.string.phone_call_fullscreen_mode),
                 tint = Color(0xFF8B5CF6),
                 modifier = Modifier.size(24.dp)
             )
@@ -889,7 +891,7 @@ fun PhoneCallControlBar(
         // 麦克风按钮
         PhoneCallControlButton(
             icon = Icons.Default.Mic,
-            contentDescription = "麦克风",
+            contentDescription = stringResource(R.string.call_mic),
             iconColor = when (state) {
                 is PhoneCallState.Recording -> Color(0xFF8B5CF6)
                 else -> colors.textSecondary
@@ -907,7 +909,7 @@ fun PhoneCallControlBar(
         // 开始/挂断按钮
         PhoneCallControlButton(
             icon = if (isIdle) Icons.Default.Phone else Icons.Default.PhoneDisabled,
-            contentDescription = if (isIdle) "开始通话" else "挂断",
+            contentDescription = if (isIdle) stringResource(R.string.phone_call_start) else stringResource(R.string.phone_call_end),
             iconColor = if (canStartCall) Color.White else colors.textHint,
             backgroundColor = if (canStartCall) Color(0xFF8B5CF6) else Color.Transparent,
             buttonSize = 64.dp,
@@ -928,7 +930,7 @@ fun PhoneCallControlBar(
         // 文本输入按钮
         PhoneCallControlButton(
             icon = Icons.Default.Chat,
-            contentDescription = "文本输入",
+            contentDescription = stringResource(R.string.phone_call_title),
             iconColor = colors.textSecondary,
             backgroundColor = colors.backgroundCard,
             onClick = {

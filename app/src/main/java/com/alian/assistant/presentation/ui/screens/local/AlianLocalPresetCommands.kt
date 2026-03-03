@@ -2,6 +2,7 @@ package com.alian.assistant.presentation.ui.screens.local
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.StringRes
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -50,11 +51,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alian.assistant.R
 import com.alian.assistant.common.constant.AnimationConstants
 import com.alian.assistant.presentation.ui.screens.components.HapticUtils
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
@@ -63,38 +67,38 @@ import com.alian.assistant.common.utils.PermissionManager
 import java.util.Calendar
 
 /**
- * 预设命令数据类
+ * 预设命令数据类 - 使用字符串资源ID
  */
 data class PresetCommand(
     val icon: String,
-    val title: String,
-    val command: String
+    @StringRes val titleResId: Int,
+    @StringRes val commandResId: Int
 )
 
 /**
- * 完整预设命令列表
+ * 完整预设命令列表 - 使用资源ID
  */
-private val allPresetCommands = listOf(
-    PresetCommand("🍔", "点汉堡", "帮我点个附近好吃的汉堡"),
-    PresetCommand("📕", "发小红书", "帮我发一条小红书，内容是今日份好心情"),
-    PresetCommand("📺", "刷B站", "打开B站搜索艾莲，找到第一个视频点个赞"),
-    PresetCommand("✈️", "旅游攻略", "用小美帮我查一下三亚旅游攻略"),
-    PresetCommand("🎵", "听音乐", "打开网易云音乐播放每日推荐"),
-    PresetCommand("🛒", "点外卖", "帮我在美团点一份猪脚饭"),
-    PresetCommand("📱", "清理后台", "帮我清理一下后台运行的应用"),
-    PresetCommand("🔋", "省电模式", "帮我开启省电模式并降低屏幕亮度"),
-    PresetCommand("🌙", "夜间模式", "帮我开启深色模式"),
-    PresetCommand("📸", "拍照", "帮我打开相机拍照"),
-    PresetCommand("🏃", "运动打卡", "帮我打开运动记录开始跑步"),
-    PresetCommand("☕", "点咖啡", "帮我点一杯星巴克拿铁"),
-    PresetCommand("🚗", "打车", "帮我打一辆车去附近的地铁站"),
-    PresetCommand("🏠", "智能家居", "帮我打开客厅的灯"),
-    PresetCommand("📅", "日程提醒", "帮我设置明天上午9点的会议提醒"),
-    PresetCommand("🔔", "闹钟", "帮我设置明天早上7点的闹钟"),
-    PresetCommand("🗺️", "导航", "帮我导航到最近的超市"),
-    PresetCommand("🌤️", "天气预报", "帮我查一下明天的天气"),
-    PresetCommand("💬", "发微信", "帮我给妈妈发一条微信说我到家了"),
-    PresetCommand("📝", "记笔记", "帮我记录今天的待办事项")
+val allPresetCommands = listOf(
+    PresetCommand("🍔", R.string.preset_burger, R.string.preset_burger_cmd),
+    PresetCommand("📕", R.string.preset_xiaohongshu, R.string.preset_xiaohongshu_cmd),
+    PresetCommand("📺", R.string.preset_bilibili, R.string.preset_bilibili_cmd),
+    PresetCommand("✈️", R.string.preset_travel, R.string.preset_travel_cmd),
+    PresetCommand("🎵", R.string.preset_music, R.string.preset_music_cmd),
+    PresetCommand("🛒", R.string.preset_takeout, R.string.preset_takeout_cmd),
+    PresetCommand("📱", R.string.preset_clean_background, R.string.preset_clean_background_cmd),
+    PresetCommand("🔋", R.string.preset_power_saving, R.string.preset_power_saving_cmd),
+    PresetCommand("🌙", R.string.preset_night_mode, R.string.preset_night_mode_cmd),
+    PresetCommand("📸", R.string.preset_camera, R.string.preset_camera_cmd),
+    PresetCommand("🏃", R.string.preset_exercise, R.string.preset_exercise_cmd),
+    PresetCommand("☕", R.string.preset_coffee, R.string.preset_coffee_cmd),
+    PresetCommand("🚗", R.string.preset_taxi, R.string.preset_taxi_cmd),
+    PresetCommand("🏠", R.string.preset_smart_home, R.string.preset_smart_home_cmd),
+    PresetCommand("📅", R.string.preset_schedule, R.string.preset_schedule_cmd),
+    PresetCommand("🔔", R.string.preset_alarm, R.string.preset_alarm_cmd),
+    PresetCommand("🗺️", R.string.preset_navigation, R.string.preset_navigation_cmd),
+    PresetCommand("🌤️", R.string.preset_weather, R.string.preset_weather_cmd),
+    PresetCommand("💬", R.string.preset_wechat, R.string.preset_wechat_cmd),
+    PresetCommand("📝", R.string.preset_notes, R.string.preset_notes_cmd)
 )
 
 /**
@@ -142,14 +146,15 @@ fun PresetCommandsView(
 
     // 使用 PermissionManager 获取执行提示信息（使用实时检查的权限状态）
     val promptInfo = PermissionManager.getExecutionPromptInfo(
+        context = context,
         executionStrategy = executionStrategy,
         shizukuAvailable = shizukuAvailable,
         accessibilityEnabled = realAccessibilityEnabled,
         mediaProjectionAvailable = realMediaProjectionAvailable
     )
     
-    // 获取时间感知问候语
-    val greeting = remember { getTimeBasedGreeting() }
+    // 获取时间感知问候语 - 使用 Composable 函数
+    val greeting = rememberTimeBasedGreeting()
     
     // 呼吸动画
     val infiniteTransition = rememberInfiniteTransition(label = "breathing")
@@ -190,7 +195,7 @@ fun PresetCommandsView(
                 Spacer(modifier = Modifier.height(12.dp))
                 
                 Text(
-                    text = greeting.text,
+                    text = greeting.text(),
                     fontSize = 26.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = colors.textPrimary,
@@ -201,7 +206,7 @@ fun PresetCommandsView(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(
-                    text = "今天想让我帮你做点什么？",
+                    text = stringResource(R.string.greeting_prompt),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Normal,
                     color = colors.textSecondary.copy(alpha = 0.7f),
@@ -318,13 +323,13 @@ fun PresetCommandCard(
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = preset.title,
+                    text = stringResource(preset.titleResId),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = colors.textPrimary
                 )
                 Text(
-                    text = preset.command,
+                    text = stringResource(preset.commandResId),
                     fontSize = 11.sp,
                     color = colors.textSecondary,
                     maxLines = 2,
@@ -336,27 +341,34 @@ fun PresetCommandCard(
 }
 
 /**
- * 时间感知问候语数据类
+ * 时间感知问候语数据类 - 使用资源ID
  */
 data class TimeGreeting(
     val emoji: String,
-    val text: String
+    @StringRes val textResId: Int
 )
 
 /**
- * 根据当前时间获取问候语
+ * 根据当前时间获取问候语 - Composable 函数
  */
-fun getTimeBasedGreeting(): TimeGreeting {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+@Composable
+fun rememberTimeBasedGreeting(): TimeGreeting {
+    val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
     return when {
-        hour in 5..8 -> TimeGreeting("🌅", "早上好")
-        hour in 9..11 -> TimeGreeting("☀️", "上午好")
-        hour in 12..13 -> TimeGreeting("🌞", "中午好")
-        hour in 14..17 -> TimeGreeting("🌤️", "下午好")
-        hour in 18..21 -> TimeGreeting("🌆", "晚上好")
-        else -> TimeGreeting("🌙", "夜深了")
+        hour in 5..8 -> TimeGreeting("🌅", R.string.greeting_morning)
+        hour in 9..11 -> TimeGreeting("☀️", R.string.greeting_forenoon)
+        hour in 12..13 -> TimeGreeting("🌞", R.string.greeting_noon)
+        hour in 14..17 -> TimeGreeting("🌤️", R.string.greeting_afternoon)
+        hour in 18..21 -> TimeGreeting("🌆", R.string.greeting_evening)
+        else -> TimeGreeting("🌙", R.string.greeting_night)
     }
 }
+
+/**
+ * 扩展属性：获取时间问候语文本
+ */
+@Composable
+fun TimeGreeting.text(): String = stringResource(textResId)
 
 /**
  * 背景装饰组件 - 淡雅的渐变圆形装饰
@@ -494,12 +506,12 @@ fun PermissionHintCard(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = "重新连接",
+                        contentDescription = stringResource(R.string.preset_reconnect),
                         tint = colors.primary,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "重新连接",
+                        text = stringResource(R.string.preset_reconnect),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = colors.primary

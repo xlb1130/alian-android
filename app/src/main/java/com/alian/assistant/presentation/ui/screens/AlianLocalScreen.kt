@@ -40,6 +40,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
+import com.alian.assistant.R
 import com.alian.assistant.core.agent.AgentState
 import com.alian.assistant.data.ChatMessageData
 import com.alian.assistant.data.ExecutionRecord
@@ -233,7 +235,7 @@ fun AlianLocalScreen(
         
         // 视频通话 - 登录和未登录都可使用
         items.add(MenuItem(
-            text = "视频通话",
+            text = context.getString(R.string.call_video),
             icon = Icons.Default.Videocam,
             iconColor = Color(0xFF6366F1),
             onClick = { showVideoCall = true }
@@ -241,7 +243,7 @@ fun AlianLocalScreen(
         
         // 语音通话 - 登录和未登录都可使用
         items.add(MenuItem(
-            text = "语音通话",
+            text = context.getString(R.string.call_voice),
             icon = Icons.Default.Phone,
             iconColor = Color(0xFF10B981),
             onClick = { showVoiceCall = true }
@@ -249,7 +251,7 @@ fun AlianLocalScreen(
         
         // 手机通话 - 登录和未登录都可使用
         items.add(MenuItem(
-            text = "手机通话",
+            text = context.getString(R.string.call_phone),
             icon = Icons.Default.PhoneAndroid,
             iconColor = Color(0xFF8B5CF6),
             onClick = { showPhoneCall = true }
@@ -258,14 +260,14 @@ fun AlianLocalScreen(
         if (isLoggedIn) {
             // 已登录：显示设置和登出
             items.add(MenuItem(
-                text = "设置",
+                text = context.getString(R.string.menu_settings),
                 icon = Icons.Default.Settings,
                 iconColor = colors.secondary,
                 onClick = onNavigateToSettings
             ))
             
             items.add(MenuItem(
-                text = "登出",
+                text = context.getString(R.string.menu_logout),
                 icon = Icons.Default.ExitToApp,
                 iconColor = colors.error,
                 onClick = { showLogoutDialog = true }
@@ -273,14 +275,14 @@ fun AlianLocalScreen(
         } else {
             // 未登录：显示登录和设置
             items.add(MenuItem(
-                text = "登录",
+                text = context.getString(R.string.menu_login),
                 icon = Icons.Default.Login,
                 iconColor = Color(0xFF10B981),
                 onClick = onLogin
             ))
             
             items.add(MenuItem(
-                text = "设置",
+                text = context.getString(R.string.menu_settings),
                 icon = Icons.Default.Settings,
                 iconColor = colors.secondary,
                 onClick = onNavigateToSettings
@@ -320,7 +322,7 @@ fun AlianLocalScreen(
             ) {
                 // 顶部标题栏 - 使用公共组件
                 AlianAppBar(
-                    title = "Alian Local",
+                    title = stringResource(R.string.local_title),
                     onMenuClick = {
                         scope.launch { drawerState.open() }
                     },
@@ -366,6 +368,7 @@ fun AlianLocalScreen(
                                 val realAccessibilityEnabled = AccessibilityUtils.isAccessibilityServiceEnabled(context)
                                 val realMediaProjectionAvailable = isMediaProjectionAvailable()
                                 val promptInfo = PermissionManager.getExecutionPromptInfo(
+                                    context = context,
                                     executionStrategy = executionStrategy,
                                     shizukuAvailable = shizukuAvailable,
                                     accessibilityEnabled = realAccessibilityEnabled,
@@ -408,6 +411,7 @@ fun AlianLocalScreen(
                             val realAccessibilityEnabled = AccessibilityUtils.isAccessibilityServiceEnabled(context)
                             val realMediaProjectionAvailable = isMediaProjectionAvailable()
                             val promptInfo = PermissionManager.getExecutionPromptInfo(
+                                context = context,
                                 executionStrategy = executionStrategy,
                                 shizukuAvailable = shizukuAvailable,
                                 accessibilityEnabled = realAccessibilityEnabled,
@@ -443,6 +447,7 @@ fun AlianLocalScreen(
                             val realAccessibilityEnabled = AccessibilityUtils.isAccessibilityServiceEnabled(context)
                             val realMediaProjectionAvailable = isMediaProjectionAvailable()
                             val promptInfo = PermissionManager.getExecutionPromptInfo(
+                                context = context,
                                 executionStrategy = executionStrategy,
                                 shizukuAvailable = shizukuAvailable,
                                 accessibilityEnabled = realAccessibilityEnabled,
@@ -455,7 +460,7 @@ fun AlianLocalScreen(
                             } else {
                                 Log.d("AlianLocalScreen", "语音输入权限检查未通过，显示权限引导对话框")
                                 // 根据缺失的权限显示相应的对话框
-                                when {
+                                    when {
                                     !shizukuAvailable && executionStrategy == "shizuku_only" -> onShizukuRequired()
                                     !shizukuAvailable && executionStrategy in listOf("hybrid", "auto") -> onShizukuRequired()
                                     !realAccessibilityEnabled && executionStrategy == "accessibility_only" -> showAccessibilityPermissionDialog = true

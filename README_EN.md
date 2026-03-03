@@ -39,7 +39,8 @@
 </p>
 
 <p align="center">
-  <video src="docs/video/phone-demo.mp4" width="320" autoplay loop muted playsinline></video>
+  <img src="docs/images/phone-demo.gif" width="320" alt="Phone Demo">
+  <img src="docs/images/navigation.gif" width="320" alt="Navigation Demo">
 </p>
 
 ---
