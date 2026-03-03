@@ -1,5 +1,7 @@
 package com.alian.assistant.data
 
+import com.alian.assistant.data.model.SpeechProvider
+
 /**
  * 音色分类
  */
@@ -34,8 +36,14 @@ data class VoicePreset(
     val supportsTimestamp: Boolean,
     val category: VoiceCategory,
     val avatarUrl: String = "",
-    val auditionUrl: String = ""
+    val auditionUrl: String = "",
+    val provider: SpeechProvider = SpeechProvider.BAILIAN  // 服务商标识，默认为百炼
 ) {
+    /**
+     * 唯一标识，格式: {provider}_{voiceParam}
+     */
+    val id: String
+        get() = "${provider.name.lowercase()}_${voiceParam}"
     companion object {
         // 社交陪伴（标杆音色）
         val LONGANYANG = VoicePreset(

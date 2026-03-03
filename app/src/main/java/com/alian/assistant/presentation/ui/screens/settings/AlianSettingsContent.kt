@@ -58,8 +58,8 @@ fun AlianSettingsContent(
     val colors = BaoziTheme.colors
     val context = LocalContext.current
 
-    // 头像状态
-    var avatarUri by remember { mutableStateOf<String?>(settings.assistantAvatar) }
+    // 头像状态（空字符串视为未设置）
+    var avatarUri by remember { mutableStateOf(settings.assistantAvatar.takeIf { it.isNotEmpty() }) }
     var isSavingAvatar by remember { mutableStateOf(false) }
     val avatarCacheManager = remember { AvatarCacheManager(context) }
     val coroutineScope = rememberCoroutineScope()

@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -295,34 +296,61 @@ fun TTSSettingsContent(
 @Composable
 fun APISettingsContent(
     settings: AppSettings,
+    onShowBackendUrlDialog: () -> Unit,
+    onUpdateUseBackend: (Boolean) -> Unit = {}
+) {
+    Column {
+        // Backend 开关
+        Box(modifier = Modifier.staggeredFadeIn(0)) {
+            SettingsCardWithSwitch(
+                icon = Icons.Default.CloudSync,
+                title = "Backend 模式",
+                subtitle = if (settings.useBackend) "已启用 - 使用后端服务" else "未启用 - 使用本地 API",
+                checked = settings.useBackend,
+                onCheckedChange = onUpdateUseBackend
+            )
+        }
+
+        // Backend 服务端地址设置（仅 Backend 模式下显示）
+        if (settings.useBackend) {
+            Box(modifier = Modifier.staggeredFadeIn(1)) {
+                SettingsCardWithIcon(
+                    icon = Icons.Default.Build,
+                    title = "Backend 服务端地址",
+                    subtitle = settings.backendBaseUrl,
+                    onClick = onShowBackendUrlDialog
+                )
+            }
+        }
+
+        PageBottomSpacing()
+    }
+}
+
+/**
+ * 模型配置二级页面内容
+ */
+@Composable
+fun ModelConfigSettingsContent(
+    settings: AppSettings,
     onShowBaseUrlDialog: () -> Unit,
     onShowApiKeyDialog: () -> Unit,
     onShowModelDialog: () -> Unit,
-    onShowBackendUrlDialog: () -> Unit
+    onShowTextModelDialog: () -> Unit = {}
 ) {
     Column {
-        // Base URL 设置
+        // API 服务商设置
         Box(modifier = Modifier.staggeredFadeIn(0)) {
             SettingsCardWithIcon(
-                icon = Icons.Default.Settings,
+                icon = Icons.Default.CloudSync,
                 title = "API 服务商",
                 subtitle = settings.currentProvider.name,
                 onClick = onShowBaseUrlDialog
             )
         }
 
-        // Backend 服务端地址设置
-        Box(modifier = Modifier.staggeredFadeIn(1)) {
-            SettingsCardWithIcon(
-                icon = Icons.Default.Build,
-                title = "Backend 服务端地址",
-                subtitle = settings.backendBaseUrl,
-                onClick = onShowBackendUrlDialog
-            )
-        }
-
         // API Key 设置
-        Box(modifier = Modifier.staggeredFadeIn(2)) {
+        Box(modifier = Modifier.staggeredFadeIn(1)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Lock,
                 title = "API Key",
@@ -331,11 +359,21 @@ fun APISettingsContent(
             )
         }
 
-        // 模型设置
+        // 文本模型设置
+        Box(modifier = Modifier.staggeredFadeIn(2)) {
+            SettingsCardWithIcon(
+                icon = Icons.Default.Chat,
+                title = "文本模型",
+                subtitle = settings.textModel,
+                onClick = onShowTextModelDialog
+            )
+        }
+
+        // 视觉模型设置
         Box(modifier = Modifier.staggeredFadeIn(3)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Build,
-                title = "模型",
+                title = "视觉模型",
                 subtitle = settings.model,
                 onClick = onShowModelDialog
             )

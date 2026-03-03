@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Api
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
@@ -37,7 +38,14 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,6 +70,7 @@ import com.alian.assistant.presentation.ui.screens.settings.ExecutionSettingsCon
 import com.alian.assistant.presentation.ui.screens.settings.FeedbackSettingsContent
 import com.alian.assistant.presentation.ui.screens.settings.HelpSettingsContent
 import com.alian.assistant.presentation.ui.screens.settings.MCPSettingsContent
+import com.alian.assistant.presentation.ui.screens.settings.ModelConfigSettingsContent
 import com.alian.assistant.presentation.ui.screens.settings.LoginStatusCard
 import com.alian.assistant.presentation.ui.screens.settings.MaxStepsDialog
 import com.alian.assistant.presentation.ui.screens.settings.ModelSelectDialogWithFetch
@@ -81,6 +90,10 @@ import com.alian.assistant.presentation.ui.screens.settings.TTSSettingsContent
 import com.alian.assistant.presentation.ui.screens.settings.ThemeSelectDialog
 import com.alian.assistant.presentation.ui.screens.settings.ConnectionStatusIndicator
 import com.alian.assistant.common.utils.AvatarCacheManager
+import com.alian.assistant.presentation.ui.screens.settings.SpeechProviderSettingsContent
+import com.alian.assistant.data.model.SpeechProvider
+import com.alian.assistant.data.model.SpeechProviderCredentials
+import com.alian.assistant.data.model.SpeechModels
 
 // 轻微震动效果
 private fun performLightHaptic(context: Context) {
@@ -121,7 +134,7 @@ fun Modifier.staggeredFadeIn(index: Int): Modifier = this then composed {
         label = "alpha"
     )
     LaunchedEffect(Unit) {
-        delay(index * 50L)
+        delay(index * 25L)
         visible = true
     }
     alpha(alphaAnimation.value)
@@ -134,6 +147,7 @@ fun SettingsScreen(
     onUpdateApiKey: (String) -> Unit,
     onUpdateBaseUrl: (String) -> Unit,
     onUpdateModel: (String) -> Unit,
+    onUpdateTextModel: (String) -> Unit,
     onUpdateCachedModels: (List<String>) -> Unit,
     onUpdateThemeMode: (ThemeMode) -> Unit,
     onUpdateMaxSteps: (Int) -> Unit,
@@ -174,6 +188,7 @@ fun SettingsScreen(
     userEmail: String? = null,
     navigateToCapabilities: () -> Unit = {},
     onNavigateToVoiceSelection: () -> Unit = {},
+    onNavigateToSpeechProviderSettings: () -> Unit = {},
     onBack: () -> Unit = {},
     mediaProjectionResultCode: Int? = null,
     mediaProjectionData: Intent? = null,
@@ -182,6 +197,7 @@ fun SettingsScreen(
     val colors = BaoziTheme.colors
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showModelDialog by remember { mutableStateOf(false) }
+    var showTextModelDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showMaxStepsDialog by remember { mutableStateOf(false) }
     var showBaseUrlDialog by remember { mutableStateOf(false) }
@@ -298,7 +314,7 @@ fun SettingsScreen(
                                 )
                             }
 
-                            SettingsSubScreen.TTS -> {
+                            SettingsSubScreen.VOICE_INTERACTION -> {
                                 TTSSettingsContent(
                                     settings = settings,
                                     onUpdateTTSEnabled = onUpdateTTSEnabled,
@@ -309,7 +325,7 @@ fun SettingsScreen(
                                 )
                             }
 
-                            SettingsSubScreen.Alian -> {
+                            SettingsSubScreen.ALIAN -> {
                                 AlianSettingsContent(
                                     settings = settings,
                                     onUpdateVoiceCallSystemPrompt = onUpdateVoiceCallSystemPrompt,
@@ -322,13 +338,26 @@ fun SettingsScreen(
                                 )
                             }
 
+                            SettingsSubScreen.THEME -> {
+                                // 主题模式直接弹窗，不需要二级页面
+                                // 这里保留占位，实际逻辑在一级页面处理
+                            }
+
                             SettingsSubScreen.API -> {
                                 APISettingsContent(
                                     settings = settings,
-                                    onShowBaseUrlDialog = { showBaseUrlDialog = true },
                                     onShowBackendUrlDialog = { showBackendUrlDialog = true },
+                                    onUpdateUseBackend = onUpdateUseBackend
+                                )
+                            }
+
+                            SettingsSubScreen.MODEL_CONFIG -> {
+                                ModelConfigSettingsContent(
+                                    settings = settings,
+                                    onShowBaseUrlDialog = { showBaseUrlDialog = true },
                                     onShowApiKeyDialog = { showApiKeyDialog = true },
-                                    onShowModelDialog = { showModelDialog = true }
+                                    onShowModelDialog = { showModelDialog = true },
+                                    onShowTextModelDialog = { showTextModelDialog = true }
                                 )
                             }
 
@@ -363,6 +392,10 @@ fun SettingsScreen(
                                         currentSubScreen = SettingsSubScreen.SHIZUKU
                                     }
                                 )
+                            }
+
+                            SettingsSubScreen.SPEECH_PROVIDER -> {
+                                onNavigateToSpeechProviderSettings()
                             }
 
                             null -> {}
@@ -442,59 +475,101 @@ fun SettingsScreen(
                 }
             }
 
-            // 外观与交互分组
+            // ==================== 🎨 外观与个性化 ====================
             item {
                 Box(modifier = Modifier.staggeredFadeIn(1)) {
-                    SettingsSection(title = "🎨 外观与交互")
+                    SettingsSection(title = "🎨 外观与个性化")
                 }
             }
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 主题模式
-                    Box(modifier = Modifier.weight(1f)) {
-                        CompactGridItem(
-                            icon = Icons.Default.Palette,
-                            title = "主题模式",
-                            subtitle = when (settings.themeMode) {
-                                ThemeMode.LIGHT -> "浅色模式"
-                                ThemeMode.DARK -> "深色模式"
-                                ThemeMode.SYSTEM -> "跟随系统"
-                            },
-                            onClick = { showThemeDialog = true }
-                        )
-                    }
-                    // Alian
-                    Box(modifier = Modifier.weight(1f)) {
-                        CompactGridItem(
-                            icon = Icons.Default.Chat,
-                            title = "Alian",
-                            onClick = { currentSubScreen = SettingsSubScreen.Alian }
-                        )
-                    }
-                    // 权限管理
-                    Box(modifier = Modifier.weight(1f)) {
-                        CompactGridItem(
-                            icon = Icons.Default.Security,
-                            title = "权限管理",
-                            onClick = { currentSubScreen = SettingsSubScreen.PERMISSION_MANAGEMENT }
-                        )
+                Box(modifier = Modifier.staggeredFadeIn(2)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 主题模式
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.Palette,
+                                title = "主题模式",
+                                subtitle = when (settings.themeMode) {
+                                    ThemeMode.LIGHT -> "浅色模式"
+                                    ThemeMode.DARK -> "深色模式"
+                                    ThemeMode.SYSTEM -> "跟随系统"
+                                },
+                                onClick = { showThemeDialog = true }
+                            )
+                        }
+                        // Alian 设置
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.PhoneAndroid,
+                                title = "Alian",
+                                subtitle = "头像、音色、语速",
+                                onClick = { currentSubScreen = SettingsSubScreen.ALIAN }
+                            )
+                        }
+                        // 占位
+                        Box(modifier = Modifier.weight(1f)) {}
                     }
                 }
             }
 
-            // 核心功能分组（单行 3 列）
+            // ==================== 🧠 AI 模型配置 ====================
             item {
-                Box(modifier = Modifier.staggeredFadeIn(2)) {
-                    SettingsSection(title = "⚙️ 核心功能")
+                Box(modifier = Modifier.staggeredFadeIn(3)) {
+                    SettingsSection(title = "🧠 AI 模型配置")
                 }
             }
             item {
-                Box(modifier = Modifier.staggeredFadeIn(3)) {
+                Box(modifier = Modifier.staggeredFadeIn(4)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // 模型配置
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.Memory,
+                                title = "模型配置",
+                                subtitle = "LLM/VLM 服务商",
+                                onClick = { currentSubScreen = SettingsSubScreen.MODEL_CONFIG }
+                            )
+                        }
+                        // 语音服务商
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.RecordVoiceOver,
+                                title = "语音服务商",
+                                subtitle = "ASR/TTS 配置",
+                                onClick = { currentSubScreen = SettingsSubScreen.SPEECH_PROVIDER }
+                            )
+                        }
+                        // API 配置
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.Api,
+                                title = "API 配置",
+                                subtitle = "Backend 设置",
+                                onClick = { currentSubScreen = SettingsSubScreen.API }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ==================== ⚙️ 执行与控制 ====================
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(5)) {
+                    SettingsSection(title = "⚙️ 执行与控制")
+                }
+            }
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(6)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -505,64 +580,123 @@ fun SettingsScreen(
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.Settings,
-                                title = "执行",
+                                title = "执行设置",
+                                subtitle = "批量执行、优化模式",
                                 onClick = { currentSubScreen = SettingsSubScreen.EXECUTION }
                             )
                         }
-                        // 语音设置
+                        // 语音交互
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
-                                icon = Icons.Default.Notifications,
-                                title = "语音",
-                                onClick = { currentSubScreen = SettingsSubScreen.TTS }
+                                icon = Icons.Default.VolumeUp,
+                                title = "语音交互",
+                                subtitle = "TTS、打断、流式",
+                                onClick = { currentSubScreen = SettingsSubScreen.VOICE_INTERACTION }
                             )
                         }
-                        // 能力
+                        // 设备控制器
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
-                                icon = Icons.Default.Extension,
-                                title = "能力",
-                                onClick = { navigateToCapabilities() }
+                                icon = Icons.Default.PhoneAndroid,
+                                title = "设备控制器",
+                                subtitle = "执行策略、延迟",
+                                onClick = { currentSubScreen = SettingsSubScreen.DEVICE_CONTROLLER }
                             )
                         }
                     }
                 }
             }
 
-            // API 与支持分组（2 行 3 列）
+            // ==================== 🔐 权限与安全 ====================
             item {
-                Box(modifier = Modifier.staggeredFadeIn(4)) {
-                    SettingsSection(title = "🔌 API 与支持")
+                Box(modifier = Modifier.staggeredFadeIn(7)) {
+                    SettingsSection(title = "🔐 权限与安全")
                 }
             }
-            // 第一行
             item {
-                Box(modifier = Modifier.staggeredFadeIn(5)) {
+                Box(modifier = Modifier.staggeredFadeIn(8)) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 使用 Backend API
+                        // 权限管理
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
-                                icon = Icons.Default.CloudSync,
-                                title = "Backend",
-                                subtitle = if (settings.useBackend) "已启用" else "未启用",
-                                onClick = {
-                                    onUpdateUseBackend(!settings.useBackend)
-                                }
+                                icon = Icons.Default.Security,
+                                title = "权限管理",
+                                subtitle = "基础与核心权限",
+                                onClick = { currentSubScreen = SettingsSubScreen.PERMISSION_MANAGEMENT }
                             )
                         }
-                        // API 配置
+                        // Shizuku 设置
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
-                                icon = Icons.Default.Lock,
-                                title = "API配置",
-                                onClick = { currentSubScreen = SettingsSubScreen.API }
+                                icon = Icons.Default.Hub,
+                                title = "Shizuku",
+                                subtitle = "Root 模式设置",
+                                onClick = { currentSubScreen = SettingsSubScreen.SHIZUKU }
                             )
                         }
+                        // 占位
+                        Box(modifier = Modifier.weight(1f)) {}
+                    }
+                }
+            }
+
+            // ==================== 🔌 扩展能力 ====================
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(9)) {
+                    SettingsSection(title = "🔌 扩展能力")
+                }
+            }
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(10)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // MCP 管理
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.Extension,
+                                title = "MCP",
+                                subtitle = "模型上下文协议",
+                                onClick = { currentSubScreen = SettingsSubScreen.MCP }
+                            )
+                        }
+                        // 能力
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.AutoAwesome,
+                                title = "能力",
+                                subtitle = "Skills 技能管理",
+                                onClick = { navigateToCapabilities() }
+                            )
+                        }
+                        // 占位
+                        Box(modifier = Modifier.weight(1f)) {}
+                    }
+                }
+            }
+
+            // ==================== ❓ 帮助与反馈 ====================
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(11)) {
+                    SettingsSection(title = "❓ 帮助与反馈")
+                }
+            }
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(12)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         // 帮助
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
@@ -571,18 +705,6 @@ fun SettingsScreen(
                                 onClick = { currentSubScreen = SettingsSubScreen.HELP }
                             )
                         }
-                    }
-                }
-            }
-            // 第二行
-            item {
-                Box(modifier = Modifier.staggeredFadeIn(6)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
                         // 反馈与调试
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
@@ -594,17 +716,9 @@ fun SettingsScreen(
                         // 关于
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
-                                icon = Icons.Default.Build,
+                                icon = Icons.Default.Info,
                                 title = "关于",
                                 onClick = { currentSubScreen = SettingsSubScreen.ABOUT }
-                            )
-                        }
-                        // MCP 管理
-                        Box(modifier = Modifier.weight(1f)) {
-                            CompactGridItem(
-                                icon = Icons.Default.CloudSync,
-                                title = "MCP",
-                                onClick = { currentSubScreen = SettingsSubScreen.MCP }
                             )
                         }
                     }
@@ -614,16 +728,86 @@ fun SettingsScreen(
             // 登录/登出按钮（仅在Backend模式时显示）
             if (settings.useBackend) {
                 item {
-                    var showLogoutDialog by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.staggeredFadeIn(13)) {
+                        var showLogoutDialog by remember { mutableStateOf(false) }
 
-                    if (isLoggedIn) {
-                        // 已登录状态 - 显示登出按钮
-                        if (onLogout != null) {
+                        if (isLoggedIn) {
+                            // 已登录状态 - 显示登出按钮
+                            if (onLogout != null) {
+                                val context = LocalContext.current
+                                Button(
+                                    onClick = {
+                                        performLightHaptic(context)
+                                        showLogoutDialog = true
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                        .height(56.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = colors.error
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "登出",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "登出",
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                // 登出确认对话框
+                                if (showLogoutDialog) {
+                                    AlertDialog(
+                                        onDismissRequest = { showLogoutDialog = false },
+                                        containerColor = colors.backgroundCard,
+                                        title = {
+                                            Text("确认登出", color = colors.textPrimary)
+                                        },
+                                        text = {
+                                            Text(
+                                                "确定要登出吗？登出后需要重新登录才能使用 Alian 功能。",
+                                                color = colors.textSecondary
+                                            )
+                                        },
+                                        confirmButton = {
+                                            val context = LocalContext.current
+                                            TextButton(onClick = {
+                                                performLightHaptic(context)
+                                                onLogout()
+                                                showLogoutDialog = false
+                                                onBack()
+                                            }) {
+                                                Text("登出", color = colors.error)
+                                            }
+                                        },
+                                        dismissButton = {
+                                            val context = LocalContext.current
+                                            TextButton(onClick = {
+                                                performLightHaptic(context)
+                                                showLogoutDialog = false
+                                            }) {
+                                                Text("取消", color = colors.textSecondary)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // 未登录状态 - 显示登录按钮
                             val context = LocalContext.current
                             Button(
                                 onClick = {
                                     performLightHaptic(context)
-                                    showLogoutDialog = true
+                                    onLogin?.invoke()
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -631,84 +815,16 @@ fun SettingsScreen(
                                     .height(56.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = colors.error
+                                    containerColor = colors.primary
                                 )
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "登出",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "登出",
+                                    text = "点击登录",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White
                                 )
                             }
-
-                            // 登出确认对话框
-                            if (showLogoutDialog) {
-                                AlertDialog(
-                                    onDismissRequest = { showLogoutDialog = false },
-                                    containerColor = colors.backgroundCard,
-                                    title = {
-                                        Text("确认登出", color = colors.textPrimary)
-                                    },
-                                    text = {
-                                        Text(
-                                            "确定要登出吗？登出后需要重新登录才能使用 Alian 功能。",
-                                            color = colors.textSecondary
-                                        )
-                                    },
-                                    confirmButton = {
-                                        val context = LocalContext.current
-                                        TextButton(onClick = {
-                                            performLightHaptic(context)
-                                            onLogout()
-                                            showLogoutDialog = false
-                                            onBack()
-                                        }) {
-                                            Text("登出", color = colors.error)
-                                        }
-                                    },
-                                    dismissButton = {
-                                        val context = LocalContext.current
-                                        TextButton(onClick = {
-                                            performLightHaptic(context)
-                                            showLogoutDialog = false
-                                        }) {
-                                            Text("取消", color = colors.textSecondary)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    } else {
-                        // 未登录状态 - 显示登录按钮
-                        val context = LocalContext.current
-                        Button(
-                            onClick = {
-                                performLightHaptic(context)
-                                onLogin?.invoke()
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .height(56.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = colors.primary
-                            )
-                        ) {
-                            Text(
-                                text = "点击登录",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
                         }
                     }
                 }
@@ -771,6 +887,65 @@ fun SettingsScreen(
             },
             onFetchModels = onFetchModels,
             onUpdateCachedModels = onUpdateCachedModels
+        )
+    }
+
+    // 文本模型选择对话框
+    if (showTextModelDialog) {
+        var textModelInput by remember { mutableStateOf(settings.textModel) }
+        AlertDialog(
+            onDismissRequest = { showTextModelDialog = false },
+            containerColor = colors.backgroundCard,
+            title = {
+                Text("文本模型", color = colors.textPrimary)
+            },
+            text = {
+                Column {
+                    Text(
+                        "输入文本模型名称（用于纯文本对话）",
+                        fontSize = 14.sp,
+                        color = colors.textSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = textModelInput,
+                        onValueChange = { textModelInput = it },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = {
+                            Text("qwen-max", color = colors.textHint)
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.primary,
+                            unfocusedBorderColor = colors.textHint.copy(alpha = 0.3f),
+                            cursorColor = colors.primary,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "常用模型: qwen-max, qwen-plus, qwen-turbo",
+                        fontSize = 12.sp,
+                        color = colors.textHint
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (textModelInput.isNotBlank()) {
+                        onUpdateTextModel(textModelInput.trim())
+                    }
+                    showTextModelDialog = false
+                }) {
+                    Text("确定", color = colors.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTextModelDialog = false }) {
+                    Text("取消", color = colors.textSecondary)
+                }
+            }
         )
     }
 

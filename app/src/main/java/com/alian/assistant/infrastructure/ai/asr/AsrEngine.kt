@@ -1,10 +1,15 @@
 package com.alian.assistant.infrastructure.ai.asr
 
+import com.alian.assistant.data.model.SpeechProvider
+
 /**
  * ASR（自动语音识别）引擎基础接口
  * 定义了语音识别引擎的基本功能
  */
 interface AsrEngine {
+    /** 服务商标识 */
+    val provider: SpeechProvider
+
     /** 引擎是否正在运行 */
     val isRunning: Boolean
 
@@ -13,6 +18,14 @@ interface AsrEngine {
 
     /** 停止语音识别 */
     fun stop()
+
+    /** 触发最终识别（手动模式下使用） */
+    fun commit() {}
+
+    /** 释放资源 */
+    fun release() {
+        stop()
+    }
 }
 
 /**

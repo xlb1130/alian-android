@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.alian.assistant.data.VoiceCategory
 import com.alian.assistant.data.VoicePreset
+import com.alian.assistant.data.model.SpeechProvider
+import com.alian.assistant.infrastructure.ai.provider.VoicePresetManager
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.presentation.ui.screens.components.AlianAppBar
 import android.media.MediaPlayer
@@ -62,6 +64,7 @@ private fun performLightHaptic(context: Context) {
 @Composable
 fun VoiceSelectionScreen(
     currentVoice: String,
+    currentProvider: SpeechProvider = SpeechProvider.BAILIAN,
     onBack: () -> Unit,
     onSelectVoice: (String, String) -> Unit,
     onPlayVoice: (String) -> Unit = {}
@@ -72,6 +75,15 @@ fun VoiceSelectionScreen(
     var isPageVisible by remember { mutableStateOf(false) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var currentPlayingUrl by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // 根据服务商获取音色列表
+    val voicePresetManager = remember { VoicePresetManager.getInstance() }
+    val allVoices = remember(currentProvider) {
+        voicePresetManager.getVoicePresets(currentProvider)
+    }
+    val categories = remember(currentProvider) {
+        voicePresetManager.getCategories(currentProvider)
+    }
 
     LaunchedEffect(Unit) {
         isPageVisible = true
@@ -152,8 +164,8 @@ fun VoiceSelectionScreen(
                         }
                     )
                 }
-                // 各个分类
-                items(VoiceCategory.values()) { category ->
+                // 各个分类 - 使用当前服务商支持的分类
+                items(categories) { category ->
                     CategoryChip(
                         text = category.displayName,
                         isSelected = selectedCategory == category,
@@ -165,11 +177,11 @@ fun VoiceSelectionScreen(
                 }
             }
 
-            // 音色列表
+            // 音色列表 - 根据服务商获取
             val voices = if (selectedCategory != null) {
-                VoicePreset.getByCategory(selectedCategory!!)
+                voicePresetManager.getVoicePresetsByCategory(currentProvider, selectedCategory!!)
             } else {
-                VoicePreset.ALL
+                allVoices
             }
 
             LazyColumn(

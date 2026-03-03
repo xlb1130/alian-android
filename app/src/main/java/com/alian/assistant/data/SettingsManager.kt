@@ -6,6 +6,9 @@ import java.io.File
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.alian.assistant.data.model.SpeechModels
+import com.alian.assistant.data.model.SpeechProvider
+import com.alian.assistant.data.model.SpeechProviderCredentials
 import com.alian.assistant.presentation.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,7 +71,8 @@ data class ApiProvider(
  */
 data class ProviderConfig(
     val apiKey: String = "",
-    val model: String = "",  // VLM模型
+    val model: String = "",  // VLM模型（视觉模型）
+    val textModel: String = "",  // 文本模型
     val speechModel: String = "",  // 语音识别模型
     val cachedModels: List<String> = emptyList(),
     val customBaseUrl: String = ""  // 仅 custom 服务商使用
@@ -130,7 +134,12 @@ data class AppSettings(
     val phoneCallFloatingWindowAutoHide: Boolean = true,  // 用户操作时自动隐藏
     val phoneCallFloatingWindowRememberPosition: Boolean = true,  // 记住窗口位置
     val phoneCallFloatingWindowEdgeSnap: Boolean = true,  // 边缘吸附
-    val phoneCallFloatingWindowMinimizeOnTap: Boolean = false  // 点击空白处最小化
+    val phoneCallFloatingWindowMinimizeOnTap: Boolean = false,  // 点击空白处最小化
+
+    // ========== ASR/TTS 服务商配置 ==========
+    val speechProvider: SpeechProvider = SpeechProvider.BAILIAN,  // 当前 ASR/TTS 服务商
+    val speechCredentials: Map<SpeechProvider, SpeechProviderCredentials> = emptyMap(),  // 各服务商凭证
+    val speechModels: Map<SpeechProvider, SpeechModels> = emptyMap()  // 各服务商选择的模型
 ) {
     // 便捷属性：获取当前服务商的配置
     val currentConfig: ProviderConfig
@@ -141,6 +150,7 @@ data class AppSettings(
 
     val apiKey: String get() = currentConfig.apiKey
     val model: String get() = currentConfig.model.ifEmpty { currentProvider.defaultModel }
+    val textModel: String get() = currentConfig.textModel.ifEmpty { "qwen-max" }  // 默认文本模型
     val speechModel: String get() = currentConfig.speechModel.ifEmpty { "fun-asr-realtime-2025-09-15" }  // 默认语音识别模型
     val cachedModels: List<String> get() = currentConfig.cachedModels
 
@@ -329,10 +339,55 @@ class SettingsManager(context: Context) {
             phoneCallFloatingWindowAutoHide = prefs.getBoolean("phone_call_floating_window_auto_hide", true),
             phoneCallFloatingWindowRememberPosition = prefs.getBoolean("phone_call_floating_window_remember_position", true),
             phoneCallFloatingWindowEdgeSnap = prefs.getBoolean("phone_call_floating_window_edge_snap", true),
-            phoneCallFloatingWindowMinimizeOnTap = prefs.getBoolean("phone_call_floating_window_minimize_on_tap", false)
+            phoneCallFloatingWindowMinimizeOnTap = prefs.getBoolean("phone_call_floating_window_minimize_on_tap", false),
+            
+            // 加载 ASR/TTS 服务商配置
+            speechProvider = loadSpeechProvider(),
+            speechCredentials = loadAllSpeechCredentials(),
+            speechModels = loadAllSpeechModels()
         ).also {
             android.util.Log.d("SettingsManager", "loadSettings - executionStrategy: ${it.executionStrategy}")
         }
+    }
+
+    /**
+     * 加载 ASR/TTS 服务商
+     */
+    private fun loadSpeechProvider(): SpeechProvider {
+        val providerName = prefs.getString("speech_provider", SpeechProvider.BAILIAN.name) ?: SpeechProvider.BAILIAN.name
+        return try {
+            SpeechProvider.valueOf(providerName)
+        } catch (e: Exception) {
+            SpeechProvider.BAILIAN
+        }
+    }
+
+    /**
+     * 加载所有服务商凭证
+     */
+    private fun loadAllSpeechCredentials(): Map<SpeechProvider, SpeechProviderCredentials> {
+        val credentials = mutableMapOf<SpeechProvider, SpeechProviderCredentials>()
+        for (provider in SpeechProvider.entries) {
+            val cred = loadSpeechCredentials(provider)
+            if (cred.apiKey.isNotEmpty() || cred.appId.isNotEmpty()) {
+                credentials[provider] = cred
+            }
+        }
+        return credentials
+    }
+
+    /**
+     * 加载所有服务商模型选择
+     */
+    private fun loadAllSpeechModels(): Map<SpeechProvider, SpeechModels> {
+        val models = mutableMapOf<SpeechProvider, SpeechModels>()
+        for (provider in SpeechProvider.entries) {
+            val model = loadSpeechModels(provider)
+            if (model.asrModel.isNotEmpty() || model.ttsModel.isNotEmpty()) {
+                models[provider] = model
+            }
+        }
+        return models
     }
 
     /**
@@ -343,6 +398,7 @@ class SettingsManager(context: Context) {
         return ProviderConfig(
             apiKey = (securePrefs.getString("${prefix}api_key", "") ?: "").trim(),
             model = prefs.getString("${prefix}model", "") ?: "",
+            textModel = prefs.getString("${prefix}text_model", "") ?: "",
             speechModel = prefs.getString("${prefix}speech_model", "") ?: "",
             cachedModels = prefs.getStringSet("${prefix}cached_models", emptySet())?.toList() ?: emptyList(),
             customBaseUrl = prefs.getString("${prefix}custom_base_url", "") ?: ""
@@ -357,6 +413,7 @@ class SettingsManager(context: Context) {
         securePrefs.edit().putString("${prefix}api_key", config.apiKey).apply()
         prefs.edit()
             .putString("${prefix}model", config.model)
+            .putString("${prefix}text_model", config.textModel)
             .putString("${prefix}speech_model", config.speechModel)
             .putStringSet("${prefix}cached_models", config.cachedModels.toSet())
             .putString("${prefix}custom_base_url", config.customBaseUrl)
@@ -392,6 +449,10 @@ class SettingsManager(context: Context) {
 
     fun updateModel(model: String) {
         updateCurrentConfig { it.copy(model = model) }
+    }
+
+    fun updateTextModel(textModel: String) {
+        updateCurrentConfig { it.copy(textModel = textModel) }
     }
 
     fun updateSpeechModel(speechModel: String) {
@@ -664,5 +725,83 @@ class SettingsManager(context: Context) {
     fun updatePhoneCallFloatingWindowMinimizeOnTap(minimizeOnTap: Boolean) {
         prefs.edit().putBoolean("phone_call_floating_window_minimize_on_tap", minimizeOnTap).apply()
         _settings.value = _settings.value.copy(phoneCallFloatingWindowMinimizeOnTap = minimizeOnTap)
+    }
+
+    // ========== ASR/TTS 服务商配置方法 ==========
+
+    /**
+     * 切换 ASR/TTS 服务商
+     */
+    fun selectSpeechProvider(provider: SpeechProvider) {
+        prefs.edit().putString("speech_provider", provider.name).apply()
+        _settings.value = _settings.value.copy(speechProvider = provider)
+    }
+
+    /**
+     * 更新服务商凭证
+     */
+    fun updateSpeechCredentials(
+        provider: SpeechProvider,
+        credentials: SpeechProviderCredentials
+    ) {
+        val newCredentials = _settings.value.speechCredentials.toMutableMap()
+        newCredentials[provider] = credentials
+
+        // 加密存储 API Key
+        securePrefs.edit()
+            .putString("speech_${provider.name}_api_key", credentials.apiKey)
+            .putString("speech_${provider.name}_app_id", credentials.appId)
+            .putString("speech_${provider.name}_cluster", credentials.cluster)
+            .apply()
+
+        _settings.value = _settings.value.copy(speechCredentials = newCredentials)
+    }
+
+    /**
+     * 获取当前服务商凭证
+     */
+    fun getSpeechCredentials(provider: SpeechProvider): SpeechProviderCredentials {
+        return _settings.value.speechCredentials[provider] ?: loadSpeechCredentials(provider)
+    }
+
+    /**
+     * 从存储加载服务商凭证
+     */
+    private fun loadSpeechCredentials(provider: SpeechProvider): SpeechProviderCredentials {
+        return SpeechProviderCredentials(
+            apiKey = (securePrefs.getString("speech_${provider.name}_api_key", "") ?: "").trim(),
+            appId = prefs.getString("speech_${provider.name}_app_id", "") ?: "",
+            cluster = prefs.getString("speech_${provider.name}_cluster", "") ?: ""
+        )
+    }
+
+    /**
+     * 更新服务商模型选择
+     */
+    fun updateSpeechModels(provider: SpeechProvider, models: SpeechModels) {
+        val newModels = _settings.value.speechModels.toMutableMap()
+        newModels[provider] = models
+        prefs.edit()
+            .putString("speech_${provider.name}_asr_model", models.asrModel)
+            .putString("speech_${provider.name}_tts_model", models.ttsModel)
+            .apply()
+        _settings.value = _settings.value.copy(speechModels = newModels)
+    }
+
+    /**
+     * 获取服务商模型选择
+     */
+    fun getSpeechModels(provider: SpeechProvider): SpeechModels {
+        return _settings.value.speechModels[provider] ?: loadSpeechModels(provider)
+    }
+
+    /**
+     * 从存储加载服务商模型选择
+     */
+    private fun loadSpeechModels(provider: SpeechProvider): SpeechModels {
+        return SpeechModels(
+            asrModel = prefs.getString("speech_${provider.name}_asr_model", "") ?: "",
+            ttsModel = prefs.getString("speech_${provider.name}_tts_model", "") ?: ""
+        )
     }
 }

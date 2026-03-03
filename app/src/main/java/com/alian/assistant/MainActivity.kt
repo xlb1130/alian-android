@@ -68,6 +68,10 @@ import com.alian.assistant.presentation.ui.screens.OnboardingScreen
 import com.alian.assistant.presentation.ui.screens.SettingsScreen
 import com.alian.assistant.presentation.viewmodel.AlianViewModel
 import com.alian.assistant.presentation.ui.screens.settings.VoiceSelectionScreen
+import com.alian.assistant.presentation.ui.screens.settings.SpeechProviderSettingsScreen
+import com.alian.assistant.data.model.SpeechProvider
+import com.alian.assistant.data.model.SpeechProviderCredentials
+import com.alian.assistant.data.model.SpeechModels
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.common.utils.AccessibilityUtils
 import com.alian.assistant.common.utils.PermissionManager
@@ -93,6 +97,9 @@ sealed class Screen(
 
     object SkillCreator :
         Screen("skill_creator", "创建技能", Icons.Outlined.Add, Icons.Filled.Add, showInBottomNav = false)
+
+    object SpeechProviderSettings :
+        Screen("speech_provider_settings", "语音服务商", Icons.Outlined.Settings, Icons.Filled.Settings, showInBottomNav = false)
 }
 
 class MainActivity : ComponentActivity() {
@@ -1120,6 +1127,7 @@ class MainActivity : ComponentActivity() {
                                 onUpdateApiKey = { settingsManager.updateApiKey(it) },
                                 onUpdateBaseUrl = { settingsManager.updateBaseUrl(it) },
                                 onUpdateModel = { settingsManager.updateModel(it) },
+                                onUpdateTextModel = { settingsManager.updateTextModel(it) },
                                 onUpdateCachedModels = { settingsManager.updateCachedModels(it) },
                                 onUpdateThemeMode = { settingsManager.updateThemeMode(it) },
                                 onUpdateMaxSteps = { settingsManager.updateMaxSteps(it) },
@@ -1230,6 +1238,9 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToVoiceSelection = {
                                     currentScreen = Screen.VoiceSelection
                                 },
+                                onNavigateToSpeechProviderSettings = {
+                                    currentScreen = Screen.SpeechProviderSettings
+                                },
                                 onBack = {
                                     currentScreen = Screen.Alian
                                     showAlianLoginScreen = false
@@ -1259,6 +1270,22 @@ class MainActivity : ComponentActivity() {
                                 onSaved = {
                                     editingSkillConfig = null
                                     currentScreen = Screen.Capabilities
+                                }
+                            )
+
+                            Screen.SpeechProviderSettings -> SpeechProviderSettingsScreen(
+                                currentProvider = settings.speechProvider,
+                                credentials = settings.speechCredentials,
+                                models = settings.speechModels,
+                                onBack = { currentScreen = Screen.Settings },
+                                onSelectProvider = { provider ->
+                                    settingsManager.selectSpeechProvider(provider)
+                                },
+                                onUpdateCredentials = { provider, creds ->
+                                    settingsManager.updateSpeechCredentials(provider, creds)
+                                },
+                                onUpdateModels = { provider, models ->
+                                    settingsManager.updateSpeechModels(provider, models)
                                 }
                             )
                         }
