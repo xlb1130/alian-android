@@ -1,0 +1,7 @@
+{
+  "templates": [
+    "navigation_baidu_maps.json",
+    "food_ordering_meituan.json",
+    "shopping_jd.json"
+  ]
+}

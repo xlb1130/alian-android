@@ -1,0 +1,197 @@
+{
+  "id": "preset_food_ordering_meituan_001",
+  "name": "美团外卖点餐",
+  "description": "使用美团外卖进行点餐",
+  "category": "FOOD_ORDERING",
+  "version": 1,
+  "matchingRule": {
+    "keywords": ["点餐", "外卖", "美团", "订餐", "点菜"],
+    "intentPatterns": [".*点餐.*", ".*外卖.*", ".*美团.*"]
+  },
+  "targetApp": {
+    "packageName": "com.sankuai.meituan",
+    "appName": "美团",
+    "launchActivity": null
+  },
+  "steps": [
+    {
+      "id": "step_001",
+      "order": 0,
+      "action": {
+        "type": "TAP",
+        "target": "外卖",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "ENTRY",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "外卖", "confidence": 1.0},
+        {"type": "CONTENT_DESC", "priority": 2, "value": "外卖", "confidence": 0.9}
+      ],
+      "screenDescription": "美团首页，点击外卖入口",
+      "isKeyNode": true,
+      "successRate": 0.95,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_002",
+      "order": 1,
+      "action": {
+        "type": "TAP",
+        "target": "搜索",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "搜索", "confidence": 1.0},
+        {"type": "RESOURCE_ID", "priority": 2, "value": "com.sankuai.meituan:id/search", "confidence": 0.8}
+      ],
+      "screenDescription": "外卖页面，点击搜索",
+      "isKeyNode": false,
+      "successRate": 0.9,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_003",
+      "order": 2,
+      "action": {
+        "type": "TYPE",
+        "target": null,
+        "coordinate": null,
+        "inputValue": "${restaurant_name}",
+        "swipeDirection": null
+      },
+      "nodeType": "KEY_OPERATION",
+      "locateStrategies": [
+        {"type": "RESOURCE_ID", "priority": 1, "value": "com.sankuai.meituan:id/search_input", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "搜索商家", "confidence": 0.8}
+      ],
+      "screenDescription": "搜索框，输入商家名称",
+      "isKeyNode": true,
+      "successRate": 0.9,
+      "avgExecutionTime": 1500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_004",
+      "order": 3,
+      "action": {
+        "type": "TAP",
+        "target": "${restaurant_name}",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_FUZZY", "priority": 1, "value": "${restaurant_name}", "confidence": 1.0}
+      ],
+      "screenDescription": "搜索结果，选择商家",
+      "isKeyNode": false,
+      "successRate": 0.85,
+      "avgExecutionTime": 800,
+      "executionCount": 0
+    },
+    {
+      "id": "step_005",
+      "order": 4,
+      "action": {
+        "type": "TAP",
+        "target": "${food_item}",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_FUZZY", "priority": 1, "value": "${food_item}", "confidence": 0.9}
+      ],
+      "screenDescription": "商家页面，选择菜品",
+      "isKeyNode": false,
+      "successRate": 0.8,
+      "avgExecutionTime": 1000,
+      "executionCount": 0
+    },
+    {
+      "id": "step_006",
+      "order": 5,
+      "action": {
+        "type": "TAP",
+        "target": "去结算",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "去结算", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "结算", "confidence": 0.9}
+      ],
+      "screenDescription": "购物车页面，去结算",
+      "isKeyNode": false,
+      "successRate": 0.9,
+      "avgExecutionTime": 600,
+      "executionCount": 0
+    },
+    {
+      "id": "step_007",
+      "order": 6,
+      "action": {
+        "type": "TAP",
+        "target": "提交订单",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "COMPLETION",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "提交订单", "confidence": 1.0}
+      ],
+      "screenDescription": "订单确认页面，提交订单",
+      "isKeyNode": true,
+      "successRate": 0.9,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    }
+  ],
+  "keyNodes": [
+    {
+      "id": "keynode_001",
+      "name": "ENTRY",
+      "stepIndex": 0,
+      "screenSignature": {
+        "textPatterns": ["美团", "外卖"],
+        "elementSignatures": []
+      },
+      "verificationMethod": "ACCESSIBILITY_CHECK"
+    },
+    {
+      "id": "keynode_002",
+      "name": "COMPLETION",
+      "stepIndex": 6,
+      "screenSignature": {
+        "textPatterns": ["提交订单", "支付"],
+        "elementSignatures": []
+      },
+      "verificationMethod": "ACCESSIBILITY_CHECK"
+    }
+  ],
+  "statistics": {
+    "totalExecutions": 0,
+    "successfulExecutions": 0,
+    "failedExecutions": 0,
+    "avgExecutionTime": 0,
+    "screenshotsSkipped": 0,
+    "vlmCallsSkipped": 0,
+    "tokensSaved": 0,
+    "trustLevel": "PROBATIONARY"
+  },
+  "source": "PRESET",
+  "createdAt": 1709510400000,
+  "updatedAt": 1709510400000
+}

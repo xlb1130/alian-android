@@ -1,0 +1,197 @@
+{
+  "id": "preset_shopping_jd_001",
+  "name": "京东购物",
+  "description": "使用京东进行商品搜索和购买",
+  "category": "SHOPPING",
+  "version": 1,
+  "matchingRule": {
+    "keywords": ["购物", "买", "京东", "下单", "淘宝"],
+    "intentPatterns": [".*购物.*", ".*买.*", ".*京东.*", ".*下单.*"]
+  },
+  "targetApp": {
+    "packageName": "com.jingdong.app.mall",
+    "appName": "京东",
+    "launchActivity": null
+  },
+  "steps": [
+    {
+      "id": "step_001",
+      "order": 0,
+      "action": {
+        "type": "TAP",
+        "target": "搜索",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "ENTRY",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "搜索", "confidence": 1.0},
+        {"type": "RESOURCE_ID", "priority": 2, "value": "com.jingdong.app.mall:id/search", "confidence": 0.9}
+      ],
+      "screenDescription": "京东首页，点击搜索框",
+      "isKeyNode": true,
+      "successRate": 0.95,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_002",
+      "order": 1,
+      "action": {
+        "type": "TYPE",
+        "target": null,
+        "coordinate": null,
+        "inputValue": "${product_name}",
+        "swipeDirection": null
+      },
+      "nodeType": "KEY_OPERATION",
+      "locateStrategies": [
+        {"type": "RESOURCE_ID", "priority": 1, "value": "com.jingdong.app.mall:id/search_input", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "搜索商品", "confidence": 0.8}
+      ],
+      "screenDescription": "搜索框，输入商品名称",
+      "isKeyNode": true,
+      "successRate": 0.9,
+      "avgExecutionTime": 1500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_003",
+      "order": 2,
+      "action": {
+        "type": "TAP",
+        "target": "搜索",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "搜索", "confidence": 1.0},
+        {"type": "RESOURCE_ID", "priority": 2, "value": "com.jingdong.app.mall:id/search_button", "confidence": 0.9}
+      ],
+      "screenDescription": "点击搜索按钮",
+      "isKeyNode": false,
+      "successRate": 0.9,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_004",
+      "order": 3,
+      "action": {
+        "type": "TAP",
+        "target": "${product_name}",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_FUZZY", "priority": 1, "value": "${product_name}", "confidence": 0.9}
+      ],
+      "screenDescription": "搜索结果，选择商品",
+      "isKeyNode": false,
+      "successRate": 0.85,
+      "avgExecutionTime": 800,
+      "executionCount": 0
+    },
+    {
+      "id": "step_005",
+      "order": 4,
+      "action": {
+        "type": "TAP",
+        "target": "加入购物车",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "加入购物车", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "加购", "confidence": 0.9}
+      ],
+      "screenDescription": "商品详情页，加入购物车",
+      "isKeyNode": false,
+      "successRate": 0.9,
+      "avgExecutionTime": 600,
+      "executionCount": 0
+    },
+    {
+      "id": "step_006",
+      "order": 5,
+      "action": {
+        "type": "TAP",
+        "target": "去结算",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "去结算", "confidence": 1.0}
+      ],
+      "screenDescription": "购物车页面，去结算",
+      "isKeyNode": false,
+      "successRate": 0.9,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_007",
+      "order": 6,
+      "action": {
+        "type": "TAP",
+        "target": "提交订单",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "COMPLETION",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "提交订单", "confidence": 1.0}
+      ],
+      "screenDescription": "订单确认页面，提交订单",
+      "isKeyNode": true,
+      "successRate": 0.9,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    }
+  ],
+  "keyNodes": [
+    {
+      "id": "keynode_001",
+      "name": "ENTRY",
+      "stepIndex": 0,
+      "screenSignature": {
+        "textPatterns": ["京东", "搜索"],
+        "elementSignatures": []
+      },
+      "verificationMethod": "ACCESSIBILITY_CHECK"
+    },
+    {
+      "id": "keynode_002",
+      "name": "COMPLETION",
+      "stepIndex": 6,
+      "screenSignature": {
+        "textPatterns": ["提交订单", "支付"],
+        "elementSignatures": []
+      },
+      "verificationMethod": "ACCESSIBILITY_CHECK"
+    }
+  ],
+  "statistics": {
+    "totalExecutions": 0,
+    "successfulExecutions": 0,
+    "failedExecutions": 0,
+    "avgExecutionTime": 0,
+    "screenshotsSkipped": 0,
+    "vlmCallsSkipped": 0,
+    "tokensSaved": 0,
+    "trustLevel": "PROBATIONARY"
+  },
+  "source": "PRESET",
+  "createdAt": 1709510400000,
+  "updatedAt": 1709510400000
+}

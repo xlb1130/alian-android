@@ -84,7 +84,7 @@ Alian is a fully open-source AI phone assistant that supports voice calls, video
 
 > 💡 **Open-source mobile app - experience all features described here without login**
 >
-> ⚠️ **MCP Feature**: To use MCP functionality, please configure your correct MCP in Settings first (the default one is a demo), then enable the MCP switch
+> ⚠️ **MCP Feature**: To use MCP functionality, please configure your correct MCP in Settings first (the default one is a demo), then enable the MCP switch. **After configuring MCP, you MUST restart the app, otherwise the first sentence of the call will have about 10 seconds of loading freeze**
 
 ### 🌐 Web Demo
 

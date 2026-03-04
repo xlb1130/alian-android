@@ -35,6 +35,8 @@ import com.alian.assistant.core.skills.SkillRegistry
 import com.alian.assistant.data.*
 import com.alian.assistant.presentation.ui.screens.settings.CapabilitiesScreen
 import com.alian.assistant.presentation.ui.screens.settings.SkillCreatorScreen
+import com.alian.assistant.presentation.ui.settings.flowtemplate.FlowTemplateListScreen
+import com.alian.assistant.presentation.ui.settings.flowtemplate.FlowTemplateDetailScreen
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import com.alian.assistant.infrastructure.voice.VoiceRecognitionManager
@@ -101,6 +103,12 @@ sealed class Screen(
 
     object SpeechProviderSettings :
         Screen("speech_provider_settings", "语音服务商", Icons.Outlined.Settings, Icons.Filled.Settings, showInBottomNav = false)
+
+    object FlowTemplate :
+        Screen("flow_template", "流程模板", Icons.Outlined.AccountTree, Icons.Filled.AccountTree, showInBottomNav = false)
+
+    object FlowTemplateDetail :
+        Screen("flow_template_detail", "模板详情", Icons.Outlined.AccountTree, Icons.Filled.AccountTree, showInBottomNav = false)
 }
 
 class MainActivity : ComponentActivity() {
@@ -661,6 +669,9 @@ class MainActivity : ComponentActivity() {
 
         // 控制要编辑的 Skill（null 表示创建新 Skill）
         var editingSkillConfig by remember { mutableStateOf<SkillConfig?>(null) }
+
+        // 控制要查看的流程模板 ID（null 表示在列表页）
+        var selectedFlowTemplateId by remember { mutableStateOf<String?>(null) }
 
         // 监听跳转事件
         LaunchedEffect(navigateToRecord, recordId) {
@@ -1247,6 +1258,9 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToSpeechProviderSettings = {
                                     currentScreen = Screen.SpeechProviderSettings
                                 },
+                                onNavigateToFlowTemplate = {
+                                    currentScreen = Screen.FlowTemplate
+                                },
                                 onBack = {
                                     currentScreen = Screen.Alian
                                     showAlianLoginScreen = false
@@ -1294,6 +1308,30 @@ class MainActivity : ComponentActivity() {
                                     settingsManager.updateSpeechModels(provider, models)
                                 }
                             )
+
+                            Screen.FlowTemplate -> FlowTemplateListScreen(
+                                onNavigateToDetail = { templateId ->
+                                    selectedFlowTemplateId = templateId
+                                    currentScreen = Screen.FlowTemplateDetail
+                                },
+                                onBack = {
+                                    currentScreen = Screen.Settings
+                                }
+                            )
+
+                            Screen.FlowTemplateDetail -> {
+                                val templateId = selectedFlowTemplateId ?: ""
+                                FlowTemplateDetailScreen(
+                                    templateId = templateId,
+                                    onNavigateBack = {
+                                        selectedFlowTemplateId = null
+                                        currentScreen = Screen.FlowTemplate
+                                    },
+                                    onExecute = { instruction ->
+                                        // TODO: 执行流程模板
+                                    }
+                                )
+                            }
                         }
                     }
                 }

@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -193,6 +194,7 @@ fun SettingsScreen(
     navigateToCapabilities: () -> Unit = {},
     onNavigateToVoiceSelection: () -> Unit = {},
     onNavigateToSpeechProviderSettings: () -> Unit = {},
+    onNavigateToFlowTemplate: () -> Unit = {},
     onBack: () -> Unit = {},
     mediaProjectionResultCode: Int? = null,
     mediaProjectionData: Intent? = null,
@@ -692,6 +694,15 @@ fun SettingsScreen(
                                 onClick = { currentSubScreen = SettingsSubScreen.MCP }
                             )
                         }
+                        // 流程模板
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.AccountTree,
+                                title = stringResource(R.string.flow_template),
+                                subtitle = stringResource(R.string.flow_template_count, 0),
+                                onClick = { onNavigateToFlowTemplate() }
+                            )
+                        }
                         // 能力
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
@@ -701,8 +712,6 @@ fun SettingsScreen(
                                 onClick = { navigateToCapabilities() }
                             )
                         }
-                        // 占位
-                        Box(modifier = Modifier.weight(1f)) {}
                     }
                 }
             }

@@ -752,4 +752,80 @@
     <!-- Common Dialog -->
     <string name="dialog_unit_ms">%1$d ms</string>
     <string name="dialog_current_value">Current value: %1$d %2$s</string>
+
+    <!-- Flow Template Management -->
+    <string name="flow_template">Flow Templates</string>
+    <string name="flow_template_count">%1$d templates</string>
+    <string name="flow_template_search_hint">Search templates...</string>
+    <string name="flow_template_filter">Filter</string>
+    <string name="flow_template_sort">Sort</string>
+    <string name="flow_template_execute">Execute</string>
+    <string name="flow_template_detail">Detail</string>
+    <string name="flow_template_edit">Edit</string>
+    <string name="flow_template_delete">Delete</string>
+    <string name="flow_template_export">Export</string>
+    <string name="flow_template_import">Import</string>
+    <string name="flow_template_delete_confirm">Are you sure you want to delete this template?</string>
+    <string name="flow_template_empty">No flow templates</string>
+    <string name="flow_template_empty_hint">When you perform repetitive tasks, the system will automatically learn and generate flow templates to help improve efficiency</string>
+    <string name="flow_template_not_found">No matching templates found</string>
+    <string name="flow_template_export_success">Template exported</string>
+
+    <!-- Template Detail -->
+    <string name="flow_template_basic_info">Basic Info</string>
+    <string name="flow_template_statistics">Statistics</string>
+    <string name="flow_template_matching_rule">Matching Rule</string>
+    <string name="flow_template_steps">Steps</string>
+    <string name="flow_template_total_executions">Executions</string>
+    <string name="flow_template_success_rate">Success Rate</string>
+    <string name="flow_template_saved_cost">Saved</string>
+    <string name="flow_template_skipped_screenshots">Skipped Screenshots</string>
+    <string name="flow_template_skipped_vlm">Skipped VLM</string>
+    <string name="flow_template_saved_time">Time Saved</string>
+    <string name="flow_template_trigger_keywords">Trigger Keywords</string>
+    <string name="flow_template_example_commands">Example Commands</string>
+    <string name="flow_template_name">Name</string>
+    <string name="flow_template_category">Category</string>
+    <string name="flow_template_target_app">Target App</string>
+    <string name="flow_template_created_at">Created</string>
+    <string name="flow_template_version">Version</string>
+    <string name="flow_template_last_execution">Last run: %1$s</string>
+
+    <!-- Trust Level -->
+    <string name="trust_level_highly_trusted">Highly Trusted</string>
+    <string name="trust_level_trusted">Trusted</string>
+    <string name="trust_level_probationary">Probationary</string>
+    <string name="trust_level_new">New</string>
+    <string name="trust_level_unreliable">Unreliable</string>
+
+    <!-- Category -->
+    <string name="category_all">All</string>
+    <string name="category_navigation">Navigation</string>
+    <string name="category_food_ordering">Food Ordering</string>
+    <string name="category_shopping">Shopping</string>
+    <string name="category_transportation">Transportation</string>
+    <string name="category_entertainment">Entertainment</string>
+    <string name="category_utilities">Utilities</string>
+    <string name="category_general">General</string>
+
+    <!-- Sort Options -->
+    <string name="sort_by_recently_used">Recently Used</string>
+    <string name="sort_by_usage_frequency">Usage Frequency</string>
+    <string name="sort_by_success_rate">Success Rate</string>
+    <string name="sort_by_saved_cost">Cost Saved</string>
+    <string name="sort_by_created_time">Created Time</string>
+
+    <!-- Unit -->
+    <string name="unit_times">times</string>
+    <string name="unit_yuan">CNY</string>
+    <string name="unit_minutes">min</string>
+    <string name="unit_steps">steps</string>
+
+    <!-- Flow Mode -->
+    <string name="flow_mode_enabled">Flow optimization mode enabled</string>
+    <string name="flow_mode_disabled">Flow optimization mode disabled</string>
+    <string name="flow_template_matched">Matched flow template: %1$s</string>
+    <string name="flow_template_skip_screenshot">Skip screenshot (confidence: %1$d%%)</string>
+    <string name="flow_template_verification">Verifying node...</string>
+    <string name="flow_template_fallback">Fallback to traditional mode</string>
 </resources>
