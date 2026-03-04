@@ -138,7 +138,8 @@ class AgentRunner(
                 deviceControllerProvider(),
                 context,
                 settings.reactOnly,
-                settings.enableChatAgent
+                settings.enableChatAgent,
+                settings.enableFlowMode
             )
         } else {
             mobileAgentState.value = MobileAgent(

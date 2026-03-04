@@ -777,7 +777,8 @@ class MainActivity : ComponentActivity() {
                                         deviceController,
                                         this@MainActivity,
                                         settings.reactOnly,
-                                        settings.enableChatAgent
+                                        settings.enableChatAgent,
+                                        settings.enableFlowMode
                                     )
                                 } else {
                                     mobileAgent.value =
@@ -1196,6 +1197,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onUpdateReactOnly = { settingsManager.updateReactOnly(it) },
                                 onUpdateEnableChatAgent = { settingsManager.updateEnableChatAgent(it) },
+                                onUpdateEnableFlowMode = { settingsManager.updateEnableFlowMode(it) },
                                 onUpdateExecutionStrategy = {
                                     settingsManager.updateExecutionStrategy(it)
                                     recreateDeviceController()
@@ -1536,12 +1538,14 @@ class MainActivity : ComponentActivity() {
         mobileAgent.value?.let { agent ->
             if (agent is MobileAgentImprove) {
                 val vlmClient = createVLMClient()
+                val settings = settingsManager.settings.value
                 mobileAgent.value = MobileAgentImprove(
                     vlmClient,
                     deviceController,
                     this,
                     settings.reactOnly,
-                    settings.enableChatAgent
+                    settings.enableChatAgent,
+                    settings.enableFlowMode
                 )
                 Log.d(TAG, "MobileAgentImprove recreated with new controller")
             }

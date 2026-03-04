@@ -164,7 +164,7 @@ Different features of Alian require different permissions. Please ensure you hav
 | Accessibility Service | ❌ Not Needed | ✅ Required | ❌ Not Needed | ✅ Required | For automation operations and controlling other apps |
 | Screen Recording | ❌ Not Needed | ✅ Required | ❌ Not Needed | ✅ Required | For capturing screen content for visual recognition |
 | Shizuku | ❌ Not Needed | ⚡ Optional | ❌ Not Needed | ⚡ Optional | Provides more efficient device control (alternative to Accessibility Service) |
-| Notifications | ⚡ Recommended | ⚡ Recommended | ⚡ Recommended | ⚡ Recommended | For displaying background notifications, prevents app from being killed by system |
+| Notifications | ⚡ Recommended | ✅ Required | ⚡ Recommended | ✅ Required | For displaying background notifications, prevents app from being killed by system |
 
 > **Legend**:
 > - ✅ Required: This feature cannot function without this permission

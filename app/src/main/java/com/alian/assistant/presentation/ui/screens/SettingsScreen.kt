@@ -177,6 +177,7 @@ fun SettingsScreen(
     onUpdateEnableImproveMode: (Boolean) -> Unit,
     onUpdateReactOnly: (Boolean) -> Unit,
     onUpdateEnableChatAgent: (Boolean) -> Unit,
+    onUpdateEnableFlowMode: (Boolean) -> Unit,
     onUpdateExecutionStrategy: (String) -> Unit,
     onUpdateFallbackStrategy: (String) -> Unit,
     onUpdateScreenshotCacheEnabled: (Boolean) -> Unit,
@@ -283,6 +284,7 @@ fun SettingsScreen(
                                     onUpdateEnableImproveMode = onUpdateEnableImproveMode,
                                     onUpdateReactOnly = onUpdateReactOnly,
                                     onUpdateEnableChatAgent = onUpdateEnableChatAgent,
+                                    onUpdateEnableFlowMode = onUpdateEnableFlowMode,
                                     onNavigateToDeviceController = {
                                         currentSubScreen = SettingsSubScreen.DEVICE_CONTROLLER
                                     }

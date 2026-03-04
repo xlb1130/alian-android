@@ -348,6 +348,11 @@ Limitations:
                     log("用户停止执行")
                     OverlayService.hide(context)
                     bringAppToFront()
+                    // 结束 Flow 会话并自动沉淀
+                    if (enableFlowMode) {
+                        flowIntegration.endSession(success = false)
+                        autoSaveTemplate(instruction, success = false)
+                    }
                     cleanup()  // 清理语音监听资源
                     return AgentResult(success = false, message = "用户停止")
                 }
@@ -476,6 +481,11 @@ Limitations:
                     log("用户停止执行")
                     OverlayService.hide(context)
                     bringAppToFront()
+                    // 结束 Flow 会话并自动沉淀
+                    if (enableFlowMode) {
+                        flowIntegration.endSession(success = false)
+                        autoSaveTemplate(instruction, success = false)
+                    }
                     cleanup()  // 清理语音监听资源
                     return AgentResult(success = false, message = "用户停止")
                 }
@@ -494,6 +504,11 @@ Limitations:
                         log("用户停止执行")
                         OverlayService.hide(context)
                         bringAppToFront()
+                        // 结束 Flow 会话并自动沉淀
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = false)
+                            autoSaveTemplate(instruction, success = false)
+                        }
                         cleanup()  // 清理语音监听资源
                         return AgentResult(success = false, message = "用户停止")
                     }
@@ -515,6 +530,11 @@ Limitations:
                         log("用户停止执行")
                         OverlayService.hide(context)
                         bringAppToFront()
+                        // 结束 Flow 会话并自动沉淀
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = false)
+                            autoSaveTemplate(instruction, success = false)
+                        }
                         cleanup()  // 清理语音监听资源
                         return AgentResult(success = false, message = "用户停止")
                     }
@@ -561,6 +581,8 @@ Limitations:
                         // 结束 Flow 会话
                         if (enableFlowMode) {
                             flowIntegration.endSession(success = true)
+                            // 自动沉淀流程模板
+                            autoSaveTemplate(instruction, success = true)
                         }
                         logOptimizationReport(infoPool)
                         cleanup()  // 清理语音监听资源
@@ -580,6 +602,11 @@ Limitations:
                     log("用户停止执行")
                     OverlayService.hide(context)
                     bringAppToFront()
+                    // 结束 Flow 会话并自动沉淀
+                    if (enableFlowMode) {
+                        flowIntegration.endSession(success = false)
+                        autoSaveTemplate(instruction, success = false)
+                    }
                     cleanup()  // 清理语音监听资源
                     return AgentResult(success = false, message = "用户停止")
                 }
@@ -599,6 +626,11 @@ Limitations:
                 if (!_state.value.isRunning) {                    log("用户停止执行")
                     OverlayService.hide(context)
                     bringAppToFront()
+                    // 结束 Flow 会话并自动沉淀
+                    if (enableFlowMode) {
+                        flowIntegration.endSession(success = false)
+                        autoSaveTemplate(instruction, success = false)
+                    }
                     cleanup()  // 清理语音监听资源
                     return AgentResult(success = false, message = "用户停止")
                 }
@@ -722,6 +754,11 @@ Limitations:
                         log("用户停止执行")
                         OverlayService.hide(context)
                         bringAppToFront()
+                        // 结束 Flow 会话并自动沉淀
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = false)
+                            autoSaveTemplate(instruction, success = false)
+                        }
                         cleanup()  // 清理语音监听资源
                         return AgentResult(success = false, message = "用户停止")
                     }
@@ -761,6 +798,11 @@ Limitations:
                         log("用户停止执行")
                         OverlayService.hide(context)
                         bringAppToFront()
+                        // 结束 Flow 会话并自动沉淀
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = false)
+                            autoSaveTemplate(instruction, success = false)
+                        }
                         cleanup()  // 清理语音监听资源
                         return AgentResult(success = false, message = "用户停止")
                     }
@@ -1919,6 +1961,75 @@ Limitations:
     private suspend fun waitForResume() {
         while (isPausedForChat && _state.value.isRunning) {
             delay(100)
+        }
+    }
+
+    // ========== 自动沉淀模板 ==========
+
+    /**
+     * 自动沉淀流程模板
+     * 
+     * 触发条件：
+     * 1. Flow 模式已启用
+     * 2. 当前会话没有匹配到模板（避免重复）
+     * 3. 执行步骤数 >= MIN_STEPS_FOR_LEARNING（太短的流程无意义）
+     * 4. 成功完成或用户中断（有足够步骤）
+     * 
+     * @param instruction 用户指令
+     * @param success 是否成功完成
+     */
+    private suspend fun autoSaveTemplate(instruction: String, success: Boolean) {
+        if (!enableFlowMode) {
+            Log.d(TAG, "Flow 模式未启用，跳过自动沉淀")
+            return
+        }
+
+        val session = flowIntegration.currentSession
+        if (session?.hasTemplate == true) {
+            Log.d(TAG, "已匹配现有模板，跳过自动沉淀")
+            return
+        }
+
+        val executionSteps = _state.value.executionSteps
+        val minSteps = com.alian.assistant.core.flow.service.FlowLearner.MIN_EXECUTIONS_FOR_LEARNING
+
+        if (executionSteps.size < minSteps) {
+            Log.d(TAG, "执行步骤数 (${executionSteps.size}) < $minSteps，跳过自动沉淀")
+            return
+        }
+
+        // 计算成功率
+        val successCount = executionSteps.count { it.outcome == "A" || it.outcome == "D" }
+        val successRate = if (executionSteps.isNotEmpty()) {
+            successCount.toFloat() / executionSteps.size
+        } else 0f
+
+        // 用户中断时，至少要有 50% 成功率才沉淀
+        if (!success && successRate < 0.5f) {
+            Log.d(TAG, "用户中断且成功率 ($successRate) < 50%，跳过自动沉淀")
+            return
+        }
+
+        log("🔄 开始自动沉淀流程模板...")
+        log("   步骤数: ${executionSteps.size}, 成功率: ${"%.1f".format(successRate * 100)}%")
+
+        try {
+            val newTemplate = flowIntegration.learnFromTraditionalExecution(
+                instruction = instruction,
+                executionSteps = executionSteps
+            )
+
+            if (newTemplate != null) {
+                log("✅ 自动沉淀成功: ${newTemplate.name}")
+                log("   模板ID: ${newTemplate.id}")
+                log("   类别: ${newTemplate.category}")
+                log("   步骤数: ${newTemplate.steps.size}")
+            } else {
+                log("⚠️ 自动沉淀失败：无法生成模板")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "自动沉淀异常: ${e.message}", e)
+            log("❌ 自动沉淀异常: ${e.message}")
         }
     }
 }

@@ -241,6 +241,8 @@
     <string name="chat_new_session_hint">开始一个新的对话会话</string>
     <string name="chat_delete_title">确认删除</string>
     <string name="chat_delete_confirm">确定要删除这条对话吗？</string>
+    <string name="loading_history">正在加载历史消息...</string>
+    <string name="chat_attachments_title">📎 附件</string>
 
     <!-- Time Format -->
     <string name="time_just_now">刚刚</string>
@@ -585,10 +587,13 @@
     <string name="execution_chat_agent_mode">ChatAgent 模式</string>
     <string name="execution_chat_agent_enabled">已启用（支持语音打断和实时交互）</string>
     <string name="execution_chat_agent_disabled">已禁用（标准执行模式）</string>
+    <string name="execution_flow_mode">Flow 模式</string>
+    <string name="execution_flow_mode_enabled">已启用（自动沉淀和学习流程模板）</string>
+    <string name="execution_flow_mode_disabled">已禁用（不保存执行流程）</string>
     <string name="execution_max_steps">最大执行步数</string>
     <string name="execution_max_steps_value">%1$d 步</string>
     <string name="execution_info_title">说明</string>
-    <string name="execution_info_desc">• 优化模式：智能跳过不必要的 Manager/Reflector 调用，减少 VLM 调用次数，提升执行速度\n• 多步执行模式：AI 可一次性返回多个不冲突的操作，减少 VLM 调用次数，提升执行效率\n• ReactOnly 模式：Manager 仅在开始时规划一次，后续全靠 Executor 执行，大幅减少 VLM 调用次数\n• ChatAgent 模式：支持语音打断和实时交互，可在执行过程中通过语音与 AI 对话\n• 最大执行步数：决定 Agent 单次任务能够执行的操作数量上限</string>
+    <string name="execution_info_desc">• 优化模式：智能跳过不必要的 Manager/Reflector 调用，减少 VLM 调用次数，提升执行速度\n• 多步执行模式：AI 可一次性返回多个不冲突的操作，减少 VLM 调用次数，提升执行效率\n• ReactOnly 模式：Manager 仅在开始时规划一次，后续全靠 Executor 执行，大幅减少 VLM 调用次数\n• ChatAgent 模式：支持语音打断和实时交互，可在执行过程中通过语音与 AI 对话\n• Flow 模式：自动沉淀和学习执行流程，相似任务可复用模板加速执行\n• 最大执行步数：决定 Agent 单次任务能够执行的操作数量上限</string>
 
     <!-- Shizuku Settings -->
     <string name="shizuku_privilege_level">当前权限级别</string>

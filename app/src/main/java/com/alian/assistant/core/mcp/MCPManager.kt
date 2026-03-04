@@ -142,11 +142,24 @@ class MCPManager private constructor(context: Context) {
         val updatedServer = server.copy(enabled = enabled)
         repository.updateServer(updatedServer)
         
-        // 如果禁用，断开连接
-        if (!enabled) {
+        if (enabled) {
+            // 启用时，预热加载该 Server
+            preInitializeServer(serverId)
+        } else {
+            // 禁用时，断开连接并释放资源
             clients[serverId]?.disconnect()
             clients.remove(serverId)
             toolsCache.remove(serverId)
+            
+            // 更新连接状态
+            val connectionStates = _serverConnectionStates.value.toMutableMap()
+            connectionStates.remove(serverId)
+            _serverConnectionStates.value = connectionStates
+            
+            // 清除错误信息
+            val errors = _initializationErrors.value.toMutableMap()
+            errors.remove(serverId)
+            _initializationErrors.value = errors
         }
         
         android.util.Log.d("MCPManager", "Server ${server.name} ${if (enabled) "enabled" else "disabled"}")
@@ -393,6 +406,83 @@ class MCPManager private constructor(context: Context) {
     }
 
     // ==================== 预初始化和保活 ====================
+    
+    /**
+     * 预初始化单个 MCP Server
+     * 用于用户手动开启 MCP Server 时预热加载
+     */
+    fun preInitializeServer(serverId: String) {
+        scope.launch {
+            val server = repository.getServerById(serverId)
+            if (server == null) {
+                android.util.Log.e(TAG, "Server not found: $serverId")
+                return@launch
+            }
+            
+            if (!server.enabled) {
+                android.util.Log.d(TAG, "Server ${server.name} is disabled, skip pre-initialization")
+                return@launch
+            }
+            
+            android.util.Log.d(TAG, "开始预热 MCP Server: ${server.name}")
+            
+            val connectionStates = _serverConnectionStates.value.toMutableMap()
+            val errors = _initializationErrors.value.toMutableMap()
+            
+            try {
+                val client = getClientForServer(server)
+                connectionStates[server.id] = MCPClient.ConnectionState.CONNECTING
+                _serverConnectionStates.value = connectionStates.toMap()
+                
+                // 连接
+                val connectResult = client.connect()
+                if (connectResult.isFailure) {
+                    val error = connectResult.exceptionOrNull()?.message ?: "连接失败"
+                    errors[server.id] = error
+                    connectionStates[server.id] = MCPClient.ConnectionState.ERROR
+                    _serverConnectionStates.value = connectionStates.toMap()
+                    _initializationErrors.value = errors
+                    android.util.Log.e(TAG, "Failed to connect to ${server.name}: $error")
+                    return@launch
+                }
+                
+                // 初始化
+                val initResult = client.initialize()
+                if (initResult.isFailure) {
+                    val error = initResult.exceptionOrNull()?.message ?: "初始化失败"
+                    errors[server.id] = error
+                    connectionStates[server.id] = MCPClient.ConnectionState.ERROR
+                    _serverConnectionStates.value = connectionStates.toMap()
+                    _initializationErrors.value = errors
+                    android.util.Log.e(TAG, "Failed to initialize ${server.name}: $error")
+                    return@launch
+                }
+                
+                // 获取工具列表
+                val toolsResult = client.listTools()
+                if (toolsResult.isSuccess) {
+                    val tools = toolsResult.getOrNull() ?: emptyList()
+                    toolsCache[server.id] = tools
+                    android.util.Log.d(TAG, "Server ${server.name} 已加载 ${tools.size} 个工具")
+                }
+                
+                // 更新状态
+                connectionStates[server.id] = MCPClient.ConnectionState.CONNECTED
+                errors.remove(server.id)
+                _serverConnectionStates.value = connectionStates.toMap()
+                _initializationErrors.value = errors
+                
+                android.util.Log.d(TAG, "Server ${server.name} 预热成功")
+                
+            } catch (e: Exception) {
+                errors[server.id] = e.message ?: "未知错误"
+                connectionStates[server.id] = MCPClient.ConnectionState.ERROR
+                _serverConnectionStates.value = connectionStates.toMap()
+                _initializationErrors.value = errors
+                android.util.Log.e(TAG, "Server ${server.name} 预热异常", e)
+            }
+        }
+    }
     
     /**
      * 预初始化所有已启用的 MCP Server

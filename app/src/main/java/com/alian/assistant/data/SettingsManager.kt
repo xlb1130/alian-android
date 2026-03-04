@@ -113,6 +113,7 @@ data class AppSettings(
     val enableImproveMode: Boolean = true,  // 是否启用 Improve 模式（优化版 Agent，减少 VLM 调用次数）
     val reactOnly: Boolean = true,  // ReactOnly 模式：Manager 只规划一次，后续全靠 Executor 执行
     val enableChatAgent: Boolean = true,  // 是否启用 ChatAgent 模式（语音打断和实时交互）
+    val enableFlowMode: Boolean = true,  // 是否启用 Flow 模式（流程模板自动沉淀和学习）
     
     // ========== 设备控制器配置 ==========
     val executionStrategy: String = "accessibility_only",  // 执行策略: auto, shizuku_only, accessibility_only, hybrid
@@ -322,6 +323,7 @@ class SettingsManager(context: Context) {
             enableImproveMode = prefs.getBoolean("enable_improve_mode", true),
             reactOnly = prefs.getBoolean("react_only", true),
             enableChatAgent = prefs.getBoolean("enable_chat_agent", true),
+            enableFlowMode = prefs.getBoolean("enable_flow_mode", true),
             executionStrategy = prefs.getString("execution_strategy", "accessibility_only") ?: "accessibility_only",
             fallbackStrategy = prefs.getString("fallback_strategy", "auto") ?: "auto",
             screenshotCacheEnabled = prefs.getBoolean("screenshot_cache_enabled", true),
@@ -623,6 +625,11 @@ class SettingsManager(context: Context) {
     fun updateEnableChatAgent(enabled: Boolean) {
         prefs.edit().putBoolean("enable_chat_agent", enabled).apply()
         _settings.value = _settings.value.copy(enableChatAgent = enabled)
+    }
+
+    fun updateEnableFlowMode(enabled: Boolean) {
+        prefs.edit().putBoolean("enable_flow_mode", enabled).apply()
+        _settings.value = _settings.value.copy(enableFlowMode = enabled)
     }
     
     // ========== 设备控制器配置更新方法 ==========

@@ -51,6 +51,7 @@ fun ExecutionSettingsContent(
     onUpdateEnableImproveMode: (Boolean) -> Unit,
     onUpdateReactOnly: (Boolean) -> Unit,
     onUpdateEnableChatAgent: (Boolean) -> Unit,
+    onUpdateEnableFlowMode: (Boolean) -> Unit,
     onNavigateToDeviceController: () -> Unit = {}
 ) {
     val colors = BaoziTheme.colors
@@ -106,6 +107,16 @@ fun ExecutionSettingsContent(
         }
 
         Box(modifier = Modifier.staggeredFadeIn(5)) {
+            SettingsCardWithSwitch(
+                icon = Icons.Default.Star,
+                title = stringResource(R.string.execution_flow_mode),
+                subtitle = if (settings.enableFlowMode) stringResource(R.string.execution_flow_mode_enabled) else stringResource(R.string.execution_flow_mode_disabled),
+                checked = settings.enableFlowMode,
+                onCheckedChange = onUpdateEnableFlowMode
+            )
+        }
+
+        Box(modifier = Modifier.staggeredFadeIn(6)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Settings,
                 title = stringResource(R.string.execution_max_steps),
@@ -114,7 +125,7 @@ fun ExecutionSettingsContent(
             )
         }
 
-        Box(modifier = Modifier.staggeredFadeIn(6)) {
+        Box(modifier = Modifier.staggeredFadeIn(7)) {
             InfoCard(
                 title = stringResource(R.string.execution_info_title),
                 description = stringResource(R.string.execution_info_desc)
