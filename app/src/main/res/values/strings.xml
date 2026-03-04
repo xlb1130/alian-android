@@ -752,4 +752,80 @@
     <!-- Common Dialog -->
     <string name="dialog_unit_ms">%1$d ms</string>
     <string name="dialog_current_value">当前值: %1$d %2$s</string>
+
+    <!-- Flow Template Management -->
+    <string name="flow_template">流程模板</string>
+    <string name="flow_template_count">%1$d 个模板</string>
+    <string name="flow_template_search_hint">搜索模板...</string>
+    <string name="flow_template_filter">筛选</string>
+    <string name="flow_template_sort">排序</string>
+    <string name="flow_template_execute">执行</string>
+    <string name="flow_template_detail">详情</string>
+    <string name="flow_template_edit">编辑</string>
+    <string name="flow_template_delete">删除</string>
+    <string name="flow_template_export">导出</string>
+    <string name="flow_template_import">导入</string>
+    <string name="flow_template_delete_confirm">确定要删除此模板吗？</string>
+    <string name="flow_template_empty">暂无流程模板</string>
+    <string name="flow_template_empty_hint">当你执行重复任务时，系统会自动学习并生成流程模板，帮助你提升效率</string>
+    <string name="flow_template_not_found">未找到匹配的模板</string>
+    <string name="flow_template_export_success">模板已导出</string>
+
+    <!-- Template Detail -->
+    <string name="flow_template_basic_info">基本信息</string>
+    <string name="flow_template_statistics">执行统计</string>
+    <string name="flow_template_matching_rule">匹配规则</string>
+    <string name="flow_template_steps">执行步骤</string>
+    <string name="flow_template_total_executions">总执行</string>
+    <string name="flow_template_success_rate">成功率</string>
+    <string name="flow_template_saved_cost">节省</string>
+    <string name="flow_template_skipped_screenshots">跳过截图</string>
+    <string name="flow_template_skipped_vlm">跳过VLM</string>
+    <string name="flow_template_saved_time">节省时间</string>
+    <string name="flow_template_trigger_keywords">触发关键词</string>
+    <string name="flow_template_example_commands">示例指令</string>
+    <string name="flow_template_name">名称</string>
+    <string name="flow_template_category">分类</string>
+    <string name="flow_template_target_app">目标应用</string>
+    <string name="flow_template_created_at">创建时间</string>
+    <string name="flow_template_version">版本</string>
+    <string name="flow_template_last_execution">最近执行: %1$s</string>
+
+    <!-- Trust Level -->
+    <string name="trust_level_highly_trusted">高可信</string>
+    <string name="trust_level_trusted">可信</string>
+    <string name="trust_level_probationary">见习期</string>
+    <string name="trust_level_new">新模板</string>
+    <string name="trust_level_unreliable">不可靠</string>
+
+    <!-- Category -->
+    <string name="category_all">全部</string>
+    <string name="category_navigation">导航</string>
+    <string name="category_food_ordering">点餐</string>
+    <string name="category_shopping">购物</string>
+    <string name="category_transportation">出行</string>
+    <string name="category_entertainment">娱乐</string>
+    <string name="category_utilities">工具</string>
+    <string name="category_general">其他</string>
+
+    <!-- Sort Options -->
+    <string name="sort_by_recently_used">最近使用</string>
+    <string name="sort_by_usage_frequency">使用频率</string>
+    <string name="sort_by_success_rate">成功率</string>
+    <string name="sort_by_saved_cost">节省成本</string>
+    <string name="sort_by_created_time">创建时间</string>
+
+    <!-- Unit -->
+    <string name="unit_times">次</string>
+    <string name="unit_yuan">元</string>
+    <string name="unit_minutes">分钟</string>
+    <string name="unit_steps">步</string>
+
+    <!-- Flow Mode -->
+    <string name="flow_mode_enabled">流程优化模式已启用</string>
+    <string name="flow_mode_disabled">流程优化模式已禁用</string>
+    <string name="flow_template_matched">匹配到流程模板: %1$s</string>
+    <string name="flow_template_skip_screenshot">跳过截图 (置信度: %1$d%%)</string>
+    <string name="flow_template_verification">验证节点...</string>
+    <string name="flow_template_fallback">降级到传统模式</string>
 </resources>

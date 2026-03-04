@@ -1,0 +1,160 @@
+{
+  "id": "preset_navigation_baidu_maps_001",
+  "name": "百度地图导航",
+  "description": "使用百度地图进行导航",
+  "category": "NAVIGATION",
+  "version": 1,
+  "matchingRule": {
+    "keywords": ["导航", "百度地图", "路线", "去", "到"],
+    "intentPatterns": [".*导航.*", ".*用百度地图.*", ".*去.*路.*"]
+  },
+  "targetApp": {
+    "packageName": "com.baidu.BaiduMap",
+    "appName": "百度地图",
+    "launchActivity": null
+  },
+  "steps": [
+    {
+      "id": "step_001",
+      "order": 0,
+      "action": {
+        "type": "TAP",
+        "target": "搜索",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "ENTRY",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "搜索", "confidence": 1.0},
+        {"type": "RESOURCE_ID", "priority": 2, "value": "com.baidu.BaiduMap:id/search_button", "confidence": 0.9}
+      ],
+      "screenDescription": "百度地图首页，点击搜索按钮",
+      "isKeyNode": true,
+      "successRate": 0.95,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_002",
+      "order": 1,
+      "action": {
+        "type": "TYPE",
+        "target": null,
+        "coordinate": null,
+        "inputValue": "${destination}",
+        "swipeDirection": null
+      },
+      "nodeType": "KEY_OPERATION",
+      "locateStrategies": [
+        {"type": "RESOURCE_ID", "priority": 1, "value": "com.baidu.BaiduMap:id/search_input", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "输入目的地", "confidence": 0.8}
+      ],
+      "screenDescription": "搜索页面，输入目的地",
+      "isKeyNode": true,
+      "successRate": 0.9,
+      "avgExecutionTime": 1500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_003",
+      "order": 2,
+      "action": {
+        "type": "TAP",
+        "target": "搜索",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "搜索", "confidence": 1.0},
+        {"type": "RESOURCE_ID", "priority": 2, "value": "com.baidu.BaiduMap:id/search_submit", "confidence": 0.9}
+      ],
+      "screenDescription": "点击搜索按钮",
+      "isKeyNode": false,
+      "successRate": 0.9,
+      "avgExecutionTime": 500,
+      "executionCount": 0
+    },
+    {
+      "id": "step_004",
+      "order": 3,
+      "action": {
+        "type": "TAP",
+        "target": "路线",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "INTERMEDIATE",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "路线", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "导航", "confidence": 0.8}
+      ],
+      "screenDescription": "搜索结果页面，选择路线",
+      "isKeyNode": false,
+      "successRate": 0.85,
+      "avgExecutionTime": 800,
+      "executionCount": 0
+    },
+    {
+      "id": "step_005",
+      "order": 4,
+      "action": {
+        "type": "TAP",
+        "target": "开始导航",
+        "coordinate": null,
+        "inputValue": null,
+        "swipeDirection": null
+      },
+      "nodeType": "COMPLETION",
+      "locateStrategies": [
+        {"type": "TEXT_EXACT", "priority": 1, "value": "开始导航", "confidence": 1.0},
+        {"type": "TEXT_FUZZY", "priority": 2, "value": "导航", "confidence": 0.7}
+      ],
+      "screenDescription": "路线详情页面，开始导航",
+      "isKeyNode": true,
+      "successRate": 0.9,
+      "avgExecutionTime": 600,
+      "executionCount": 0
+    }
+  ],
+  "keyNodes": [
+    {
+      "id": "keynode_001",
+      "name": "ENTRY",
+      "stepIndex": 0,
+      "screenSignature": {
+        "textPatterns": ["百度地图", "搜索"],
+        "elementSignatures": [
+          {"resourceId": "com.baidu.BaiduMap:id/search_button", "text": null, "contentDesc": null, "className": null}
+        ]
+      },
+      "verificationMethod": "ACCESSIBILITY_CHECK"
+    },
+    {
+      "id": "keynode_002",
+      "name": "COMPLETION",
+      "stepIndex": 4,
+      "screenSignature": {
+        "textPatterns": ["开始导航", "路线"],
+        "elementSignatures": []
+      },
+      "verificationMethod": "SCREENSHOT_COMPARISON"
+    }
+  ],
+  "statistics": {
+    "totalExecutions": 0,
+    "successfulExecutions": 0,
+    "failedExecutions": 0,
+    "avgExecutionTime": 0,
+    "screenshotsSkipped": 0,
+    "vlmCallsSkipped": 0,
+    "tokensSaved": 0,
+    "trustLevel": "PROBATIONARY"
+  },
+  "source": "PRESET",
+  "createdAt": 1709510400000,
+  "updatedAt": 1709510400000
+}

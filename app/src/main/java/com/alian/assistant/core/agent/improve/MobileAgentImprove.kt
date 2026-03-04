@@ -58,7 +58,8 @@ class MobileAgentImprove(
     private val controller: IDeviceController,
     private val context: Context,
     private val reactOnly: Boolean = false,  // ReactOnly 模式：Manager 只规划一次
-    private val enableChatAgent: Boolean = false  // 是否启用 ChatAgent 模式
+    private val enableChatAgent: Boolean = false,  // 是否启用 ChatAgent 模式
+    private val enableFlowMode: Boolean = true  // 是否启用 Flow 模式（流程缓存优化）
 ) : Agent {
     companion object {
         private const val TAG = "MobileAgentImprove"
@@ -91,6 +92,9 @@ Limitations:
         
         // 截图失败处理参数
         private const val MAX_CONSECUTIVE_SCREENSHOT_FAILURES = 3  // 最大连续截图失败次数
+        
+        // Flow 模式参数
+        private const val FLOW_MIN_CONFIDENCE = 0.7f  // Flow 模式最低置信度
     }
 
     // 组件
@@ -101,6 +105,11 @@ Limitations:
     private val settingsManager: SettingsManager = SettingsManager(context)
     private val elementLocator = AccessibilityElementLocator()
     private val permissionCheck = AgentPermissionCheck(context, settingsManager)
+
+    // Flow 集成（流程缓存优化）
+    private val flowIntegration: FlowIntegration = FlowIntegration(context, controller).apply {
+        flowEnabled = enableFlowMode
+    }
 
     // 打断协调器（可选，用于语音打断功能）
     private var interruptOrchestrator: InterruptOrchestrator? = null
@@ -253,6 +262,17 @@ Limitations:
         // 初始化 InterruptOrchestrator（如果聊天模式已启用）
         initializeInterruptOrchestrator(infoPool)
 
+        // 启动 Flow 会话（流程缓存优化）
+        if (enableFlowMode) {
+            log("🔄 启动 Flow 会话...")
+            val flowSession = flowIntegration.startSession(instruction)
+            if (flowSession.hasTemplate) {
+                log("✓ Flow 匹配到模板: ${flowSession.matchedTemplate?.name}, 置信度: ${flowSession.matchConfidence}")
+            } else {
+                log("Flow 未匹配到模板，使用传统模式")
+            }
+        }
+
         // 使用 LLM 匹配 Skill
         log("正在分析意图...")
         val skillContext = skillManager?.generateAgentContextWithLLM(instruction)
@@ -344,6 +364,45 @@ Limitations:
                 infoPool.totalSteps = step + 1
                 log("\n========== Step ${step + 1} ==========")
                 OverlayService.updateStep("Step ${step + 1}/$maxSteps - 正在分析当前屏幕...", "")
+
+                // ========== Flow 融合执行 ==========
+                var flowStepExecuted = false
+                var flowScreenshotSkipped = false
+                var flowVlmSkipped = false
+                
+                if (enableFlowMode && flowIntegration.shouldUseFlowMode()) {
+                    val flowAdvice = flowIntegration.getStepAdvice()
+                    
+                    if (!flowAdvice.useTraditionalMode && flowAdvice.canSkipScreenshot && flowAdvice.nextStep != null) {
+                        log("🔄 Flow 建议跳过截图，置信度: ${flowAdvice.confidence}")
+                        log("   执行 Flow 步骤: ${flowAdvice.nextStep.action.type}")
+                        
+                        // 执行 Flow 建议的步骤
+                        val flowResult = flowIntegration.executeFlowStep(flowAdvice.nextStep)
+                        
+                        if (flowResult.success) {
+                            log("✓ Flow 步骤执行成功")
+                            flowStepExecuted = true
+                            flowScreenshotSkipped = true
+                            flowVlmSkipped = true
+                            infoPool.managerSkips++
+                            infoPool.reflectorSkips++
+                            
+                            // 更新统计
+                            infoPool.lastExecutorConfidence = flowAdvice.confidence
+                            
+                            // 等待动作生效后继续下一步
+                            delay(300)
+                            continue
+                        } else {
+                            log("⚠️ Flow 步骤执行失败，降级到传统模式")
+                        }
+                    } else if (flowAdvice.nextStep != null && flowAdvice.confidence >= FLOW_MIN_CONFIDENCE) {
+                        log("🔄 Flow 有建议但需要验证，置信度: ${flowAdvice.confidence}")
+                        // Flow 有建议但需要截图验证，继续传统流程
+                    }
+                }
+                // ========== Flow 融合执行结束 ==========
 
                 // 1. 截图
                 log("截图中...")
@@ -499,6 +558,10 @@ Limitations:
                         OverlayService.hideAfterTTS(context)
                         updateState { copy(isRunning = false, isCompleted = true) }
                         bringAppToFront()
+                        // 结束 Flow 会话
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = true)
+                        }
                         logOptimizationReport(infoPool)
                         cleanup()  // 清理语音监听资源
                         return AgentResult(success = true, message = "任务完成")
@@ -594,6 +657,10 @@ Limitations:
                         OverlayService.hide(context)
                         updateState { copy(isRunning = false, isCompleted = true, answer = action.text) }
                         bringAppToFront()
+                        // 结束 Flow 会话
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = true)
+                        }
                         logOptimizationReport(infoPool)
                         return AgentResult(success = true, message = "回答: ${action.text}")
                     }
@@ -767,6 +834,10 @@ Limitations:
             OverlayService.hide(context)
             updateState { copy(isRunning = false) }
             bringAppToFront()
+            // 结束 Flow 会话
+            if (enableFlowMode) {
+                flowIntegration.endSession(success = false)
+            }
             throw e
         }
 
@@ -776,6 +847,10 @@ Limitations:
         OverlayService.hideAfterTTS(context)
         updateState { copy(isRunning = false, isCompleted = false) }
         bringAppToFront()
+        // 结束 Flow 会话
+        if (enableFlowMode) {
+            flowIntegration.endSession(success = false)
+        }
         logOptimizationReport(infoPool)
         cleanup()  // 清理语音监听资源
         return AgentResult(success = false, message = "达到最大步数限制")
@@ -1428,6 +1503,19 @@ Limitations:
      */
     private fun logOptimizationReport(infoPool: InfoPoolImprove) {
         log(infoPool.getOptimizationReport())
+        
+        // 添加 Flow 统计
+        if (enableFlowMode) {
+            val flowStats = flowIntegration.getSessionStats()
+            if (flowStats != null && (flowStats.screenshotsSkipped > 0 || flowStats.vlmCallsSkipped > 0)) {
+                log("\n========== Flow 优化统计 ==========")
+                log("跳过截图: ${flowStats.screenshotsSkipped} 次")
+                log("跳过 VLM: ${flowStats.vlmCallsSkipped} 次")
+                log("节省 Token: ~${flowStats.tokensSaved}")
+                log("节省时间: ~${flowStats.screenshotsSkipped * 3 + flowStats.vlmCallsSkipped * 3} 秒")
+                log("=====================================")
+            }
+        }
     }
 
     private fun log(message: String) {
