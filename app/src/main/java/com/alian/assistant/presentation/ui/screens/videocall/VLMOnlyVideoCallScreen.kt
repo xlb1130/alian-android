@@ -239,71 +239,34 @@ fun VLMOnlyVideoCallScreen(
                         }
                     }
                 )
-            },
-            bottomBar = {
-                VLMOnlyVideoCallControlBar(
-                    state = state,
-                    onHangUpClick = {
-                        viewModel.stopCall()
-                        scope.launch {
-                            delay(300)
-                            onBackClick()
-                        }
-                    },
-                    onStartCallClick = {
-                        Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] onStartCallClick 被调用")
-                        // 检查相机和录音权限
-                        if (!hasCameraPermission) {
-                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 相机权限未授予，请求权限")
-                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        } else if (!hasRecordPermission) {
-                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 录音权限未授予，请求权限")
-                            recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        } else {
-                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 相机和录音权限都已授予，开始通话")
-                            scope.launch {
-                                // 开始通话（会等待相机就绪）
-                                viewModel.startCall()
-                            }
-                        }
-                    }
-                )
             }
         ) { padding ->
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .background(colors.background),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween
+                    .background(colors.background)
             ) {
-                // 中央区域 - 相机预览
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 当前状态: $state")
+                Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 当前状态: $state")
 
-                    // enable 参数在通话进行时为 true，通话结束时为 false
-                    val shouldEnableCamera = state !is VideoCallState.Idle
+                // enable 参数在通话进行时为 true，通话结束时为 false
+                val shouldEnableCamera = state !is VideoCallState.Idle
 
-                    CameraPreview(
-                        modifier = Modifier.fillMaxSize(),
-                        enable = shouldEnableCamera,
-                        hasPermission = hasCameraPermission,
-                        onFrameCaptured = { bitmap ->
-                            viewModel.updateCurrentFrame(bitmap)
-                        },
-                        onCameraReady = { ready ->
-                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] onCameraReady 回调: $ready")
-                            viewModel.setCameraReady(ready)
-                        }
-                    )
+                CameraPreview(
+                    modifier = Modifier.fillMaxSize(),
+                    enable = shouldEnableCamera,
+                    hasPermission = hasCameraPermission,
+                    onFrameCaptured = { bitmap ->
+                        viewModel.updateCurrentFrame(bitmap)
+                    },
+                    onCameraReady = { ready ->
+                        Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] onCameraReady 回调: $ready")
+                        viewModel.setCameraReady(ready)
+                    }
+                )
 
-                    // 状态指示和提示信息
-                    when (state) {
+                // 状态指示和提示信息
+                when (state) {
                         is VideoCallState.Idle -> {
                             // 空闲状态 - 显示提示信息
                             Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] Idle 状态")
@@ -669,9 +632,7 @@ fun VLMOnlyVideoCallScreen(
                             }
                         }
                     }
-                }
-
-                // 对话消息区域（在相机下方，不覆盖相机）
+                // 对话消息层（叠加在相机预览上方，不参与预览布局）
                 if (state !is VideoCallState.Idle) {
                     val conversationHistory = viewModel.conversationHistory
                     val messages = conversationHistory.takeLast(1).toList() // 只显示最新的一条消息
@@ -690,6 +651,13 @@ fun VLMOnlyVideoCallScreen(
                         )
 
                         AnimatedVisibility(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    bottom = 132.dp
+                                ),
                             visible = true,
                             enter = slideInVertically(
                                 initialOffsetY = { it -> it },
@@ -703,12 +671,6 @@ fun VLMOnlyVideoCallScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(
-                                        start = 16.dp,
-                                        top = 8.dp,
-                                        end = 16.dp,
-                                        bottom = 8.dp
-                                    )
                                     .graphicsLayer {
                                         alpha = enterAnimation
                                         translationY = (1f - enterAnimation) * 30f
@@ -732,6 +694,37 @@ fun VLMOnlyVideoCallScreen(
                         }
                     }
                 }
+
+                VLMOnlyVideoCallControlBar(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp),
+                    state = state,
+                    onHangUpClick = {
+                        viewModel.stopCall()
+                        scope.launch {
+                            delay(300)
+                            onBackClick()
+                        }
+                    },
+                    onStartCallClick = {
+                        Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] onStartCallClick 被调用")
+                        // 检查相机和录音权限
+                        if (!hasCameraPermission) {
+                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 相机权限未授予，请求权限")
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        } else if (!hasRecordPermission) {
+                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 录音权限未授予，请求权限")
+                            recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            Log.d("VLMOnlyVideoCallScreen", "[VLM-ONLY] 相机和录音权限都已授予，开始通话")
+                            scope.launch {
+                                // 开始通话（会等待相机就绪）
+                                viewModel.startCall()
+                            }
+                        }
+                    }
+                )
             }
         }
     }
@@ -883,6 +876,7 @@ private fun VLMOnlyVideoCallTopBar(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VLMOnlyVideoCallControlBar(
+    modifier: Modifier = Modifier,
     state: VideoCallState,
     onHangUpClick: () -> Unit,
     onStartCallClick: () -> Unit
@@ -890,9 +884,7 @@ private fun VLMOnlyVideoCallControlBar(
     val colors = BaoziTheme.colors
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 24.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
