@@ -5,14 +5,20 @@ import android.content.Intent
 import android.util.Log
 import com.alian.assistant.App
 import com.alian.assistant.infrastructure.device.accessibility.AlianAccessibilityService
+import com.alian.assistant.core.agent.config.AutomationProfile
 import com.alian.assistant.data.model.ChatMessage
 import com.alian.assistant.data.model.ChatSession
+import com.alian.assistant.data.repository.DefaultRuntimeRepository
+import com.alian.assistant.data.repository.DefaultSnapshotRepository
+import com.alian.assistant.data.repository.RuntimeRepository
+import com.alian.assistant.data.repository.SnapshotRepository
 import com.alian.assistant.core.agent.AgentPermissionCheck
 import com.alian.assistant.core.agent.memory.Action
 import com.alian.assistant.core.agent.AgentState
 import com.alian.assistant.core.agent.AgentResult
 import com.alian.assistant.core.agent.InterruptOrchestrator
 import com.alian.assistant.core.agent.Agent
+import com.alian.assistant.data.ExecutionMetricsData
 import com.alian.assistant.data.ExecutionStep
 import com.alian.assistant.data.SettingsManager
 import com.alian.assistant.core.skills.SkillManager
@@ -23,6 +29,9 @@ import com.alian.assistant.infrastructure.device.controller.interfaces.Controlle
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
 import com.alian.assistant.infrastructure.device.controller.interfaces.ScreenshotErrorType
 import com.alian.assistant.infrastructure.device.controller.shizuku.ShizukuController
+import com.alian.assistant.core.agent.runtime.service.RuntimeOrchestrator
+import com.alian.assistant.infrastructure.device.runtime.ForegroundRuntimeAdapter
+import com.alian.assistant.infrastructure.device.runtime.VirtualDisplayRuntimeAdapter
 import com.alian.assistant.presentation.ui.overlay.OverlayService
 
 import com.alian.assistant.infrastructure.ai.llm.VLMClient
@@ -59,7 +68,10 @@ class MobileAgentImprove(
     private val context: Context,
     private val reactOnly: Boolean = false,  // ReactOnly 模式：Manager 只规划一次
     private val enableChatAgent: Boolean = false,  // 是否启用 ChatAgent 模式
-    private val enableFlowMode: Boolean = true  // 是否启用 Flow 模式（流程缓存优化）
+    private val enableFlowMode: Boolean = true,  // 是否启用 Flow 模式（流程缓存优化）
+    private val automationProfile: AutomationProfile = AutomationProfile(),
+    private val snapshotRepository: SnapshotRepository =
+        DefaultSnapshotRepository(controller, automationProfile.snapshot)
 ) : Agent {
     companion object {
         private const val TAG = "MobileAgentImprove"
@@ -133,6 +145,167 @@ Limitations:
     // 截图失败计数器
     private var consecutiveScreenshotFailures = 0
 
+    // 运行时编排（Phase D PoC）：优先虚拟屏，失败自动降级到前台运行时
+    private val runtimeRepository: RuntimeRepository = DefaultRuntimeRepository(
+        orchestrator = RuntimeOrchestrator(
+            policy = automationProfile.virtualDisplay,
+            foregroundRuntime = ForegroundRuntimeAdapter(controller),
+            virtualDisplayRuntime = VirtualDisplayRuntimeAdapter(controller, automationProfile.virtualDisplay),
+        ),
+    )
+    private val runtimeOrchestrator: RuntimeOrchestrator = runtimeRepository.getOrchestrator()
+    private var metricsSessionStartedAtMs: Long = 0L
+    private var metricsRuntimeSelectedName: String = "unknown"
+    private var metricsRuntimeHealthAnomalyCount: Int = 0
+    private var metricsRuntimeFallbackCount: Int = 0
+    private var metricsRuntimeSnapshotFallbackAttemptCount: Int = 0
+    private var metricsRuntimeSnapshotFallbackSuccessCount: Int = 0
+    private var metricsSummaryLogged: Boolean = false
+
+    /**
+     * 通过运行时注入动作，失败时降级到原控制器执行。
+     *
+     * 设计约束：
+     * 1. 运行时链路失败不影响主流程，必须可回退。
+     * 2. 回退路径保持与旧逻辑一致，降低行为回归风险。
+     */
+    private suspend fun injectWithRuntimeOrFallback(
+        action: Action,
+        fallbackLabel: String,
+        velocity: Float? = null,
+        fallback: () -> Unit,
+    ) {
+        val runtimeResult = runCatching {
+            runtimeOrchestrator.getActiveRuntime().inject(action, velocity = velocity)
+        }.getOrElse { throwable ->
+            Result.failure(throwable)
+        }
+
+        if (runtimeResult.isSuccess) return
+
+        val error = runtimeResult.exceptionOrNull()?.message
+            ?: "unknown error"
+        log("⚠️ Runtime 注入失败，回退控制器执行: $fallbackLabel, error=$error")
+        fallback()
+    }
+
+    private suspend fun runtimeTap(x: Int, y: Int) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "click", x = x, y = y),
+            fallbackLabel = "tap($x,$y)",
+        ) {
+            controller.tap(x, y)
+        }
+    }
+
+    private suspend fun runtimeDoubleTap(x: Int, y: Int) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "double_tap", x = x, y = y),
+            fallbackLabel = "doubleTap($x,$y)",
+        ) {
+            controller.doubleTap(x, y)
+        }
+    }
+
+    private suspend fun runtimeLongPress(x: Int, y: Int) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "long_press", x = x, y = y),
+            fallbackLabel = "longPress($x,$y)",
+        ) {
+            controller.longPress(x, y)
+        }
+    }
+
+    private suspend fun runtimeType(text: String) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "type", text = text),
+            fallbackLabel = "type(length=${text.length})",
+        ) {
+            controller.type(text)
+        }
+    }
+
+    private suspend fun runtimeSystemButton(button: String) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "system_button", button = button),
+            fallbackLabel = "system_button($button)",
+        ) {
+            when (button.lowercase()) {
+                "back" -> controller.back()
+                "home" -> controller.home()
+                "enter" -> controller.enter()
+            }
+        }
+    }
+
+    private suspend fun runtimeOpenApp(targetPackage: String) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "open_app", text = targetPackage),
+            fallbackLabel = "openApp($targetPackage)",
+        ) {
+            controller.openApp(targetPackage)
+        }
+    }
+
+    private suspend fun runtimeSwipe(
+        x1: Int,
+        y1: Int,
+        x2: Int,
+        y2: Int,
+        velocity: Float? = null,
+    ) {
+        injectWithRuntimeOrFallback(
+            action = Action(type = "swipe", x = x1, y = y1, x2 = x2, y2 = y2),
+            fallbackLabel = "swipe(($x1,$y1)->($x2,$y2),velocity=${velocity ?: "default"})",
+            velocity = velocity,
+        ) {
+            if (velocity == null) {
+                controller.swipe(x1, y1, x2, y2)
+            } else {
+                controller.swipe(x1, y1, x2, y2, velocity = velocity)
+            }
+        }
+    }
+
+    /**
+     * 采集快照（优先快照仓储，失败回退运行时）。
+     *
+     * 设计约束：
+     * 1. 保留现有快照仓储的缓存与节流策略。
+     * 2. 当仓储链路失败时，使用运行时直采保证可用性。
+     */
+    private suspend fun captureSnapshotWithRuntimeFallback(forceRefresh: Boolean): IDeviceController.ScreenshotResult {
+        val repositoryResult = runCatching {
+            snapshotRepository.capture(forceRefresh = forceRefresh)
+        }.getOrNull()
+
+        if (repositoryResult != null && !repositoryResult.isFallback) {
+            return repositoryResult
+        }
+
+        if (repositoryResult?.isFallback == true) {
+            log("⚠️ 快照仓储返回降级图，尝试运行时直采")
+        } else if (repositoryResult == null) {
+            log("⚠️ 快照仓储调用异常，尝试运行时直采")
+        }
+        metricsRuntimeSnapshotFallbackAttemptCount += 1
+
+        val runtimeResult = runtimeOrchestrator.getActiveRuntime().captureSnapshot()
+        if (runtimeResult.isSuccess) {
+            runtimeResult.getOrNull()?.let {
+                log("✓ 运行时直采成功，已接管快照输出")
+                metricsRuntimeSnapshotFallbackSuccessCount += 1
+                return it
+            }
+        }
+
+        return repositoryResult ?: run {
+            val error = runtimeResult.exceptionOrNull()?.message ?: "runtime snapshot failed"
+            log("❌ 运行时直采失败: $error")
+            throw IllegalStateException("快照获取失败: $error")
+        }
+    }
+
     // 状态流
     private val _state = MutableStateFlow(AgentState())
     override val state: StateFlow<AgentState> = _state
@@ -159,8 +332,8 @@ Limitations:
             // 没有可点击的元素，降级到坐标点击
             log("⚠️ 无障碍定位未找到可点击元素，降级到坐标点击")
             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-            executeWithOverlayProtection(action.type, x, y) {
-                controller.tap(x, y)
+            executeWithOverlayProtection(action.type) {
+                runtimeTap(x, y)
             }
             return true
         }
@@ -178,8 +351,8 @@ Limitations:
             log("   目标 - 文本: ${action.targetText}, 描述: ${action.targetDesc}, 资源ID: ${action.targetResourceId}")
             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
             log("   降级到坐标点击: ($x, $y)")
-            executeWithOverlayProtection(action.type, x, y) {
-                controller.tap(x, y)
+            executeWithOverlayProtection(action.type) {
+                runtimeTap(x, y)
             }
             return true
         }
@@ -190,8 +363,8 @@ Limitations:
             log("⚠️ 元素状态无效: ${validation.errorMessage}")
             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
             log("   降级到坐标点击: ($x, $y)")
-            executeWithOverlayProtection(action.type, x, y) {
-                controller.tap(x, y)
+            executeWithOverlayProtection(action.type) {
+                runtimeTap(x, y)
             }
             return true
         }
@@ -226,8 +399,8 @@ Limitations:
         // 所有重试都失败，降级到坐标点击
         log("⚠️ 所有重试失败，降级到坐标点击")
         val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-        executeWithOverlayProtection(action.type, x, y) {
-            controller.tap(x, y)
+        executeWithOverlayProtection(action.type) {
+            runtimeTap(x, y)
         }
         return true
     }
@@ -241,9 +414,25 @@ Limitations:
         useNotetaker: Boolean,
         enableBatchExecution: Boolean
     ): AgentResult {
+        resetExecutionMetrics()
+        snapshotRepository.resetMetrics()
         log("========== 系统诊断 ==========")
         log("开始执行（优化模式）: $instruction")
         log("🎤 语音打断状态: enableChatAgent=$enableChatAgent")
+        log("⚙️ 自动化配置: steps=${automationProfile.execution.maxSteps}, " +
+                "gestureDelay=${automationProfile.execution.gestureDelayMs}ms, " +
+                "inputDelay=${automationProfile.execution.inputDelayMs}ms")
+
+        val runtimePrepared = runtimeOrchestrator.prepareAndSelect()
+        if (runtimePrepared.isFailure) {
+            val error = runtimePrepared.exceptionOrNull()?.message ?: "运行时准备失败"
+            log("❌ 运行时准备失败: $error")
+            return AgentResult(success = false, message = error)
+        }
+        val selectedRuntime = runtimePrepared.getOrNull()
+        metricsRuntimeSelectedName = selectedRuntime?.runtimeName ?: "unknown"
+        val runtimeHealth = runtimeOrchestrator.health()
+        log("🧱 运行时选择: ${selectedRuntime?.runtimeName}, health=${runtimeHealth.healthy}, message=${runtimeHealth.message}")
 
         // 注意：权限检查现在由 MainActivity 在调用前完成
 
@@ -365,6 +554,22 @@ Limitations:
                     continue
                 }
 
+                // 运行时健康检查（Phase D PoC）
+                val stepRuntimeHealth = runtimeOrchestrator.health()
+                if (!stepRuntimeHealth.healthy) {
+                    metricsRuntimeHealthAnomalyCount += 1
+                    log("⚠️ 运行时健康异常: ${stepRuntimeHealth.message}")
+                    if (automationProfile.virtualDisplay.autoFallbackEnabled) {
+                        val fallbackResult = runtimeOrchestrator.forceFallbackToForeground("运行时健康异常")
+                        if (fallbackResult.isSuccess) {
+                            metricsRuntimeFallbackCount += 1
+                            log("↘️ 已自动降级到前台运行时: ${fallbackResult.getOrNull()?.runtimeName}")
+                        } else {
+                            log("❌ 自动降级失败: ${fallbackResult.exceptionOrNull()?.message}")
+                        }
+                    }
+                }
+
                 updateState { copy(currentStep = step + 1) }
                 infoPool.totalSteps = step + 1
                 log("\n========== Step ${step + 1} ==========")
@@ -428,7 +633,7 @@ Limitations:
 
                 OverlayService.setVisible(false)
                 delay(100)
-                val screenshotResult = controller.screenshotWithFallback()
+                val screenshotResult = captureSnapshotWithRuntimeFallback(forceRefresh = false)
                 OverlayService.setVisible(true)
                 var screenshot = screenshotResult.bitmap
 
@@ -781,7 +986,7 @@ Limitations:
                     OverlayService.setVisible(false)
                     delay(100)
                     log("开始截图，控制器类型: ${controller.javaClass.simpleName}")
-                    val afterScreenshotResult = controller.screenshotWithFallback()
+                    val afterScreenshotResult = captureSnapshotWithRuntimeFallback(forceRefresh = true)
                     log("截图完成 - isFallback=${afterScreenshotResult.isFallback}, isSensitive=${afterScreenshotResult.isSensitive}, errorType=${afterScreenshotResult.errorType}, bitmap=${if (afterScreenshotResult.bitmap != null) "${afterScreenshotResult.bitmap.width}x${afterScreenshotResult.bitmap.height}" else "null"}")
                     OverlayService.setVisible(true)
                     val afterScreenshot = afterScreenshotResult.bitmap
@@ -1014,8 +1219,8 @@ Limitations:
                     // 2. 降级到坐标点击
                     log("⚠ 无障碍定位失败，使用坐标点击")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                    executeWithOverlayProtection(action.type, x, y) {
-                        controller.tap(x, y)
+                    executeWithOverlayProtection(action.type) {
+                        runtimeTap(x, y)
                     }
                 }
             }
@@ -1032,8 +1237,8 @@ Limitations:
                             log("⚠️ 元素状态无效: ${validation.errorMessage}")
                             log("   降级到坐标双击")
                             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                            executeWithOverlayProtection(action.type, x, y) {
-                                controller.doubleTap(x, y)
+                            executeWithOverlayProtection(action.type) {
+                                runtimeDoubleTap(x, y)
                             }
                         } else {
                             // 双击需要执行两次点击，隐藏悬浮窗避免挡住界面
@@ -1047,17 +1252,17 @@ Limitations:
                                     delay(100)
                                     val secondClickSuccess = elementLocator.clickElement(locateResult.node)
                                     if (!secondClickSuccess) {
-                                        log("⚠️ 第二次点击失败，降级到坐标双击")
-                                        val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                                        controller.doubleTap(x, y)
-                                    } else {
-                                        log("✓ 双击成功")
-                                    }
-                                } else {
-                                    log("⚠️ 第一次点击失败，降级到坐标双击")
+                                    log("⚠️ 第二次点击失败，降级到坐标双击")
                                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                                    controller.doubleTap(x, y)
+                                    runtimeDoubleTap(x, y)
+                                } else {
+                                    log("✓ 双击成功")
                                 }
+                            } else {
+                                log("⚠️ 第一次点击失败，降级到坐标双击")
+                                val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
+                                runtimeDoubleTap(x, y)
+                            }
                             } finally {
                                 OverlayService.setVisible(true)
                                 log("恢复悬浮窗显示")
@@ -1065,15 +1270,15 @@ Limitations:
                         }
                     } else {
                         val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                        executeWithOverlayProtection(action.type, x, y) {
-                            controller.doubleTap(x, y)
+                        executeWithOverlayProtection(action.type) {
+                            runtimeDoubleTap(x, y)
                         }
                     }
                 } else {
                     log("⚠ 无障碍定位失败，使用坐标双击")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                    executeWithOverlayProtection(action.type, x, y) {
-                        controller.doubleTap(x, y)
+                    executeWithOverlayProtection(action.type) {
+                        runtimeDoubleTap(x, y)
                     }
                 }
             }
@@ -1090,8 +1295,8 @@ Limitations:
                             log("⚠️ 元素状态无效: ${validation.errorMessage}")
                             log("   降级到坐标长按")
                             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                            executeWithOverlayProtection(action.type, x, y) {
-                                controller.longPress(x, y)
+                            executeWithOverlayProtection(action.type) {
+                                runtimeLongPress(x, y)
                             }
                         } else {
                             // 隐藏悬浮窗避免挡住界面
@@ -1104,7 +1309,7 @@ Limitations:
                                 if (!clickSuccess) {
                                     log("⚠️ 直接点击元素失败，降级到坐标长按")
                                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                                    controller.longPress(x, y)
+                                    runtimeLongPress(x, y)
                                 } else {
                                     log("✓ 长按成功")
                                 }
@@ -1115,15 +1320,15 @@ Limitations:
                         }
                     } else {
                         val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                        executeWithOverlayProtection(action.type, x, y) {
-                            controller.longPress(x, y)
+                        executeWithOverlayProtection(action.type) {
+                            runtimeLongPress(x, y)
                         }
                     }
                 } else {
                     log("⚠ 无障碍定位失败，使用坐标长按")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
-                    executeWithOverlayProtection(action.type, x, y) {
-                        controller.longPress(x, y)
+                    executeWithOverlayProtection(action.type) {
+                        runtimeLongPress(x, y)
                     }
                 }
             }
@@ -1139,17 +1344,17 @@ Limitations:
                     log("🎯 方向滑动: ${action.direction}, 中心点: ($centerX, $centerY), 距离: $distance, 力度: $velocity")
 
                     when (action.direction.lowercase()) {
-                        "up" -> executeWithOverlayProtection(action.type, centerX, centerY + distance, centerX, centerY - distance) {
-                            controller.swipe(centerX, centerY + distance, centerX, centerY - distance, velocity = velocity)
+                        "up" -> executeWithOverlayProtection(action.type) {
+                            runtimeSwipe(centerX, centerY + distance, centerX, centerY - distance, velocity = velocity)
                         }
-                        "down" -> executeWithOverlayProtection(action.type, centerX, centerY - distance, centerX, centerY + distance) {
-                            controller.swipe(centerX, centerY - distance, centerX, centerY + distance, velocity = velocity)
+                        "down" -> executeWithOverlayProtection(action.type) {
+                            runtimeSwipe(centerX, centerY - distance, centerX, centerY + distance, velocity = velocity)
                         }
-                        "left" -> executeWithOverlayProtection(action.type, centerX + distance, centerY, centerX - distance, centerY) {
-                            controller.swipe(centerX + distance, centerY, centerX - distance, centerY, velocity = velocity)
+                        "left" -> executeWithOverlayProtection(action.type) {
+                            runtimeSwipe(centerX + distance, centerY, centerX - distance, centerY, velocity = velocity)
                         }
-                        "right" -> executeWithOverlayProtection(action.type, centerX - distance, centerY, centerX + distance, centerY) {
-                            controller.swipe(centerX - distance, centerY, centerX + distance, centerY, velocity = velocity)
+                        "right" -> executeWithOverlayProtection(action.type) {
+                            runtimeSwipe(centerX - distance, centerY, centerX + distance, centerY, velocity = velocity)
                         }
                         else -> log("未知滑动方向: ${action.direction}")
                     }
@@ -1167,8 +1372,8 @@ Limitations:
                     log("   起点: ($origX1, $origY1) -> ($x1, $y1) [${if (origX1 < 1000 && origY1 < 1000) "归一化" else "像素"}]")
                     log("   终点: ($origX2, $origY2) -> ($x2, $y2) [${if (origX2 < 1000 && origY2 < 1000) "归一化" else "像素"}]")
 
-                    executeWithOverlayProtection(action.type, x1, y1, x2, y2) {
-                        controller.swipe(x1, y1, x2, y2)
+                    executeWithOverlayProtection(action.type) {
+                        runtimeSwipe(x1, y1, x2, y2)
                     }
                 }
             }
@@ -1191,14 +1396,14 @@ Limitations:
                 } else {
                     // 2. 降级到坐标点击 + 输入
                     log("⚠ 未找到输入框，使用坐标方式")
-                    action.text?.let { controller.type(it) }
+                    action.text?.let { runtimeType(it) }
                 }
             }
             "system_button" -> {
                 when (action.button) {
-                    "Back", "back" -> controller.back()
-                    "Home", "home" -> controller.home()
-                    "Enter", "enter" -> controller.enter()
+                    "Back", "back" -> runtimeSystemButton("back")
+                    "Home", "home" -> runtimeSystemButton("home")
+                    "Enter", "enter" -> runtimeSystemButton("enter")
                     else -> log("未知系统按钮: ${action.button}")
                 }
             }
@@ -1208,7 +1413,7 @@ Limitations:
                     val targetPackage = packageName ?: appName
                     
                     log("找到应用: $appName -> $targetPackage")
-                    controller.openApp(targetPackage)
+                    runtimeOpenApp(targetPackage)
                     
                     // 等待应用启动
                     delay(1500)
@@ -1501,6 +1706,7 @@ Limitations:
      * 清理资源（任务结束时调用）
      */
     private fun cleanup() {
+        logExecutionMetricsSummary()
         // 停止 InterruptOrchestrator 和底层的 AEC 录音监听
         Log.d(TAG, "cleanup: 销毁 InterruptOrchestrator，停止语音监听")
         interruptOrchestrator?.destroy()
@@ -1558,6 +1764,61 @@ Limitations:
                 log("=====================================")
             }
         }
+    }
+
+    private fun resetExecutionMetrics() {
+        metricsSessionStartedAtMs = System.currentTimeMillis()
+        metricsRuntimeSelectedName = "unknown"
+        metricsRuntimeHealthAnomalyCount = 0
+        metricsRuntimeFallbackCount = 0
+        metricsRuntimeSnapshotFallbackAttemptCount = 0
+        metricsRuntimeSnapshotFallbackSuccessCount = 0
+        metricsSummaryLogged = false
+    }
+
+    private fun logExecutionMetricsSummary() {
+        if (metricsSummaryLogged || metricsSessionStartedAtMs == 0L) return
+        metricsSummaryLogged = true
+
+        val executionMetrics = buildExecutionMetricsSnapshot()
+
+        log("\n========== Phase E 指标汇总 ==========")
+        log("运行时: selected=${executionMetrics.runtimeSelected}, healthAnomaly=${executionMetrics.runtimeHealthAnomalyCount}, fallback=${executionMetrics.runtimeFallbackCount}")
+        log("截图: total=${executionMetrics.snapshotTotalRequests}, force=${executionMetrics.snapshotForceRefreshRequests}, fresh=${executionMetrics.snapshotFreshCaptureCount}")
+        log("截图命中: cacheHit=${executionMetrics.snapshotCacheHitCount}, throttleReuse=${executionMetrics.snapshotThrottleReuseCount}, hitRate=${executionMetrics.snapshotHitRate}")
+        log("截图降级: repoFallback=${executionMetrics.snapshotRepoFallbackCount}, runtimeFallback=${executionMetrics.snapshotRuntimeFallbackCount}, runtimeRecovered=${executionMetrics.snapshotRuntimeRecoveredCount}, recoverRate=${executionMetrics.snapshotRecoverRate}")
+        log("耗时: totalMs=${executionMetrics.durationMs}")
+        log("======================================")
+    }
+
+    private fun buildExecutionMetricsSnapshot(): ExecutionMetricsData {
+        val snapshotMetrics = snapshotRepository.getMetricsSnapshot()
+        val durationMs = (System.currentTimeMillis() - metricsSessionStartedAtMs).coerceAtLeast(0L)
+        val runtimeFallbackSuccessRate = if (metricsRuntimeSnapshotFallbackAttemptCount == 0) {
+            0.0
+        } else {
+            metricsRuntimeSnapshotFallbackSuccessCount.toDouble() / metricsRuntimeSnapshotFallbackAttemptCount
+        }
+        return ExecutionMetricsData(
+            runtimeSelected = metricsRuntimeSelectedName,
+            runtimeHealthAnomalyCount = metricsRuntimeHealthAnomalyCount,
+            runtimeFallbackCount = metricsRuntimeFallbackCount,
+            snapshotTotalRequests = snapshotMetrics.totalRequests,
+            snapshotForceRefreshRequests = snapshotMetrics.forceRefreshRequests,
+            snapshotFreshCaptureCount = snapshotMetrics.freshCaptureCount,
+            snapshotCacheHitCount = snapshotMetrics.cacheHitCount,
+            snapshotThrottleReuseCount = snapshotMetrics.throttleReuseCount,
+            snapshotHitRate = formatPercent(snapshotMetrics.cacheHitRate),
+            snapshotRepoFallbackCount = snapshotMetrics.fallbackResultCount,
+            snapshotRuntimeFallbackCount = metricsRuntimeSnapshotFallbackAttemptCount,
+            snapshotRuntimeRecoveredCount = metricsRuntimeSnapshotFallbackSuccessCount,
+            snapshotRecoverRate = formatPercent(runtimeFallbackSuccessRate),
+            durationMs = durationMs
+        )
+    }
+
+    private fun formatPercent(value: Double): String {
+        return String.format("%.1f%%", value * 100)
     }
 
     private fun log(message: String) {
@@ -1626,11 +1887,6 @@ Limitations:
      */
     private suspend fun executeWithOverlayProtection(
         action: String,
-        x: Int? = null,
-        y: Int? = null,
-        x2: Int? = null,
-        y2: Int? = null,
-        proximityThreshold: Int = 100,
         operation: suspend () -> Unit
     ) {
         val shouldHideOverlay = when (action) {
@@ -1721,6 +1977,11 @@ Limitations:
      */
     override fun getChatSession(): ChatSession? {
         return interruptOrchestrator?.getCurrentChatSession()
+    }
+
+    override fun getExecutionMetricsSnapshot(): ExecutionMetricsData? {
+        if (metricsSessionStartedAtMs == 0L) return null
+        return buildExecutionMetricsSnapshot()
     }
 
     /**

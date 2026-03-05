@@ -114,9 +114,13 @@ data class AppSettings(
     val reactOnly: Boolean = true,  // ReactOnly 模式：Manager 只规划一次，后续全靠 Executor 执行
     val enableChatAgent: Boolean = true,  // 是否启用 ChatAgent 模式（语音打断和实时交互）
     val enableFlowMode: Boolean = true,  // 是否启用 Flow 模式（流程模板自动沉淀和学习）
+    val updateChannel: String = "stable",  // 更新频道：stable / beta
+    val ignoredUpdateVersion: String = "",  // 忽略的更新版本
+    val lastUpdateCheckAtMs: Long = 0L,  // 上次检查更新时间戳（毫秒）
     
     // ========== 设备控制器配置 ==========
     val executionStrategy: String = "accessibility_only",  // 执行策略: auto, shizuku_only, accessibility_only, hybrid
+    val virtualDisplayExecutionEnabled: Boolean = false,  // 是否启用虚拟屏执行模式
     val fallbackStrategy: String = "auto",  // 降级策略: auto, shizuku_first, accessibility_first
     val screenshotCacheEnabled: Boolean = true,  // 是否启用截图缓存
     val gestureDelayMs: Int = 100,  // 手势延迟（毫秒）
@@ -324,7 +328,11 @@ class SettingsManager(context: Context) {
             reactOnly = prefs.getBoolean("react_only", true),
             enableChatAgent = prefs.getBoolean("enable_chat_agent", true),
             enableFlowMode = prefs.getBoolean("enable_flow_mode", true),
+            updateChannel = prefs.getString("update_channel", "stable") ?: "stable",
+            ignoredUpdateVersion = prefs.getString("ignored_update_version", "") ?: "",
+            lastUpdateCheckAtMs = prefs.getLong("last_update_check_at_ms", 0L),
             executionStrategy = prefs.getString("execution_strategy", "accessibility_only") ?: "accessibility_only",
+            virtualDisplayExecutionEnabled = prefs.getBoolean("virtual_display_execution_enabled", false),
             fallbackStrategy = prefs.getString("fallback_strategy", "auto") ?: "auto",
             screenshotCacheEnabled = prefs.getBoolean("screenshot_cache_enabled", true),
             gestureDelayMs = prefs.getInt("gesture_delay_ms", 100),
@@ -631,6 +639,37 @@ class SettingsManager(context: Context) {
         prefs.edit().putBoolean("enable_flow_mode", enabled).apply()
         _settings.value = _settings.value.copy(enableFlowMode = enabled)
     }
+
+    /**
+     * 更新应用更新频道。
+     *
+     * @param channel 频道值，`stable` 或 `beta`。
+     */
+    fun updateReleaseChannel(channel: String) {
+        val normalized = if (channel.equals("beta", ignoreCase = true)) "beta" else "stable"
+        prefs.edit().putString("update_channel", normalized).apply()
+        _settings.value = _settings.value.copy(updateChannel = normalized)
+    }
+
+    /**
+     * 更新忽略版本。
+     *
+     * @param version 版本号，空字符串表示清除忽略状态。
+     */
+    fun updateIgnoredUpdateVersion(version: String) {
+        prefs.edit().putString("ignored_update_version", version).apply()
+        _settings.value = _settings.value.copy(ignoredUpdateVersion = version)
+    }
+
+    /**
+     * 更新上次检查更新时间。
+     *
+     * @param timestampMs 毫秒时间戳。
+     */
+    fun updateLastUpdateCheckAtMs(timestampMs: Long) {
+        prefs.edit().putLong("last_update_check_at_ms", timestampMs).apply()
+        _settings.value = _settings.value.copy(lastUpdateCheckAtMs = timestampMs)
+    }
     
     // ========== 设备控制器配置更新方法 ==========
     
@@ -639,6 +678,11 @@ class SettingsManager(context: Context) {
         prefs.edit().putString("execution_strategy", strategy).apply()
         _settings.value = _settings.value.copy(executionStrategy = strategy)
         android.util.Log.d("SettingsManager", "updateExecutionStrategy - updated: ${_settings.value.executionStrategy}")
+    }
+
+    fun updateVirtualDisplayExecutionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("virtual_display_execution_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(virtualDisplayExecutionEnabled = enabled)
     }
     
     fun updateFallbackStrategy(strategy: String) {

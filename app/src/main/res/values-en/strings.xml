@@ -331,6 +331,8 @@
     <string name="settings_item_help">Help</string>
     <string name="settings_item_feedback">Feedback</string>
     <string name="settings_item_about">About</string>
+    <string name="settings_item_update">App Update</string>
+    <string name="settings_item_update_subtitle">Check, Channel, Download</string>
 
     <!-- Settings Dialogs -->
     <string name="dialog_select_theme">Select Theme</string>
@@ -543,9 +545,22 @@
     <string name="settings_subscreen_permission_management">Permissions</string>
     <string name="settings_subscreen_shizuku">Shizuku Settings</string>
     <string name="settings_subscreen_mcp">MCP Management</string>
+    <string name="settings_subscreen_update">App Update</string>
     <string name="settings_subscreen_help">Help</string>
     <string name="settings_subscreen_feedback">Feedback &amp; Debug</string>
     <string name="settings_subscreen_about">About</string>
+
+    <string name="update_current_version">Current Version</string>
+    <string name="update_checking">Checking updates...</string>
+    <string name="update_check_idle">Tap to check updates</string>
+    <string name="update_channel">Update Channel (tap to toggle)</string>
+    <string name="update_ignored_version">Ignored Version (tap to toggle)</string>
+    <string name="update_none">None</string>
+    <string name="update_download_latest">Download Latest %1$s</string>
+    <string name="update_download_hint">Tap to start download</string>
+    <string name="update_release_notes">Release Notes</string>
+    <string name="update_history_title">Recent Update Events</string>
+    <string name="update_history_empty">No update records</string>
 
     <!-- TTS Realtime -->
     <string name="tts_realtime_off">Turn off realtime speech</string>
@@ -579,6 +594,9 @@
     <string name="execution_batch_mode">Batch Execution Mode</string>
     <string name="execution_batch_mode_enabled">Enabled (batch execute non-conflicting operations)</string>
     <string name="execution_batch_mode_disabled">Disabled (execute one by one)</string>
+    <string name="execution_virtual_display_mode">Virtual Display Runtime</string>
+    <string name="execution_virtual_display_mode_enabled">Enabled (prefer virtual display runtime)</string>
+    <string name="execution_virtual_display_mode_disabled">Disabled (use foreground runtime)</string>
     <string name="execution_react_only_mode">ReactOnly Mode</string>
     <string name="execution_react_only_enabled">Enabled (Manager plans once, Executor handles rest)</string>
     <string name="execution_react_only_disabled">Disabled (standard mode)</string>

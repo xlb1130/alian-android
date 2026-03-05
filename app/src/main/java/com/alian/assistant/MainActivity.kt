@@ -308,8 +308,17 @@ class MainActivity : ComponentActivity() {
 
     // 请求 MediaProjection 权限
     fun requestMediaProjectionPermission() {
-        val intent = PermissionManager.createMediaProjectionRequestIntent(this)
-        mediaProjectionLauncher.launch(intent)
+        runCatching {
+            val intent = PermissionManager.createMediaProjectionRequestIntent(this)
+            mediaProjectionLauncher.launch(intent)
+        }.onFailure { error ->
+            Log.e(TAG, "拉起 MediaProjection 授权失败: ${error.message}", error)
+            Toast.makeText(
+                this,
+                "拉起屏幕录制授权失败，请稍后重试",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     // 使用 MediaProjection 权限重新创建设备控制器
@@ -1198,6 +1207,10 @@ class MainActivity : ComponentActivity() {
                                 onUpdateReactOnly = { settingsManager.updateReactOnly(it) },
                                 onUpdateEnableChatAgent = { settingsManager.updateEnableChatAgent(it) },
                                 onUpdateEnableFlowMode = { settingsManager.updateEnableFlowMode(it) },
+                                onUpdateVirtualDisplayExecutionEnabled = {
+                                    settingsManager.updateVirtualDisplayExecutionEnabled(it)
+                                    recreateDeviceController()
+                                },
                                 onUpdateExecutionStrategy = {
                                     settingsManager.updateExecutionStrategy(it)
                                     recreateDeviceController()

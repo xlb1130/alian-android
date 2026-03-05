@@ -7,11 +7,14 @@ import android.widget.Toast
 import androidx.compose.runtime.MutableState
 import com.alian.assistant.core.agent.AgentPermissionCheck
 import com.alian.assistant.core.agent.improve.MobileAgentImprove
+import com.alian.assistant.core.agent.metrics.service.ExecutionMetricsLogParser
 import com.alian.assistant.data.ChatMessageData
+import com.alian.assistant.data.ExecutionMetricsData
 import com.alian.assistant.data.ExecutionRecord
 import com.alian.assistant.data.ExecutionRepository
 import com.alian.assistant.data.ExecutionStatus
 import com.alian.assistant.data.SettingsManager
+import com.alian.assistant.data.repository.SettingsAutomationProfileRepository
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
 import com.alian.assistant.presentation.ui.overlay.OverlayService
 import com.alian.assistant.infrastructure.ai.llm.VLMClient
@@ -39,7 +42,8 @@ class AgentRunner(
     private val shouldNavigateToRecord: MutableState<Boolean>,
     private val getMediaProjectionInfo: () -> Pair<Int?, Intent?>,
     private val onRequireAccessibility: (String) -> Unit,
-    private val onRequireMediaProjection: (String) -> Unit
+    private val onRequireMediaProjection: (String) -> Unit,
+    private val metricsLogParser: ExecutionMetricsLogParser = ExecutionMetricsLogParser()
 ) {
     private var currentExecutionJob: Job? = null
 
@@ -73,6 +77,7 @@ class AgentRunner(
         }
 
         val settings = settingsManager.settings.value
+        val automationProfile = SettingsAutomationProfileRepository(settingsManager).getCurrentProfile()
 
         Log.d(TAG, "开始权限检查..")
         val (resultCode, data) = getMediaProjectionInfo()
@@ -132,14 +137,20 @@ class AgentRunner(
         isExecuting.value = true
 
         val vlmClient = createVLMClient(apiKey, baseUrl, model)
-        if (settings.enableImproveMode) {
+        val shouldUseImproveAgent = settings.enableImproveMode || settings.virtualDisplayExecutionEnabled
+        Log.d(
+            TAG,
+            "agent selection: improveMode=${settings.enableImproveMode}, virtualDisplayEnabled=${settings.virtualDisplayExecutionEnabled}, useImproveAgent=$shouldUseImproveAgent"
+        )
+        if (shouldUseImproveAgent) {
             mobileAgentState.value = MobileAgentImprove(
                 vlmClient,
                 deviceControllerProvider(),
                 context,
                 settings.reactOnly,
                 settings.enableChatAgent,
-                settings.enableFlowMode
+                settings.enableFlowMode,
+                automationProfile
             )
         } else {
             mobileAgentState.value = MobileAgent(
@@ -221,7 +232,8 @@ class AgentRunner(
                     steps = steps,
                     logs = currentLogs,
                     resultMessage = result.message,
-                    chatHistory = chatHistory
+                    chatHistory = chatHistory,
+                    executionMetrics = collectExecutionMetrics(mobileAgentState.value, currentLogs)
                 )
                 executionRepository.saveRecord(updatedRecord)
                 executionRecords.value = executionRepository.getAllRecords()
@@ -261,7 +273,8 @@ class AgentRunner(
                         steps = steps,
                         logs = currentLogs,
                         resultMessage = "已取消",
-                        chatHistory = chatHistory
+                        chatHistory = chatHistory,
+                        executionMetrics = collectExecutionMetrics(mobileAgentState.value, currentLogs)
                     )
                     executionRepository.saveRecord(updatedRecord)
                     executionRecords.value = executionRepository.getAllRecords()
@@ -293,7 +306,8 @@ class AgentRunner(
                     status = ExecutionStatus.FAILED,
                     logs = currentLogs,
                     resultMessage = "错误: ${e.message}",
-                    chatHistory = chatHistory
+                    chatHistory = chatHistory,
+                    executionMetrics = collectExecutionMetrics(mobileAgentState.value, currentLogs)
                 )
                 executionRepository.saveRecord(updatedRecord)
                 executionRecords.value = executionRepository.getAllRecords()
@@ -324,5 +338,16 @@ class AgentRunner(
             }
         }
         return if (instruction.length > 10) instruction.take(10) + "..." else instruction
+    }
+
+    /**
+     * 收集执行指标。
+     *
+     * 优先级：
+     * 1. Agent 直接提供结构化指标（推荐路径）。
+     * 2. 兼容旧实现时回落日志解析。
+     */
+    private fun collectExecutionMetrics(agent: Agent?, logs: List<String>): ExecutionMetricsData? {
+        return agent?.getExecutionMetricsSnapshot() ?: metricsLogParser.parse(logs)
     }
 }

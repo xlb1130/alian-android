@@ -1,5 +1,6 @@
 package com.alian.assistant.core.agent
 
+import com.alian.assistant.data.ExecutionMetricsData
 import com.alian.assistant.data.model.ChatSession
 import com.alian.assistant.data.ExecutionStep
 import kotlinx.coroutines.flow.StateFlow
@@ -57,4 +58,13 @@ interface Agent {
      * 获取对话历史（如果存在）
      */
     fun getChatSession(): ChatSession?
+
+    /**
+     * 获取执行指标快照（可选能力）。
+     *
+     * 设计说明：
+     * - 默认返回 null，避免影响旧 Agent 实现。
+     * - 新实现可直接返回结构化指标，避免上层依赖日志解析。
+     */
+    fun getExecutionMetricsSnapshot(): ExecutionMetricsData? = null
 }

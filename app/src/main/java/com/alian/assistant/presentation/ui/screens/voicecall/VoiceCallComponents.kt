@@ -87,31 +87,15 @@ fun VoiceCallTopBar(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
-            // 状态描述
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                if (state !is VoiceCallState.Idle) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .background(
-                                color = stateColor.copy(alpha = animatedAlpha),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-                Text(
-                    text = stateDescription,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = stateColor
-                )
-            }
+            // 标题
+            Text(
+                text = stringResource(R.string.voice_call_title),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textPrimary
+            )
         }
 
         // 状态指示器

@@ -52,6 +52,7 @@ fun ExecutionSettingsContent(
     onUpdateReactOnly: (Boolean) -> Unit,
     onUpdateEnableChatAgent: (Boolean) -> Unit,
     onUpdateEnableFlowMode: (Boolean) -> Unit,
+    onUpdateVirtualDisplayExecutionEnabled: (Boolean) -> Unit,
     onNavigateToDeviceController: () -> Unit = {}
 ) {
     val colors = BaoziTheme.colors
@@ -117,6 +118,20 @@ fun ExecutionSettingsContent(
         }
 
         Box(modifier = Modifier.staggeredFadeIn(6)) {
+            SettingsCardWithSwitch(
+                icon = Icons.Default.Settings,
+                title = stringResource(R.string.execution_virtual_display_mode),
+                subtitle = if (settings.virtualDisplayExecutionEnabled) {
+                    stringResource(R.string.execution_virtual_display_mode_enabled)
+                } else {
+                    stringResource(R.string.execution_virtual_display_mode_disabled)
+                },
+                checked = settings.virtualDisplayExecutionEnabled,
+                onCheckedChange = onUpdateVirtualDisplayExecutionEnabled
+            )
+        }
+
+        Box(modifier = Modifier.staggeredFadeIn(7)) {
             SettingsCardWithIcon(
                 icon = Icons.Default.Settings,
                 title = stringResource(R.string.execution_max_steps),
@@ -125,7 +140,7 @@ fun ExecutionSettingsContent(
             )
         }
 
-        Box(modifier = Modifier.staggeredFadeIn(7)) {
+        Box(modifier = Modifier.staggeredFadeIn(8)) {
             InfoCard(
                 title = stringResource(R.string.execution_info_title),
                 description = stringResource(R.string.execution_info_desc)

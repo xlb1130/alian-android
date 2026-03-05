@@ -1,5 +1,6 @@
 package com.alian.assistant.presentation.ui.screens.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatAlignLeft
@@ -18,6 +18,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -130,50 +132,44 @@ fun JsonEditor(
         }
 
         // 编辑器区域
-        Box(
+        OutlinedTextField(
+            value = textFieldValue,
+            onValueChange = { newValue ->
+                textFieldValue = newValue
+                onValueChange(newValue.text)
+                showError = false
+            },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(250.dp)
-                .background(
-                    if (isError || showError)
-                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
-                    else
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(12.dp)
-        ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                // 占位符
+                .height(250.dp),
+            textStyle = MaterialTheme.typography.bodySmall.copy(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurface
+            ),
+            placeholder = {
                 if (textFieldValue.text.isEmpty()) {
                     Text(
                         text = placeholder,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        modifier = Modifier.align(Alignment.TopStart)
+                        fontSize = 13.sp
                     )
                 }
-
-                // 文本输入框
-                BasicTextField(
-                    value = textFieldValue,
-                    onValueChange = { newValue ->
-                        textFieldValue = newValue
-                        onValueChange(newValue.text)
-                        showError = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
-                    enabled = enabled
-                )
-            }
-        }
+            },
+            isError = isError || showError,
+            enabled = enabled,
+            shape = RoundedCornerShape(8.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                errorBorderColor = MaterialTheme.colorScheme.error,
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                errorContainerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f),
+                cursorColor = MaterialTheme.colorScheme.primary
+            )
+        )
 
         // 错误信息
         if (isError && errorMessage != null) {

@@ -130,6 +130,15 @@ class AccessibilityKeepAliveService : Service() {
         fun getMediaProjection(): MediaProjection? {
             return mediaProjection
         }
+
+        /**
+         * 获取当前虚拟显示 ID。
+         *
+         * 返回 null 表示虚拟显示尚未创建或已失效。
+         */
+        fun getVirtualDisplayId(): Int? {
+            return virtualDisplay?.display?.displayId
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())

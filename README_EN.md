@@ -567,8 +567,11 @@ cd alian-android
 - [x] **Shizuku Controller** - Get system permissions via Shizuku
 - [x] **Accessibility Controller** - Element-level operations via AccessibilityService
 - [x] **Hybrid Mode** - Prioritize accessibility, auto-switch to Shizuku on failure
+- [x] **Virtual Display Runtime** - Support VirtualDisplay-based execution path
+- [x] **Runtime Orchestration & Auto Fallback** - Auto fallback to foreground runtime on virtual display failures
 - [x] **Screen Operations** - Click, swipe, long press, text input
 - [x] **Screenshot** - Supports fallback
+- [x] **Snapshot Pipeline** - Cache, throttle reuse, and fallback metrics
 - [x] **App Scanning** - Async pre-scan installed apps
 
 #### AI Capabilities
@@ -602,11 +605,15 @@ cd alian-android
 - [x] **Capabilities Screen** - Feature display interface
 - [x] **History Screen** - Execution history
 - [x] **Settings Screen** - Settings interface
+- [x] **Execution Metrics View** - Runtime/snapshot/fallback metrics in history details
+- [x] **Virtual Display Toggle** - One-click enable/disable in execution settings
+- [x] **In-app Update Settings** - Channel selection, checking, and download status display
 - [x] **Overlay** - OverlayService overlay service
 
 #### Data Management
 - [x] **SettingsManager** - Settings management
 - [x] **ExecutionHistory** - Execution history records
+- [x] **ExecutionMetrics** - Structured persistence with log-parser fallback compatibility
 - [x] **VoicePreset** - Voice presets
 - [x] **Encrypted Storage** - AES-256-GCM encrypted API Key storage
 

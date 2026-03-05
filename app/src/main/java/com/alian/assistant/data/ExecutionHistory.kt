@@ -22,6 +22,64 @@ data class ChatMessageData(
 )
 
 /**
+ * 执行指标快照（用于灰度对比与回归分析）。
+ */
+data class ExecutionMetricsData(
+    val runtimeSelected: String = "unknown",
+    val runtimeHealthAnomalyCount: Int = 0,
+    val runtimeFallbackCount: Int = 0,
+    val snapshotTotalRequests: Int = 0,
+    val snapshotForceRefreshRequests: Int = 0,
+    val snapshotFreshCaptureCount: Int = 0,
+    val snapshotCacheHitCount: Int = 0,
+    val snapshotThrottleReuseCount: Int = 0,
+    val snapshotHitRate: String = "0.0%",
+    val snapshotRepoFallbackCount: Int = 0,
+    val snapshotRuntimeFallbackCount: Int = 0,
+    val snapshotRuntimeRecoveredCount: Int = 0,
+    val snapshotRecoverRate: String = "0.0%",
+    val durationMs: Long = 0L
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("runtimeSelected", runtimeSelected)
+        put("runtimeHealthAnomalyCount", runtimeHealthAnomalyCount)
+        put("runtimeFallbackCount", runtimeFallbackCount)
+        put("snapshotTotalRequests", snapshotTotalRequests)
+        put("snapshotForceRefreshRequests", snapshotForceRefreshRequests)
+        put("snapshotFreshCaptureCount", snapshotFreshCaptureCount)
+        put("snapshotCacheHitCount", snapshotCacheHitCount)
+        put("snapshotThrottleReuseCount", snapshotThrottleReuseCount)
+        put("snapshotHitRate", snapshotHitRate)
+        put("snapshotRepoFallbackCount", snapshotRepoFallbackCount)
+        put("snapshotRuntimeFallbackCount", snapshotRuntimeFallbackCount)
+        put("snapshotRuntimeRecoveredCount", snapshotRuntimeRecoveredCount)
+        put("snapshotRecoverRate", snapshotRecoverRate)
+        put("durationMs", durationMs)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): ExecutionMetricsData {
+            return ExecutionMetricsData(
+                runtimeSelected = json.optString("runtimeSelected", "unknown"),
+                runtimeHealthAnomalyCount = json.optInt("runtimeHealthAnomalyCount", 0),
+                runtimeFallbackCount = json.optInt("runtimeFallbackCount", 0),
+                snapshotTotalRequests = json.optInt("snapshotTotalRequests", 0),
+                snapshotForceRefreshRequests = json.optInt("snapshotForceRefreshRequests", 0),
+                snapshotFreshCaptureCount = json.optInt("snapshotFreshCaptureCount", 0),
+                snapshotCacheHitCount = json.optInt("snapshotCacheHitCount", 0),
+                snapshotThrottleReuseCount = json.optInt("snapshotThrottleReuseCount", 0),
+                snapshotHitRate = json.optString("snapshotHitRate", "0.0%"),
+                snapshotRepoFallbackCount = json.optInt("snapshotRepoFallbackCount", 0),
+                snapshotRuntimeFallbackCount = json.optInt("snapshotRuntimeFallbackCount", 0),
+                snapshotRuntimeRecoveredCount = json.optInt("snapshotRuntimeRecoveredCount", 0),
+                snapshotRecoverRate = json.optString("snapshotRecoverRate", "0.0%"),
+                durationMs = json.optLong("durationMs", 0L)
+            )
+        }
+    }
+}
+
+/**
  * 执行步骤记录
  */
 data class ExecutionStep(
@@ -93,7 +151,8 @@ data class ExecutionRecord(
     val steps: List<ExecutionStep> = emptyList(),
     val logs: List<String> = emptyList(),
     val resultMessage: String = "",
-    val chatHistory: List<ChatMessageData> = emptyList()  // 对话历史
+    val chatHistory: List<ChatMessageData> = emptyList(),  // 对话历史
+    val executionMetrics: ExecutionMetricsData? = null
 ) {
     val duration: Long get() = if (endTime > 0) endTime - startTime else System.currentTimeMillis() - startTime
 
@@ -133,6 +192,7 @@ data class ExecutionRecord(
                 })
             }
         })
+        executionMetrics?.let { put("executionMetrics", it.toJson()) }
     }
 
     companion object {
@@ -176,7 +236,10 @@ data class ExecutionRecord(
                 steps = steps,
                 logs = logs,
                 resultMessage = json.optString("resultMessage", ""),
-                chatHistory = chatHistory
+                chatHistory = chatHistory,
+                executionMetrics = json.optJSONObject("executionMetrics")?.let {
+                    ExecutionMetricsData.fromJson(it)
+                }
             )
         }
     }

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.alian.assistant.data.ExecutionMetricsData
 import com.alian.assistant.data.ExecutionRecord
 import com.alian.assistant.data.ExecutionStep
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
@@ -315,7 +316,7 @@ fun HistoryDetailScreen(
 ) {
     val colors = BaoziTheme.colors
     val context = LocalContext.current
-    // Tab 状态：0 = 时间线，1 = 日志
+    // Tab 状态：0 = 时间线，1 = 日志，2 = 指标
     var selectedTab by remember { mutableStateOf(0) }
 
     // 添加调试日志
@@ -534,47 +535,21 @@ fun HistoryDetailScreen(
                 .padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 时间线 Tab
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (selectedTab == 0) colors.primary
-                        else colors.backgroundCard
-                    )
-                    .clickable { selectedTab = 0 }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "执行时间线",
-                    fontSize = 14.sp,
-                    fontWeight = if (selectedTab == 0) FontWeight.Medium else FontWeight.Normal,
-                    color = if (selectedTab == 0) Color.White else colors.textSecondary
-                )
-            }
-
-            // 日志 Tab
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (selectedTab == 1) colors.primary
-                        else colors.backgroundCard
-                    )
-                    .clickable { selectedTab = 1 }
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "执行日志",
-                    fontSize = 14.sp,
-                    fontWeight = if (selectedTab == 1) FontWeight.Medium else FontWeight.Normal,
-                    color = if (selectedTab == 1) Color.White else colors.textSecondary
-                )
-            }
+            HistoryDetailTab(
+                title = "执行时间线",
+                selected = selectedTab == 0,
+                onClick = { selectedTab = 0 }
+            )
+            HistoryDetailTab(
+                title = "执行日志",
+                selected = selectedTab == 1,
+                onClick = { selectedTab = 1 }
+            )
+            HistoryDetailTab(
+                title = "执行指标",
+                selected = selectedTab == 2,
+                onClick = { selectedTab = 2 }
+            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -653,9 +628,146 @@ fun HistoryDetailScreen(
                     }
                 }
             }
+            2 -> {
+                HistoryMetricsContent(record.executionMetrics)
+            }
         }
     }
 }
+
+@Composable
+private fun RowScope.HistoryDetailTab(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = BaoziTheme.colors
+    Box(
+        modifier = Modifier
+            .weight(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) colors.primary else colors.backgroundCard)
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = title,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            color = if (selected) Color.White else colors.textSecondary
+        )
+    }
+}
+
+@Composable
+private fun HistoryMetricsContent(metrics: ExecutionMetricsData?) {
+    val colors = BaoziTheme.colors
+    if (metrics == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "暂无执行指标",
+                fontSize = 14.sp,
+                color = colors.textHint
+            )
+        }
+        return
+    }
+
+    val groups = listOf(
+        MetricsGroup(
+            title = "运行时",
+            items = listOf(
+                "运行时选择" to metrics.runtimeSelected,
+                "运行时健康异常" to metrics.runtimeHealthAnomalyCount.toString(),
+                "运行时降级次数" to metrics.runtimeFallbackCount.toString(),
+                "总耗时(ms)" to metrics.durationMs.toString()
+            )
+        ),
+        MetricsGroup(
+            title = "截图效率",
+            items = listOf(
+                "截图请求总数" to metrics.snapshotTotalRequests.toString(),
+                "截图强制刷新" to metrics.snapshotForceRefreshRequests.toString(),
+                "截图真实采集" to metrics.snapshotFreshCaptureCount.toString(),
+                "截图缓存命中" to metrics.snapshotCacheHitCount.toString(),
+                "截图节流复用" to metrics.snapshotThrottleReuseCount.toString(),
+                "截图命中率" to metrics.snapshotHitRate
+            )
+        ),
+        MetricsGroup(
+            title = "降级恢复",
+            items = listOf(
+                "仓储降级次数" to metrics.snapshotRepoFallbackCount.toString(),
+                "运行时兜底次数" to metrics.snapshotRuntimeFallbackCount.toString(),
+                "运行时兜底恢复" to metrics.snapshotRuntimeRecoveredCount.toString(),
+                "兜底恢复率" to metrics.snapshotRecoverRate
+            )
+        )
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(groups) { group ->
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = colors.backgroundCard),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Text(
+                        text = group.title,
+                        fontSize = 13.sp,
+                        color = colors.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    group.items.forEachIndexed { index, item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = item.first,
+                                fontSize = 12.sp,
+                                color = colors.textSecondary
+                            )
+                            Text(
+                                text = item.second,
+                                fontSize = 13.sp,
+                                color = colors.textPrimary,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        if (index != group.items.lastIndex) {
+                            HorizontalDivider(
+                                color = colors.primary.copy(alpha = 0.08f),
+                                thickness = 0.5.dp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private data class MetricsGroup(
+    val title: String,
+    val items: List<Pair<String, String>>
+)
 
 /**
  * 步骤卡片组件 - 与 AlianLocalScreen 中的 StepCard 样式保持一致

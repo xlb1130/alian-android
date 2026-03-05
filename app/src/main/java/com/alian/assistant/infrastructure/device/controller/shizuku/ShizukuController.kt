@@ -190,4 +190,53 @@ class ShizukuController(
     override fun getControllerType(): ControllerType {
         return ControllerType.SHIZUKU
     }
+
+    /**
+     * 执行 shell 命令。
+     *
+     * 失败行为：
+     * - 当 Shizuku 服务不可用时返回错误文本，不抛异常。
+     */
+    fun execShell(command: String): String {
+        return try {
+            shellService?.exec(command) ?: "Error: shell service unavailable"
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
+    /**
+     * 在指定 display 启动应用（后台虚拟屏场景）。
+     */
+    fun openAppOnDisplay(packageName: String, displayId: Int): Result<Unit> {
+        if (packageName.isBlank()) {
+            return Result.failure(IllegalArgumentException("packageName is blank"))
+        }
+        val component = context
+            ?.packageManager
+            ?.getLaunchIntentForPackage(packageName)
+            ?.component
+            ?.flattenToShortString()
+            ?: return Result.failure(IllegalStateException("无法解析启动组件: $packageName"))
+
+        val output = execShell("am start --display $displayId -n $component")
+        if (output.contains("Error", ignoreCase = true) || output.contains("Exception", ignoreCase = true)) {
+            return Result.failure(IllegalStateException("display start failed: $output"))
+        }
+        return Result.success(Unit)
+    }
+
+    /**
+     * 在指定 display 打开 DeepLink（后台虚拟屏场景）。
+     */
+    fun openDeepLinkOnDisplay(uri: String, displayId: Int): Result<Unit> {
+        if (uri.isBlank()) {
+            return Result.failure(IllegalArgumentException("uri is blank"))
+        }
+        val output = execShell("am start --display $displayId -a android.intent.action.VIEW -d \"$uri\"")
+        if (output.contains("Error", ignoreCase = true) || output.contains("Exception", ignoreCase = true)) {
+            return Result.failure(IllegalStateException("display deeplink failed: $output"))
+        }
+        return Result.success(Unit)
+    }
 }

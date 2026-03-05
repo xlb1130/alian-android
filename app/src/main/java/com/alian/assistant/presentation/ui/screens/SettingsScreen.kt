@@ -96,6 +96,7 @@ import com.alian.assistant.presentation.ui.screens.settings.ConnectionStatusIndi
 import com.alian.assistant.common.utils.AvatarCacheManager
 import com.alian.assistant.common.utils.LanguageManager
 import com.alian.assistant.presentation.ui.screens.settings.SpeechProviderSettingsContent
+import com.alian.assistant.presentation.ui.screens.settings.UpdateSettingsSection
 import com.alian.assistant.data.model.SpeechProvider
 import com.alian.assistant.data.model.SpeechProviderCredentials
 import com.alian.assistant.data.model.SpeechModels
@@ -178,6 +179,7 @@ fun SettingsScreen(
     onUpdateReactOnly: (Boolean) -> Unit,
     onUpdateEnableChatAgent: (Boolean) -> Unit,
     onUpdateEnableFlowMode: (Boolean) -> Unit,
+    onUpdateVirtualDisplayExecutionEnabled: (Boolean) -> Unit,
     onUpdateExecutionStrategy: (String) -> Unit,
     onUpdateFallbackStrategy: (String) -> Unit,
     onUpdateScreenshotCacheEnabled: (Boolean) -> Unit,
@@ -285,6 +287,7 @@ fun SettingsScreen(
                                     onUpdateReactOnly = onUpdateReactOnly,
                                     onUpdateEnableChatAgent = onUpdateEnableChatAgent,
                                     onUpdateEnableFlowMode = onUpdateEnableFlowMode,
+                                    onUpdateVirtualDisplayExecutionEnabled = onUpdateVirtualDisplayExecutionEnabled,
                                     onNavigateToDeviceController = {
                                         currentSubScreen = SettingsSubScreen.DEVICE_CONTROLLER
                                     }
@@ -392,6 +395,10 @@ fun SettingsScreen(
                                 MCPSettingsContent(
                                     onBack = { currentSubScreen = null }
                                 )
+                            }
+
+                            SettingsSubScreen.UPDATE -> {
+                                UpdateSettingsSection()
                             }
 
                             SettingsSubScreen.PERMISSION_MANAGEMENT -> {
@@ -756,6 +763,28 @@ fun SettingsScreen(
                                 onClick = { currentSubScreen = SettingsSubScreen.ABOUT }
                             )
                         }
+                    }
+                }
+            }
+
+            item {
+                Box(modifier = Modifier.staggeredFadeIn(13)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.CloudSync,
+                                title = stringResource(R.string.settings_item_update),
+                                subtitle = stringResource(R.string.settings_item_update_subtitle),
+                                onClick = { currentSubScreen = SettingsSubScreen.UPDATE }
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {}
+                        Box(modifier = Modifier.weight(1f)) {}
                     }
                 }
             }

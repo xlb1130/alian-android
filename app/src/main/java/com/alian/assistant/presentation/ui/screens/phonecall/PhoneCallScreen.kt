@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -42,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import com.alian.assistant.R
+import com.alian.assistant.MainActivity
 import com.alian.assistant.core.agent.AgentPermissionCheck
 import com.alian.assistant.core.agent.PhoneCallMessage
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
@@ -133,7 +135,6 @@ fun PhoneCallScreen(
     // 权限检查对话框状态
     var showPermissionDialog by remember { mutableStateOf(false) }
     var permissionCheckResult by remember { mutableStateOf<AgentPermissionCheck.CheckResult?>(null) }
-    var permissionsGranted by remember { mutableStateOf(false) }
 
     // 更新配置
     LaunchedEffect(apiKey, baseUrl, model, systemPrompt, ttsVoice, ttsSpeed, ttsInterruptEnabled, enableAEC, enableStreaming, volume, deviceController) {
@@ -163,27 +164,11 @@ fun PhoneCallScreen(
             val permissionResult = viewModel.checkAllPhoneCallPermissions()
             Log.d("PhoneCallScreen", "权限更新后的检查结果: $permissionResult")
             if (permissionResult is AgentPermissionCheck.CheckResult.Granted) {
-                permissionsGranted = true
                 showPermissionDialog = false
                 Log.d("PhoneCallScreen", "所有权限已授予")
             } else {
                 Log.d("PhoneCallScreen", "权限检查未通过: $permissionResult")
             }
-        }
-    }
-
-    // 页面加载时检查权限
-    LaunchedEffect(Unit) {
-        val permissionResult = viewModel.checkAllPhoneCallPermissions()
-        Log.d("PhoneCallScreen", "页面加载时的权限检查结果: $permissionResult")
-        if (permissionResult !is AgentPermissionCheck.CheckResult.Granted) {
-            permissionCheckResult = permissionResult
-            showPermissionDialog = true
-            permissionsGranted = false
-            Log.d("PhoneCallScreen", "显示权限对话框: $permissionResult")
-        } else {
-            permissionsGranted = true
-            Log.d("PhoneCallScreen", "页面加载时权限已授予")
         }
     }
 
@@ -241,22 +226,7 @@ fun PhoneCallScreen(
                 permissionCheckResult = viewModel.checkAllPhoneCallPermissions()
                 if (permissionCheckResult !is AgentPermissionCheck.CheckResult.Granted) {
                     showPermissionDialog = true
-                    permissionsGranted = false
                 }
-            }
-        }
-    }
-
-    // 监听对话框关闭，重新检查权限状态
-    LaunchedEffect(showPermissionDialog) {
-        if (!showPermissionDialog) {
-            // 延迟检查，给用户时间从设置返回
-            delay(500)
-            val permissionResult = viewModel.checkAllPhoneCallPermissions()
-            permissionsGranted = permissionResult is AgentPermissionCheck.CheckResult.Granted
-            if (!permissionsGranted) {
-                permissionCheckResult = permissionResult
-                showPermissionDialog = true
             }
         }
     }
@@ -293,22 +263,55 @@ fun PhoneCallScreen(
                 TextButton(onClick = {
                     when (permissionCheckResult) {
                         is AgentPermissionCheck.CheckResult.NeedsMediaProjection -> {
-                            // MediaProjection 需要特殊处理
-                            onRequireMediaProjection?.invoke()
+                            // MediaProjection 需要特殊处理：优先走宿主回调请求系统授权弹窗。
+                            if (onRequireMediaProjection != null) {
+                                onRequireMediaProjection.invoke()
+                            } else {
+                                Log.w("PhoneCallScreen", "onRequireMediaProjection is null, fallback to MainActivity request")
+                                val started = (context as? MainActivity)?.runCatching {
+                                    requestMediaProjectionPermission()
+                                }?.isSuccess == true
+
+                                if (!started) {
+                                    viewModel.openPermissionSettings(permissionCheckResult!!)
+                                    Toast.makeText(
+                                        context,
+                                        "无法直接拉起屏幕录制授权，请在设置中手动授权后重试",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
                             showPermissionDialog = false
                         }
                         is AgentPermissionCheck.CheckResult.NeedsMultiplePermissions -> {
-                            // 优先处理非 MediaProjection 权限
+                            // 若缺失列表包含 MediaProjection，优先请求屏幕录制授权，避免用户点击无响应感。
                             val missingPermissions = (permissionCheckResult as AgentPermissionCheck.CheckResult.NeedsMultiplePermissions).missingPermissions
-                            val nonMediaProjectionPermission = missingPermissions.firstOrNull {
-                                it !is AgentPermissionCheck.CheckResult.NeedsMediaProjection
+                            val containsMediaProjection = missingPermissions.any {
+                                it is AgentPermissionCheck.CheckResult.NeedsMediaProjection
                             }
-                            if (nonMediaProjectionPermission != null) {
-                                // 先处理其他权限（录音、悬浮窗、无障碍等）
-                                viewModel.openPermissionSettings(nonMediaProjectionPermission)
+
+                            if (containsMediaProjection) {
+                                if (onRequireMediaProjection != null) {
+                                    onRequireMediaProjection.invoke()
+                                } else {
+                                    Log.w("PhoneCallScreen", "onRequireMediaProjection is null in multiple-permission case")
+                                    val started = (context as? MainActivity)?.runCatching {
+                                        requestMediaProjectionPermission()
+                                    }?.isSuccess == true
+
+                                    if (!started) {
+                                        Toast.makeText(
+                                            context,
+                                            "无法直接拉起屏幕录制授权，请在设置中手动授权后重试",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
                             } else {
-                                // 所有缺失权限都是 MediaProjection
-                                onRequireMediaProjection?.invoke()
+                                val firstMissingPermission = missingPermissions.firstOrNull()
+                                if (firstMissingPermission != null) {
+                                    viewModel.openPermissionSettings(firstMissingPermission)
+                                }
                             }
                             showPermissionDialog = false
                         }
@@ -358,7 +361,15 @@ fun PhoneCallScreen(
                 context = context,
                 scope = scope,
                 onBackClick = onBackClick,
-                onStartCall = { viewModel.startCall() },
+                onStartCall = {
+                    val permissionResult = viewModel.checkAllPhoneCallPermissions()
+                    if (permissionResult is AgentPermissionCheck.CheckResult.Granted) {
+                        viewModel.startCall()
+                    } else {
+                        permissionCheckResult = permissionResult
+                        showPermissionDialog = true
+                    }
+                },
                 onStopCall = {
                     viewModel.stopCall()
                     scope.launch {
@@ -366,8 +377,7 @@ fun PhoneCallScreen(
                         onBackClick()
                     }
                 },
-                onSwitchToFloating = { viewModel.enableFloatingMode() },
-                permissionsGranted = permissionsGranted
+                onSwitchToFloating = { viewModel.enableFloatingMode() }
             )
         }
         else -> {
@@ -388,8 +398,7 @@ fun PhoneCallScreen(
                         onBackClick()
                     }
                 },
-                onSwitchToFullScreen = { viewModel.disableFloatingMode() },
-                permissionsGranted = permissionsGranted
+                onSwitchToFullScreen = { viewModel.disableFloatingMode() }
             )
         }
     }
@@ -410,8 +419,7 @@ private fun FullScreenPhoneCallUI(
     onBackClick: () -> Unit,
     onStartCall: () -> Unit,
     onStopCall: () -> Unit,
-    onSwitchToFloating: () -> Unit,
-    permissionsGranted: Boolean
+    onSwitchToFloating: () -> Unit
 ) {
     val currentScreen by viewModel.currentScreen
     val conversationHistory = viewModel.conversationHistory
@@ -437,8 +445,7 @@ private fun FullScreenPhoneCallUI(
                 onHangUpClick = onStopCall,
                 onStartCallClick = onStartCall,
                 colors = colors,
-                stateColor = stateColor,
-                permissionsGranted = permissionsGranted
+                stateColor = stateColor
             )
         }
     ) { padding ->
@@ -595,8 +602,7 @@ private fun FloatingWindowPhoneCallUI(
     scope: CoroutineScope,
     onBackClick: () -> Unit,
     onStopCall: () -> Unit,
-    onSwitchToFullScreen: () -> Unit,
-    permissionsGranted: Boolean
+    onSwitchToFullScreen: () -> Unit
 ) {
     val conversationHistory = viewModel.conversationHistory
     val currentRecognizedText by viewModel.currentRecognizedText
@@ -782,8 +788,7 @@ private fun FloatingWindowPhoneCallUI(
                                 onHangUpClick = onStopCall,
                                 onStartCallClick = {},
                                 colors = colors,
-                                stateColor = stateColor,
-                                permissionsGranted = permissionsGranted
+                                stateColor = stateColor
                             )
                         }
                     }
@@ -806,60 +811,40 @@ private fun PhoneCallTopBar(
     val colors = BaoziTheme.colors
     val context = LocalContext.current
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(56.dp)
-            .padding(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 4.dp)
     ) {
-        // 返回按钮
-        IconButton(
-            onClick = {
-                performLightHaptic(context)
-                onBackClick()
-            },
-            modifier = Modifier.size(40.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.ArrowBack,
-                contentDescription = stringResource(R.string.cd_back),
-                tint = colors.textPrimary,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-
-        // 标题
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+            // 返回按钮 - 与视觉大模型页面的样式一致
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable {
+                        performLightHaptic(context)
+                        onBackClick()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = stringResource(R.string.cd_back),
+                    tint = colors.textPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            // 标题
             Text(
                 text = stringResource(R.string.phone_call_title),
-                color = colors.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = modeName,
-                color = colors.textSecondary,
-                fontSize = 12.sp
-            )
-        }
-
-        // 切换模式按钮
-        IconButton(
-            onClick = {
-                performLightHaptic(context)
-                onSwitchModeClick()
-            },
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.PhoneAndroid,
-                contentDescription = stringResource(R.string.phone_call_fullscreen_mode),
-                tint = Color(0xFF8B5CF6),
-                modifier = Modifier.size(24.dp)
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textPrimary
             )
         }
     }
@@ -874,12 +859,10 @@ fun PhoneCallControlBar(
     onHangUpClick: () -> Unit,
     onStartCallClick: () -> Unit,
     colors: BaoziColors,
-    stateColor: Color,
-    permissionsGranted: Boolean = true
+    stateColor: Color
 ) {
     val context = LocalContext.current
     val isIdle = state is PhoneCallState.Idle
-    val canStartCall = isIdle && permissionsGranted
 
     Row(
         modifier = Modifier
@@ -910,19 +893,17 @@ fun PhoneCallControlBar(
         PhoneCallControlButton(
             icon = if (isIdle) Icons.Default.Phone else Icons.Default.PhoneDisabled,
             contentDescription = if (isIdle) stringResource(R.string.phone_call_start) else stringResource(R.string.phone_call_end),
-            iconColor = if (canStartCall) Color.White else colors.textHint,
-            backgroundColor = if (canStartCall) Color(0xFF8B5CF6) else Color.Transparent,
+            iconColor = Color.White,
+            backgroundColor = if (isIdle) Color(0xFF8B5CF6) else Color(0xFFEF4444),
             buttonSize = 64.dp,
             iconSize = 28.dp,
-            enabled = canStartCall,
+            enabled = true,
             onClick = {
-                if (canStartCall) {
-                    performLightHaptic(context)
-                    if (isIdle) {
-                        onStartCallClick()
-                    } else {
-                        onHangUpClick()
-                    }
+                performLightHaptic(context)
+                if (isIdle) {
+                    onStartCallClick()
+                } else {
+                    onHangUpClick()
                 }
             }
         )

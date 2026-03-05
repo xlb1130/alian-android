@@ -141,6 +141,15 @@ fun AlianInputArea(
         animationSpec = tween(200, easing = EaseInOutCubic),
         label = "focusAlpha"
     )
+    val textInputShadowElevation by animateDpAsState(
+        targetValue = when {
+            isProcessing -> 0.dp
+            isFocused -> 8.dp
+            else -> 4.dp
+        },
+        animationSpec = tween(durationMillis = 180, easing = EaseInOutCubic),
+        label = "textInputShadowElevation"
+    )
 
     // 发送按钮点击动画
     var sendButtonPressed by remember { mutableStateOf(false) }
@@ -585,9 +594,15 @@ fun AlianInputArea(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp, max = 120.dp)
-                    .shadow(
-                        elevation = if (isFocused) 8.dp else 4.dp,
-                        shape = RoundedCornerShape(28.dp)
+                    .then(
+                        if (textInputShadowElevation > 0.dp) {
+                            Modifier.shadow(
+                                elevation = textInputShadowElevation,
+                                shape = RoundedCornerShape(28.dp)
+                            )
+                        } else {
+                            Modifier
+                        }
                     )
                     .clip(RoundedCornerShape(28.dp))
                     .onGloballyPositioned { coordinates ->
@@ -623,10 +638,14 @@ fun AlianInputArea(
                     )
                     .padding(horizontal = 8.dp, vertical = 8.dp)
                     .animateContentSize(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
+                        animationSpec = if (isProcessing) {
+                            tween(durationMillis = 140, easing = EaseInOutCubic)
+                        } else {
+                            spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        }
                     )
             ) {
                 Row(

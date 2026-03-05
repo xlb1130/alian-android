@@ -12,6 +12,7 @@ import com.alian.assistant.R
  * - ⚙️ 执行与控制：执行设置、语音交互、设备控制器
  * - 🔐 权限与安全：权限管理、Shizuku 设置
  * - 🔌 扩展能力：MCP 管理
+ * - 🆕 版本更新：更新检查、频道与下载
  * - ❓ 帮助与反馈：帮助、反馈、关于
  */
 enum class SettingsSubScreen(@StringRes val titleResId: Int) {
@@ -35,6 +36,9 @@ enum class SettingsSubScreen(@StringRes val titleResId: Int) {
     
     // 🔌 扩展能力
     MCP(R.string.settings_subscreen_mcp),
+
+    // 🆕 版本更新
+    UPDATE(R.string.settings_subscreen_update),
     
     // ❓ 帮助与反馈
     HELP(R.string.settings_subscreen_help),
