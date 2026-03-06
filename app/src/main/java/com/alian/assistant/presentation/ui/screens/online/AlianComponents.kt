@@ -1,6 +1,7 @@
 package com.alian.assistant.presentation.ui.screens.online
 
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -241,7 +242,7 @@ fun ChatMessageBubble(
     isPlaying: Boolean = false,
     onPlayClick: ((String) -> Unit)? = null,
     onStopClick: (() -> Unit)? = null,
-    onLinkClick: ((String, String) -> Unit)? = null,
+    onLinkClick: ((String, String, String?) -> Unit)? = null,
     backendBaseUrl: String = "",
     userAvatar: String? = null,
     assistantAvatar: String? = null
@@ -459,6 +460,7 @@ fun ChatMessageBubble(
                                             } else {
                                                 originalUrl
                                             }
+                                            val isValidUrl = url.startsWith("http://") || url.startsWith("https://")
                                             Log.d("ChatMessageBubble", "附件按钮: fileName=$fileName, originalUrl=$originalUrl, url=$url")
                                             
                                             // 检查是否为图片附件
@@ -477,13 +479,23 @@ fun ChatMessageBubble(
                                                 isVideo -> Icons.Default.Videocam
                                                 else -> Icons.Default.Visibility
                                             }
+                                            val clickContext = LocalContext.current
                                             
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .clickable {
-                                                        Log.d("ChatMessageBubble", "附件按钮被点击: url=$url, fileName=$fileName")
-                                                        onLinkClick(url, fileName)
+                                                        if (isValidUrl || !attachment.file_id.isNullOrBlank()) {
+                                                            Log.d("ChatMessageBubble", "附件按钮被点击: url=$url, fileName=$fileName, fileId=${attachment.file_id}")
+                                                            onLinkClick(url, fileName, attachment.file_id)
+                                                        } else {
+                                                            Toast.makeText(
+                                                                clickContext,
+                                                                "附件链接无效，缺少可访问 URL",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                            Log.w("ChatMessageBubble", "附件URL无效: fileName=$fileName, url=$url, fileId=${attachment.file_id}")
+                                                        }
                                                     },
                                                 horizontalArrangement = Arrangement.Start,
                                                 verticalAlignment = Alignment.CenterVertically

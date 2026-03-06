@@ -80,6 +80,7 @@ fun glossyGradient(colors: BaoziColors): Brush {
 fun AlianChatHistoryDrawer(
     context: Context,
     sessions: List<SessionData>,
+    selectedSessionId: String? = null,
     onSessionClick: (SessionData) -> Unit,
     onDeleteSession: (SessionData) -> Unit,
     onCreateNewSession: () -> Unit,
@@ -343,6 +344,7 @@ fun AlianChatHistoryDrawer(
                         SessionDrawerItem(
                             context = context,
                             session = session,
+                            isSelected = session.session_id == selectedSessionId,
                             onClick = { onSessionClick(session) },
                             onDelete = { onDeleteSession(session) }
                         )

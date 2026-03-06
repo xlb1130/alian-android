@@ -851,4 +851,8 @@
     <string name="flow_template_skip_screenshot">跳过截图 (置信度: %1$d%%)</string>
     <string name="flow_template_verification">验证节点...</string>
     <string name="flow_template_fallback">降级到传统模式</string>
+
+    <!-- Settings Subtitles -->
+    <string name="settings_item_help_subtitle">使用指南与技巧</string>
+    <string name="settings_item_about_subtitle">版本与开源许可</string>
 </resources>

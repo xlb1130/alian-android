@@ -3,6 +3,7 @@ package com.alian.assistant.presentation.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -194,11 +195,17 @@ fun AlianChatScreen(
         onHideBottomBarChanged(showVoiceCall)
     }
 
-    // 自动滚动到底部
-    LaunchedEffect(viewModel.unifiedChatTimeline.size) {
-        if (viewModel.unifiedChatTimeline.isNotEmpty()) {
-            listState.animateScrollToItem(viewModel.unifiedChatTimeline.size - 1)
+    // 自动滚动到底部（历史切换期间禁用动画滚动，避免大量消息恢复时卡顿）
+    val sessionLoadingState = viewModel.sessionLoadingState.value
+    LaunchedEffect(viewModel.unifiedChatTimeline.size, sessionLoadingState) {
+        if (viewModel.unifiedChatTimeline.isEmpty()) {
+            return@LaunchedEffect
         }
+        val lastIndex = viewModel.unifiedChatTimeline.size - 1
+        if (sessionLoadingState is com.alian.assistant.presentation.viewmodel.SessionLoadingState.Switching) {
+            return@LaunchedEffect
+        }
+        listState.scrollToItem(lastIndex)
     }
 
     val context = LocalContext.current
@@ -237,13 +244,10 @@ fun AlianChatScreen(
             AlianChatHistoryDrawer(
                 context = context,
                 sessions = viewModel.sessions.toList(),
+                selectedSessionId = viewModel.currentSessionIdUi.value,
                 onSessionClick = { session: SessionData ->
-                    scope.launch {
-                        val result = viewModel.selectSession(session.session_id)
-                        if (result.isSuccess) {
-                            drawerState.close()
-                        }
-                    }
+                    viewModel.selectSessionAsync(session.session_id)
+                    scope.launch { drawerState.close() }
                 },
                 onDeleteSession = { session: SessionData ->
                     scope.launch {
@@ -322,40 +326,61 @@ fun AlianChatScreen(
                             onStopClick = {
                                 viewModel.stopTTS()
                             },
-                            onLinkClick = { url, fileName ->
-                                // 检查是否为图片文件
-                                val isImage = listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp").any {
-                                    fileName.lowercase().endsWith(it)
-                                }
-                                
-                                // 检查是否为视频文件
-                                val isVideo = listOf(".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp").any {
-                                    fileName.lowercase().endsWith(it)
-                                }
-                                
-                                Log.d("AlianChatScreen", "onLinkClick: url=$url, fileName=$fileName, isImage=$isImage, isVideo=$isVideo")
-                                
-                                when {
-                                    isImage -> {
-                                        // 图片文件使用独立的图片预览
-                                        imagePreviewUrl = url
-                                        imagePreviewTitle = fileName
-                                        showImagePreview = true
-                                        Log.d("AlianChatScreen", "打开图片预览: $url")
+                            onLinkClick = { url, fileName, fileId ->
+                                scope.launch {
+                                    var resolvedUrl = url
+                                    val isValidUrl = resolvedUrl.startsWith("http://") || resolvedUrl.startsWith("https://")
+
+                                    if (!isValidUrl && !fileId.isNullOrBlank()) {
+                                        val backendClient = viewModel.getBackendClient()
+                                        if (backendClient != null) {
+                                            val signedUrlResult = backendClient.getFileSignedUrl(fileId)
+                                            if (signedUrlResult.isSuccess) {
+                                                resolvedUrl = signedUrlResult.getOrNull().orEmpty()
+                                                Log.d("AlianChatScreen", "按需签名附件成功: fileId=$fileId")
+                                            } else {
+                                                Log.w("AlianChatScreen", "按需签名附件失败: fileId=$fileId, error=${signedUrlResult.exceptionOrNull()?.message}")
+                                            }
+                                        }
                                     }
-                                    isVideo -> {
-                                        // 视频文件使用独立的视频预览
-                                        videoPreviewUrl = url
-                                        videoPreviewTitle = fileName
-                                        showVideoPreview = true
-                                        Log.d("AlianChatScreen", "打开视频预览: $url")
+
+                                    val finalValidUrl = resolvedUrl.startsWith("http://") || resolvedUrl.startsWith("https://")
+                                    if (!finalValidUrl) {
+                                        Toast.makeText(context, "附件链接无效，无法获取可访问 URL", Toast.LENGTH_SHORT).show()
+                                        return@launch
                                     }
-                                    else -> {
-                                        // 其他文件使用 Markdown WebView
-                                        markdownWebViewUrl = url
-                                        markdownWebViewTitle = fileName
-                                        showMarkdownWebView = true
-                                        Log.d("AlianChatScreen", "打开 Markdown 预览: $url")
+
+                                    // 检查是否为图片文件
+                                    val isImage = listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp").any {
+                                        fileName.lowercase().endsWith(it)
+                                    }
+
+                                    // 检查是否为视频文件
+                                    val isVideo = listOf(".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp").any {
+                                        fileName.lowercase().endsWith(it)
+                                    }
+
+                                    Log.d("AlianChatScreen", "onLinkClick: url=$resolvedUrl, fileName=$fileName, isImage=$isImage, isVideo=$isVideo, fileId=$fileId")
+
+                                    when {
+                                        isImage -> {
+                                            imagePreviewUrl = resolvedUrl
+                                            imagePreviewTitle = fileName
+                                            showImagePreview = true
+                                            Log.d("AlianChatScreen", "打开图片预览: $resolvedUrl")
+                                        }
+                                        isVideo -> {
+                                            videoPreviewUrl = resolvedUrl
+                                            videoPreviewTitle = fileName
+                                            showVideoPreview = true
+                                            Log.d("AlianChatScreen", "打开视频预览: $resolvedUrl")
+                                        }
+                                        else -> {
+                                            markdownWebViewUrl = resolvedUrl
+                                            markdownWebViewTitle = fileName
+                                            showMarkdownWebView = true
+                                            Log.d("AlianChatScreen", "打开 Markdown 预览: $resolvedUrl")
+                                        }
                                     }
                                 }
                             },

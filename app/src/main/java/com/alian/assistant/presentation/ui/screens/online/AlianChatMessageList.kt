@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,7 +33,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -61,6 +64,7 @@ import com.alian.assistant.presentation.viewmodel.AlianViewModel
 import com.alian.assistant.presentation.viewmodel.DeepThinkingItem
 import com.alian.assistant.presentation.viewmodel.MessageItem
 import com.alian.assistant.presentation.viewmodel.PlanItem
+import com.alian.assistant.presentation.viewmodel.SessionLoadingState
 import java.io.File
 
 /**
@@ -73,7 +77,7 @@ import java.io.File
  * @param currentPlayingMessageId 当前播放的消息 ID
  * @param onPlayClick 播放点击回调
  * @param onStopClick 停止点击回调
- * @param onLinkClick 链接点击回调
+ * @param onLinkClick 链接点击回调（url, fileName, fileId）
  * @param userAvatar 用户头像
  * @param assistantAvatar 艾莲头像
  */
@@ -84,10 +88,11 @@ fun AlianChatMessageList(
     listState: LazyListState,
     shouldPinPlanCard: Boolean,
     ttsEnabled: Boolean,
+    enableItemAnimations: Boolean,
     currentPlayingMessageId: State<String?>,
     onPlayClick: (String) -> Unit,
     onStopClick: () -> Unit,
-    onLinkClick: (String, String) -> Unit,
+    onLinkClick: (String, String, String?) -> Unit,
     userAvatar: String?,
     assistantAvatar: String?
 ) {
@@ -97,7 +102,10 @@ fun AlianChatMessageList(
     val timelineData by remember {
         derivedStateOf {
             val filtered = viewModel.unifiedChatTimeline.toList().filterNot { item ->
-                item is MessageItem && !item.message.isUser && item.message.content.isBlank()
+                item is MessageItem &&
+                    !item.message.isUser &&
+                    item.message.content.isBlank() &&
+                    item.message.attachments.isEmpty()
             }
             val plan = filtered.filterIsInstance<PlanItem>().firstOrNull()
             Pair(filtered, plan)
@@ -146,23 +154,7 @@ fun AlianChatMessageList(
 
             when (item) {
                 is MessageItem -> {
-                    var isVisible by remember { mutableStateOf(false) }
-                    LaunchedEffect(item.message.id) {
-                        isVisible = true
-                    }
-
-                    AnimatedVisibility(
-                        visible = isVisible,
-                        enter = slideInVertically(
-                            initialOffsetY = { 30 },
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessLow
-                            )
-                        ) + fadeIn(
-                            animationSpec = tween(durationMillis = 300)
-                        )
-                    ) {
+                    if (!enableItemAnimations) {
                         ChatMessageBubble(
                             message = item.message,
                             ttsEnabled = ttsEnabled,
@@ -174,6 +166,36 @@ fun AlianChatMessageList(
                             userAvatar = userAvatar,
                             assistantAvatar = assistantAvatar
                         )
+                    } else {
+                        var isVisible by remember { mutableStateOf(false) }
+                        LaunchedEffect(item.message.id) {
+                            isVisible = true
+                        }
+
+                        AnimatedVisibility(
+                            visible = isVisible,
+                            enter = slideInVertically(
+                                initialOffsetY = { 30 },
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessLow
+                                )
+                            ) + fadeIn(
+                                animationSpec = tween(durationMillis = 300)
+                            )
+                        ) {
+                            ChatMessageBubble(
+                                message = item.message,
+                                ttsEnabled = ttsEnabled,
+                                isPlaying = currentPlayingMessageId.value == item.message.id,
+                                onPlayClick = onPlayClick,
+                                onStopClick = onStopClick,
+                                onLinkClick = onLinkClick,
+                                backendBaseUrl = viewModel.backendBaseUrl,
+                                userAvatar = userAvatar,
+                                assistantAvatar = assistantAvatar
+                            )
+                        }
                     }
                 }
 
@@ -422,7 +444,7 @@ val currentToolName = viewModel.currentToolName.value
  * @param ttsEnabled 是否启用 TTS
  * @param onPlayClick 播放点击回调
  * @param onStopClick 停止点击回调
- * @param onLinkClick 链接点击回调
+ * @param onLinkClick 链接点击回调（url, fileName, fileId）
  * @param userAvatar 用户头像
  * @param assistantAvatar 艾莲头像
  */
@@ -434,11 +456,22 @@ fun AlianChatContent(
     ttsEnabled: Boolean,
     onPlayClick: (String) -> Unit,
     onStopClick: () -> Unit,
-    onLinkClick: (String, String) -> Unit,
+    onLinkClick: (String, String, String?) -> Unit,
     userAvatar: String?,
     assistantAvatar: String?
 ) {
     val colors = BaoziTheme.colors
+    val sessionLoadingState = viewModel.sessionLoadingState.value
+    val hasRenderableItems = viewModel.unifiedChatTimeline.any { item ->
+        when (item) {
+            is MessageItem -> {
+                item.message.isUser ||
+                    item.message.content.isNotBlank() ||
+                    item.message.attachments.isNotEmpty()
+            }
+            else -> true
+        }
+    }
 
     // 状态通知文本
     val statusText = when {
@@ -466,34 +499,129 @@ fun AlianChatContent(
             }
         }
 
-        if (viewModel.messages.isEmpty()) {
-            // 空状态
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                EmptyChatState(modifier = Modifier.fillMaxSize())
+        when (sessionLoadingState) {
+            is SessionLoadingState.Switching -> {
+                if (!hasRenderableItems) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                color = colors.primary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = "正在加载历史消息...",
+                                fontSize = 13.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(12.dp),
+                                color = colors.primary,
+                                strokeWidth = 1.5.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "历史仍在补充加载中...",
+                                fontSize = 12.sp,
+                                color = colors.textHint
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            AlianChatMessageList(
+                                viewModel = viewModel,
+                                listState = listState,
+                                shouldPinPlanCard = shouldPinPlanCard,
+                                ttsEnabled = ttsEnabled,
+                                enableItemAnimations = false,
+                                currentPlayingMessageId = viewModel.currentPlayingMessageId,
+                                onPlayClick = onPlayClick,
+                                onStopClick = onStopClick,
+                                onLinkClick = onLinkClick,
+                                userAvatar = userAvatar,
+                                assistantAvatar = assistantAvatar
+                            )
+                        }
+                    }
+                }
             }
-        } else {
-            // 消息列表
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                AlianChatMessageList(
-                    viewModel = viewModel,
-                    listState = listState,
-                    shouldPinPlanCard = shouldPinPlanCard,
-                    ttsEnabled = ttsEnabled,
-                    currentPlayingMessageId = viewModel.currentPlayingMessageId,
-                    onPlayClick = onPlayClick,
-                    onStopClick = onStopClick,
-                    onLinkClick = onLinkClick,
-                    userAvatar = userAvatar,
-                    assistantAvatar = assistantAvatar
-                )
+
+            is SessionLoadingState.Failed -> {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = sessionLoadingState.message,
+                            fontSize = 13.sp,
+                            color = colors.error
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = { viewModel.retryCurrentSessionLoad() }) {
+                            Text("重试", color = colors.primary)
+                        }
+                    }
+                }
+            }
+
+            else -> {
+                if (!hasRenderableItems) {
+                    // 空状态
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        EmptyChatState(modifier = Modifier.fillMaxSize())
+                    }
+                } else {
+                    // 消息列表
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        AlianChatMessageList(
+                            viewModel = viewModel,
+                            listState = listState,
+                            shouldPinPlanCard = shouldPinPlanCard,
+                            ttsEnabled = ttsEnabled,
+                            enableItemAnimations = true,
+                            currentPlayingMessageId = viewModel.currentPlayingMessageId,
+                            onPlayClick = onPlayClick,
+                            onStopClick = onStopClick,
+                            onLinkClick = onLinkClick,
+                            userAvatar = userAvatar,
+                            assistantAvatar = assistantAvatar
+                        )
+                    }
+                }
             }
         }
     }

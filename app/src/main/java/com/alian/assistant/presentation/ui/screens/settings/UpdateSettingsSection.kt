@@ -41,8 +41,8 @@ fun UpdateSettingsSection() {
             updateRepository = DefaultUpdateRepository(
                 settingsManager = SettingsManager(appContext),
                 releaseSourcePort = GithubReleaseSourceAdapter(
-                    owner = "xielingbo",
-                    repo = "beanbun",
+                    owner = "xlb1130",
+                    repo = "alian-android",
                 ),
                 downloadPort = SystemDownloadAdapter(appContext),
                 historyStore = UpdateHistoryStore(appContext),
@@ -92,6 +92,7 @@ fun UpdateSettingsSection() {
             },
         )
 
+/*
         val release = state.latestRelease
         if (release != null) {
             SettingsItem(
@@ -144,5 +145,6 @@ fun UpdateSettingsSection() {
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+*/
     }
 }
