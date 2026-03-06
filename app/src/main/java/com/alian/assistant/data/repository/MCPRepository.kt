@@ -183,7 +183,7 @@ class MCPRepository(context: Context) {
                 description = configObj.optString("description", null),
                 url = configObj.getString("url"),
                 transport = MCPServerConfig.fromJson(configJson).getOrNull()?.transport
-                    ?: MCPTransport.HTTP,
+                    ?: MCPTransport.STREAMABLE_HTTP,
                 enabled = configObj.getBoolean("enabled"),
                 apiKey = apiKey,
                 headers = configObj.optJSONObject("headers")?.let { headersObj ->
@@ -213,7 +213,9 @@ class MCPRepository(context: Context) {
                 put("name", config.name)
                 put("description", config.description)
                 put("url", config.url)
-                put("transport", config.transport.name)
+                // 同时保存 transport 和 type，兼容应用内字段与标准 MCP 配置字段
+                put("transport", config.transport.wireValue)
+                put("type", config.transport.wireValue)
                 put("enabled", config.enabled)
                 put("created_at", config.createdAt)
                 put("updated_at", config.updatedAt)

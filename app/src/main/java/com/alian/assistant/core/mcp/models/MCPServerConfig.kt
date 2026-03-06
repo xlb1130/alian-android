@@ -1,6 +1,7 @@
 package com.alian.assistant.core.mcp.models
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.json.JSONObject
@@ -81,12 +82,12 @@ data class MCPServerConfig(
             }
             
             // 支持 type 和 transport 两种字段名
-            val transportStr = json.optString("type", null) ?: json.optString("transport", "http")
-            val transport = when (transportStr.lowercase()) {
-                "websocket", "ws", "streamable_http" -> MCPTransport.HTTP
-                "sse" -> MCPTransport.SSE
-                else -> MCPTransport.HTTP
+            val transportStr = when {
+                json.has("transport") -> json.optString("transport", "")
+                json.has("type") -> json.optString("type", "")
+                else -> "streamable_http"
             }
+            val transport = MCPTransport.fromRaw(transportStr)
 
             val apiKey = json.optString("apiKey", null)?.takeIf { it.isNotBlank() }
 
@@ -155,7 +156,35 @@ data class MCPServerConfig(
  */
 @Serializable
 enum class MCPTransport {
-    WEBSOCKET,  // WebSocket 长连接
-    HTTP,       // HTTP 请求
-    SSE         // Server-Sent Events
+    @SerialName("websocket")
+    WEBSOCKET,         // WebSocket 长连接
+    @SerialName("streamable_http")
+    STREAMABLE_HTTP,   // Streamable HTTP
+    @SerialName("sse")
+    SSE;               // Server-Sent Events
+
+    val wireValue: String
+        get() = when (this) {
+            WEBSOCKET -> "websocket"
+            STREAMABLE_HTTP -> "streamable_http"
+            SSE -> "sse"
+        }
+
+    companion object {
+        fun fromRaw(raw: String?): MCPTransport {
+            val normalized = raw
+                ?.trim()
+                ?.lowercase()
+                ?.replace("-", "_")
+                ?: "streamable_http"
+
+            return when (normalized) {
+                "websocket", "ws" -> WEBSOCKET
+                "sse" -> SSE
+                // 兼容历史/别名
+                "streamable_http", "http", "https" -> STREAMABLE_HTTP
+                else -> STREAMABLE_HTTP
+            }
+        }
+    }
 }

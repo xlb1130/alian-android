@@ -71,6 +71,7 @@ import com.alian.assistant.presentation.ui.screens.SettingsScreen
 import com.alian.assistant.presentation.viewmodel.AlianViewModel
 import com.alian.assistant.presentation.ui.screens.settings.VoiceSelectionScreen
 import com.alian.assistant.presentation.ui.screens.settings.SpeechProviderSettingsScreen
+import com.alian.assistant.presentation.ui.screens.settings.SettingsSubScreen
 import com.alian.assistant.data.model.SpeechProvider
 import com.alian.assistant.data.model.SpeechProviderCredentials
 import com.alian.assistant.data.model.SpeechModels
@@ -617,6 +618,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainApp() {
         var currentScreen by remember { mutableStateOf<Screen>(Screen.Alian) }
+        var settingsInitialSubScreen by remember { mutableStateOf<SettingsSubScreen?>(null) }
         var selectedRecord by remember { mutableStateOf<ExecutionRecord?>(null) }
         var currentChatHistory by remember {
             mutableStateOf<List<com.alian.assistant.data.ChatMessageData>>(
@@ -1276,7 +1278,12 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToFlowTemplate = {
                                     currentScreen = Screen.FlowTemplate
                                 },
+                                initialSubScreen = settingsInitialSubScreen,
+                                onInitialSubScreenConsumed = {
+                                    settingsInitialSubScreen = null
+                                },
                                 onBack = {
+                                    settingsInitialSubScreen = null
                                     currentScreen = Screen.Alian
                                     showAlianLoginScreen = false
                                 },
@@ -1287,7 +1294,10 @@ class MainActivity : ComponentActivity() {
 
                             Screen.VoiceSelection -> VoiceSelectionScreen(
                                 currentVoice = settings.ttsVoice,
-                                onBack = { currentScreen = Screen.Settings },
+                                onBack = {
+                                    settingsInitialSubScreen = SettingsSubScreen.ALIAN
+                                    currentScreen = Screen.Settings
+                                },
                                 onSelectVoice = { voiceParam, auditionUrl ->
                                     settingsManager.updateTTSVoice(voiceParam)
                                 },

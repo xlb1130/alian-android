@@ -415,7 +415,7 @@ private fun ServerCard(
                         label = "协议",
                         value = when (server.transport) {
                             MCPTransport.WEBSOCKET -> "WebSocket"
-                            MCPTransport.HTTP -> "HTTP"
+                            MCPTransport.STREAMABLE_HTTP -> "Streamable HTTP"
                             MCPTransport.SSE -> "SSE"
                         }
                     )
@@ -507,8 +507,8 @@ private fun AddMCPServerDialog(
                     },
                     placeholder = """{
   "name": "My Server",
-  "url": "wss://...",
-  "transport": "websocket",
+  "url": "https://your-mcp-server.example.com/mcp",
+  "transport": "streamable_http",
   "apiKey": "your-api-key"
 }""",
                     isError = displayError != null,
@@ -516,7 +516,7 @@ private fun AddMCPServerDialog(
                 )
 
                 Text(
-                    text = "💡 支持的认证方式：\n• apiKey: API 密钥（自动加密存储）\n• headers: 自定义请求头（如 Bearer Token）",
+                    text = "💡 支持的配置：\n• transport: streamable_http / sse / websocket\n• apiKey: API 密钥（自动加密存储）\n• headers: 自定义请求头（如 Bearer Token）",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp

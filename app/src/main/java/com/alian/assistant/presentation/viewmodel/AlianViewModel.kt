@@ -47,15 +47,18 @@ import com.alian.assistant.core.alian.backend.UIStepEvent
 import com.alian.assistant.core.alian.backend.UIToolCall
 import com.alian.assistant.core.alian.backend.UIToolEvent
 import com.alian.assistant.infrastructure.ai.tts.CosyVoiceTTSClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 
 /**
  * 聊天消息
@@ -125,6 +128,16 @@ sealed class AlianChatState {
 }
 
 /**
+ * 历史会话加载状态
+ */
+sealed class SessionLoadingState {
+    object Idle : SessionLoadingState()
+    data class Switching(val sessionId: String) : SessionLoadingState()
+    data class Loaded(val sessionId: String) : SessionLoadingState()
+    data class Failed(val sessionId: String, val message: String) : SessionLoadingState()
+}
+
+/**
  * Alian 对话 ViewModel
  */
 class AlianViewModel(private val context: Context) : ViewModel() {
@@ -182,6 +195,14 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     private val _isLoadingSessions = mutableStateOf(false)
     val isLoadingSessions: State<Boolean> = _isLoadingSessions
 
+    // 当前聊天区会话切换状态（用于异步加载历史）
+    private val _sessionLoadingState = mutableStateOf<SessionLoadingState>(SessionLoadingState.Idle)
+    val sessionLoadingState: State<SessionLoadingState> = _sessionLoadingState
+
+    // 当前选中的会话（用于抽屉高亮）
+    private val _currentSessionIdUi = mutableStateOf<String?>(null)
+    val currentSessionIdUi: State<String?> = _currentSessionIdUi
+
     // API 模式
     var useBackend: Boolean = false
 
@@ -220,6 +241,16 @@ class AlianViewModel(private val context: Context) : ViewModel() {
 
     // 当前消息发送任务
     private var currentMessageJob: Job? = null
+
+    // 当前会话历史加载任务（点击历史时异步加载）
+    private var sessionLoadJob: Job? = null
+    private var sessionLoadToken: Long = 0L
+    private var lastRequestedSessionId: String? = null
+
+    // 每轮用户输入对应一个 Plan 气泡：记录当前轮的 Plan 锚点
+    private var activePlanBubbleEventId: String? = null
+    private var activePlanBubbleTimestamp: Long? = null
+    private var activePlanBoundaryUserMessageId: String? = null
 
     /**
      * 获取当前会话ID
@@ -442,11 +473,15 @@ class AlianViewModel(private val context: Context) : ViewModel() {
 
     fun addUserMessage(content: String) {
         if (content.isNotBlank()) {
+            // 新的一轮用户输入，重置 Plan 锚点
+            activePlanBubbleEventId = null
+            activePlanBubbleTimestamp = null
             val message = ChatMessage(
                 id = generateMessageId(),
                 content = content,
                 isUser = true
             )
+            activePlanBoundaryUserMessageId = message.id
             _messages.add(message)
             // 添加到统一时间线
             _unifiedChatTimeline.add(MessageItem(message))
@@ -596,13 +631,29 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             }
             is UIMessageEvent -> {
                 // 普通消息事件
-                // 在 Backend 模式下，后端可能返回 message 类型的消息（包括 user 消息），直接作为 AI 消息显示
+                // 兼容 user/assistant 角色
                 if (event.content.isNotBlank()) {
-                    // 直接添加消息，附件通过 attachments 字段传递
-                    addAssistantMessage(
-                        event.content,
-                        event.attachments ?: emptyList()
-                    )
+                    if (event.role == "user") {
+                        val message = ChatMessage(
+                            id = generateMessageId(),
+                            content = event.content,
+                            isUser = true,
+                            timestamp = normalizeTimestamp(event.timestamp),
+                            attachments = event.attachments ?: emptyList()
+                        )
+                        activePlanBubbleEventId = null
+                        activePlanBubbleTimestamp = null
+                        activePlanBoundaryUserMessageId = message.id
+                        _messages.add(message)
+                        _unifiedChatTimeline.add(MessageItem(message))
+                        _unifiedChatTimeline.sortBy { it.timestamp }
+                    } else {
+                        // assistant 消息
+                        addAssistantMessage(
+                            event.content,
+                            event.attachments ?: emptyList()
+                        )
+                    }
                 }
             }
             is UIToolEvent -> {
@@ -700,6 +751,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         // 先移除再添加以确保 Compose 正确触发重组
                         _uiEvents.removeAt(planEventIndex)
                         _uiEvents.add(planEventIndex, updatedPlanEvent)
+                        syncPlanItemInTimeline(updatedPlanEvent)
 
                         Log.d("AlianViewModel", "成功将工具 ${toolCall.name} (tool_call_id=${toolCall.toolCallId}) 关联到 step ${targetStep.id}")
                         System.out.flush()
@@ -720,7 +772,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 while (_deepThinkingSections.size <= 0) {
                     _deepThinkingSections.add(DeepThinkingSection(
                         eventId = event.eventId,
-                        timestamp = event.timestamp * 1000,  // 转换为毫秒
+                        timestamp = normalizeTimestamp(event.timestamp),
                         title = "深度思考",
                         paragraphs = mutableStateListOf("")  // 主段落
                     ))
@@ -851,6 +903,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     // 先移除再添加以确保 Compose 正确触发重组
                     _uiEvents.removeAt(planEventIndex)
                     _uiEvents.add(planEventIndex, updatedPlanEvent)
+                    syncPlanItemInTimeline(updatedPlanEvent)
 
                     Log.d("AlianViewModel", "更新 UIPlanEvent 中的步骤: stepId=${event.step.id}, 新状态=${event.step.status}，保留工具列表")
                     System.out.flush()
@@ -859,65 +912,52 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 }
             }
             is UIPlanEvent -> {
-                // 计划事件 - 直接添加或替换最后一个 plan 事件
+                // 计划事件：同一轮用户输入仅维护一个 Plan 气泡
                 Log.d("AlianViewModel", "收到计划事件: timestamp=${event.timestamp}, eventId=${event.eventId}, steps=${event.steps.size}, steps详情: ${event.steps.map { "id=${it.id}, status=${it.status}, tools=${it.tools.size}" }}")
                 System.out.flush()
 
-                // 查找是否已存在 UIPlanEvent
-                val existingPlanEvent = _uiEvents.filterIsInstance<UIPlanEvent>().firstOrNull()
+                val normalizedEvent = event.copy(timestamp = normalizeTimestamp(event.timestamp))
+                val latestUserMessageId = _messages.lastOrNull { it.isUser }?.id
+                val isNewUserBoundary = latestUserMessageId != null && latestUserMessageId != activePlanBoundaryUserMessageId
 
-                if (existingPlanEvent != null) {
-                    // 保留现有 UIPlanEvent 中的工具调用ID列表和时间戳
-                    Log.d("AlianViewModel", "现有 UIPlanEvent: eventId=${existingPlanEvent.eventId}, timestamp=${existingPlanEvent.timestamp}, steps: ${existingPlanEvent.steps.map { "id=${it.id}, status=${it.status}, toolCallIds=${it.toolCallIds.size}" }}")
-                    val updatedSteps = event.steps.map { newStep ->
-                        // 查找对应的现有 step，保留其工具调用ID列表
+                if (activePlanBubbleEventId == null || isNewUserBoundary) {
+                    activePlanBubbleEventId = normalizedEvent.eventId
+                    activePlanBubbleTimestamp = normalizedEvent.timestamp
+                    activePlanBoundaryUserMessageId = latestUserMessageId
+                }
+
+                val anchorEventId = activePlanBubbleEventId ?: normalizedEvent.eventId
+                val anchorTimestamp = activePlanBubbleTimestamp ?: normalizedEvent.timestamp
+
+                val anchoredEvent = normalizedEvent.copy(
+                    eventId = anchorEventId,
+                    timestamp = anchorTimestamp
+                )
+
+                val existingPlanEventIndex = _uiEvents.indexOfLast {
+                    it is UIPlanEvent && it.eventId == anchorEventId
+                }
+
+                val planEventForTimeline = if (existingPlanEventIndex >= 0) {
+                    val existingPlanEvent = _uiEvents[existingPlanEventIndex] as UIPlanEvent
+                    val updatedSteps = anchoredEvent.steps.map { newStep ->
                         val existingStep = existingPlanEvent.steps.find { it.id == newStep.id }
                         if (existingStep != null) {
-                            Log.d("AlianViewModel", "保留 step ${newStep.id} 的 toolCallIds: ${existingStep.toolCallIds}")
                             newStep.copy(toolCallIds = existingStep.toolCallIds)
                         } else {
-                            Log.w("AlianViewModel", "未找到 step ${newStep.id}，无法保留 toolCallIds")
                             newStep
                         }
                     }
-                    // 保留第一个 plan 事件的时间戳
-                    val updatedPlanEvent = event.copy(
-                        steps = updatedSteps,
-                        timestamp = existingPlanEvent.timestamp
-                    )
-                    // 替换现有的 UIPlanEvent
-                    val existingIndex = _uiEvents.indexOf(existingPlanEvent)
-                    _uiEvents.removeAt(existingIndex)
-                    _uiEvents.add(existingIndex, updatedPlanEvent)
-                    Log.d("AlianViewModel", "更新现有的 UIPlanEvent，保留原始时间戳: ${existingPlanEvent.timestamp}")
+                    val updatedPlanEvent = anchoredEvent.copy(steps = updatedSteps)
+                    _uiEvents[existingPlanEventIndex] = updatedPlanEvent
+                    updatedPlanEvent
                 } else {
-                    // 添加新的 UIPlanEvent，将时间戳转换为毫秒
-                    val planEventWithMsTimestamp = event.copy(timestamp = event.timestamp * 1000)
-                    _uiEvents.add(planEventWithMsTimestamp)
-                    Log.d("AlianViewModel", "添加新的 UIPlanEvent，eventId=${planEventWithMsTimestamp.eventId}, 时间戳: ${planEventWithMsTimestamp.timestamp}")
+                    _uiEvents.add(anchoredEvent)
+                    anchoredEvent
                 }
 
-                // 添加或更新统一时间线中的 PlanItem
-                // 使用更精确的检查：通过 eventId 来判断是否是同一个 plan
-                val planItem = PlanItem(if (existingPlanEvent != null) _uiEvents[_uiEvents.indexOfFirst { it is UIPlanEvent }] as UIPlanEvent else event.copy(timestamp = event.timestamp * 1000))
-                val existingPlanItemIndex = _unifiedChatTimeline.indexOfFirst { 
-                    it is PlanItem && it.planEvent.eventId == planItem.planEvent.eventId 
-                }
-                
-                Log.d("AlianViewModel", "检查 PlanItem: eventId=${planItem.planEvent.eventId}, existingPlanItemIndex=$existingPlanItemIndex, 当前时间线大小=${_unifiedChatTimeline.size}")
-                
-                if (existingPlanItemIndex >= 0) {
-                    _unifiedChatTimeline.removeAt(existingPlanItemIndex)
-                    _unifiedChatTimeline.add(planItem)
-                    // 按时间排序
-                    _unifiedChatTimeline.sortBy { it.timestamp }
-                    Log.d("AlianViewModel", "更新统一时间线中的 PlanItem (eventId=${planItem.planEvent.eventId}, timestamp=${planItem.timestamp}) 并重新排序")
-                } else {
-                    _unifiedChatTimeline.add(planItem)
-                    // 按时间排序
-                    _unifiedChatTimeline.sortBy { it.timestamp }
-                    Log.d("AlianViewModel", "添加 PlanItem (eventId=${planItem.planEvent.eventId}, timestamp=${planItem.timestamp}) 到统一时间线并排序，添加后时间线大小=${_unifiedChatTimeline.size}")
-                }
+                syncPlanItemInTimeline(planEventForTimeline)
+                Log.d("AlianViewModel", "同步 PlanItem 到统一时间线: eventId=${planEventForTimeline.eventId}, timestamp=${planEventForTimeline.timestamp}")
 
                 // 当 plan 消息出现时，折叠所有的 deepthink
                 _unifiedChatTimeline.forEach { item ->
@@ -967,16 +1007,26 @@ class AlianViewModel(private val context: Context) : ViewModel() {
      */
     fun createNewSession() {
         Log.d("AlianViewModel", "创建新Session")
+        sessionLoadJob?.cancel()
+        sessionLoadJob = null
+        activePlanBubbleEventId = null
+        activePlanBubbleTimestamp = null
+        activePlanBoundaryUserMessageId = null
         clearMessages()
         clearUIEvents()
         clearDeepThinkingSections()
         clearToolCalls()
         alianClient?.clearCurrentSession()
+        _currentSessionIdUi.value = null
+        _sessionLoadingState.value = SessionLoadingState.Idle
         Log.d("AlianViewModel", "新Session已创建")
     }
 
     fun clearMessages() {
         _messages.clear()
+        activePlanBubbleEventId = null
+        activePlanBubbleTimestamp = null
+        activePlanBoundaryUserMessageId = null
         // 清除统一时间线中的所有项
         _unifiedChatTimeline.clear()
         // 注意：不清除SessionId，继续使用缓存的Session
@@ -1001,6 +1051,23 @@ class AlianViewModel(private val context: Context) : ViewModel() {
 
     private fun generateMessageId(): String {
         return "msg_${System.currentTimeMillis()}_${_messages.size}"
+    }
+
+    private fun normalizeTimestamp(timestamp: Long): Long {
+        // 10^11 约为 1973 年毫秒时间戳，低于该值基本可判定为秒级时间戳
+        return if (timestamp in 1 until 100_000_000_000L) timestamp * 1000 else timestamp
+    }
+
+    private fun syncPlanItemInTimeline(planEvent: UIPlanEvent) {
+        val planItemIndex = _unifiedChatTimeline.indexOfFirst {
+            it is PlanItem && it.planEvent.eventId == planEvent.eventId
+        }
+        if (planItemIndex >= 0) {
+            _unifiedChatTimeline[planItemIndex] = PlanItem(planEvent)
+        } else {
+            _unifiedChatTimeline.add(PlanItem(planEvent))
+            _unifiedChatTimeline.sortBy { it.timestamp }
+        }
     }
 
     /**
@@ -1120,8 +1187,16 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         Log.d("AlianViewModel", "删除会话: $sessionId")
 
         try {
-            if (!useBackend || alianClient == null) {
+            if (!useBackend) {
                 return@withContext Result.failure(Exception("Backend mode is not enabled"))
+            }
+
+            if (alianClient == null) {
+                updateAlianClient()
+            }
+
+            if (alianClient == null) {
+                return@withContext Result.failure(Exception("Backend client is not initialized"))
             }
 
             val result = alianClient!!.deleteSession(sessionId)
@@ -1143,21 +1218,93 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     }
 
     /**
-     * 选择会话并加载会话消息
+     * 异步选择会话并加载历史消息
+     * 点击历史后立即返回聊天框，数据在后台异步加载
      */
-    suspend fun selectSession(sessionId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        Log.d("AlianViewModel", "选择会话: $sessionId")
+    fun selectSessionAsync(sessionId: String) {
+        if (!useBackend) {
+            _sessionLoadingState.value = SessionLoadingState.Failed(sessionId, "Backend mode is not enabled")
+            return
+        }
+
+        // last-click-wins：取消旧任务，并使用 token 丢弃过时回包
+        sessionLoadJob?.cancel()
+        val token = ++sessionLoadToken
+        lastRequestedSessionId = sessionId
+        _currentSessionIdUi.value = sessionId
+
+        // 切会话时先取消当前问答流，避免旧流事件污染新会话
+        currentMessageJob?.cancel()
+        currentMessageJob = null
+        _isProcessing.value = false
+        resetState()
+        _currentToolName.value = null
+        _currentStepName.value = null
+        clearMessages()
+        clearUIEvents()
+        clearDeepThinkingSections()
+        clearToolCalls()
+        _sessionLoadingState.value = SessionLoadingState.Switching(sessionId)
+
+        sessionLoadJob = viewModelScope.launch {
+            val result = loadSessionInternal(sessionId, token)
+            if (token != sessionLoadToken) {
+                return@launch
+            }
+
+            _sessionLoadingState.value = if (result.isSuccess) {
+                SessionLoadingState.Loaded(sessionId)
+            } else {
+                SessionLoadingState.Failed(
+                    sessionId,
+                    result.exceptionOrNull()?.message ?: "加载会话失败"
+                )
+            }
+        }
+    }
+
+    fun retryCurrentSessionLoad() {
+        val sessionId = lastRequestedSessionId ?: return
+        selectSessionAsync(sessionId)
+    }
+
+    /**
+     * 兼容旧调用链：保留 suspend 接口
+     */
+    suspend fun selectSession(sessionId: String): Result<Unit> {
+        val token = ++sessionLoadToken
+        lastRequestedSessionId = sessionId
+        _currentSessionIdUi.value = sessionId
+        _sessionLoadingState.value = SessionLoadingState.Switching(sessionId)
+        val result = loadSessionInternal(sessionId, token)
+        if (token == sessionLoadToken) {
+            _sessionLoadingState.value = if (result.isSuccess) {
+                SessionLoadingState.Loaded(sessionId)
+            } else {
+                SessionLoadingState.Failed(
+                    sessionId,
+                    result.exceptionOrNull()?.message ?: "加载会话失败"
+                )
+            }
+        }
+        return result
+    }
+
+    private suspend fun loadSessionInternal(sessionId: String, token: Long): Result<Unit> = withContext(Dispatchers.IO) {
+        Log.d("AlianViewModel", "异步加载会话: $sessionId, token=$token")
 
         try {
-            if (!useBackend || alianClient == null) {
+            if (!useBackend) {
                 return@withContext Result.failure(Exception("Backend mode is not enabled"))
             }
 
-            // 清除当前消息
-            clearMessages()
-            clearUIEvents()
-            clearDeepThinkingSections()
-            clearToolCalls()
+            if (alianClient == null) {
+                updateAlianClient()
+            }
+
+            if (alianClient == null) {
+                return@withContext Result.failure(Exception("Backend client is not initialized"))
+            }
 
             // 设置当前会话ID
             alianClient!!.setCurrentSessionId(sessionId)
@@ -1166,50 +1313,27 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             val detailResult = alianClient!!.getSessionDetail(sessionId)
 
             if (detailResult.isSuccess) {
-                val detail = detailResult.getOrNull()!!
-                Log.d("AlianViewModel", "会话详细信息加载成功，共 ${detail.events.size} 个事件")
-
-                // 处理事件列表
-                processSessionEvents(detail.events)
-
-                // 检测是否是新接口（通过事件类型判断）
-                val isNewApi = detail.events.any { event ->
-                    event.event in listOf("user_message", "text_message_start", "plan_started", "plan_finished")
+                if (token != sessionLoadToken) {
+                    Log.d("AlianViewModel", "会话加载结果过期，丢弃: sessionId=$sessionId, token=$token")
+                    return@withContext Result.success(Unit)
                 }
 
-                // 如果是新接口，获取附件并附加到最后一条 assistant 消息
-                if (isNewApi && _messages.isNotEmpty()) {
-                    val backendClient = getBackendClient()
-                    if (backendClient != null) {
-                        Log.d("AlianViewModel", "检测到新接口，尝试获取附件")
-                        val attachmentsResult = backendClient.getSessionAttachments(sessionId)
-                        if (attachmentsResult.isSuccess) {
-                            val attachments = attachmentsResult.getOrNull()!!
-                            if (attachments.isNotEmpty()) {
-                                // 找到最后一条 assistant 消息在 _messages 中的索引
-                                val lastAssistantIndex = _messages.indexOfLast { !it.isUser }
-                                if (lastAssistantIndex >= 0) {
-                                    val lastMessage = _messages[lastAssistantIndex]
-                                    val updatedMessage = lastMessage.copy(
-                                        attachments = attachments
-                                    )
-                                    _messages[lastAssistantIndex] = updatedMessage
-                                    
-                                    // 同步更新 _unifiedChatTimeline 中的 MessageItem
-                                    val timelineIndex = _unifiedChatTimeline.indexOfFirst { 
-                                        it is MessageItem && it.message.id == lastMessage.id 
-                                    }
-                                    if (timelineIndex >= 0) {
-                                        _unifiedChatTimeline[timelineIndex] = MessageItem(updatedMessage)
-                                    }
-                                    
-                                    Log.d("AlianViewModel", "已将 ${attachments.size} 个附件附加到最后一条 assistant 消息")
-                                }
-                            }
-                        } else {
-                            Log.w("AlianViewModel", "获取附件失败: ${attachmentsResult.exceptionOrNull()?.message}")
-                        }
+                val detail = detailResult.getOrNull()!!
+                Log.d("AlianViewModel", "会话详细信息加载成功，共 ${detail.events.size} 个事件")
+                val backendClient = getBackendClient()
+                // 首屏历史加载不再做附件签名预处理，避免 252k 事件场景被串行签名请求阻塞
+                val normalizedEvents = detail.events
+
+                withContext(Dispatchers.Main) mainContext@{
+                    if (token != sessionLoadToken) {
+                        return@mainContext
                     }
+                    processSessionEvents(normalizedEvents, token, sessionId)
+                }
+
+                // 附件兜底放到后台异步，避免阻塞历史加载完成态
+                if (backendClient != null) {
+                    loadSessionAttachmentsFallbackAsync(sessionId, backendClient, token)
                 }
 
                 Log.d("AlianViewModel", "会话事件处理完成，统一时间线大小: ${_unifiedChatTimeline.size}")
@@ -1219,16 +1343,145 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 Log.e("AlianViewModel", "加载会话详细信息失败: $errorMsg")
                 Result.failure(Exception(errorMsg))
             }
+        } catch (e: CancellationException) {
+            Log.d("AlianViewModel", "会话加载取消: sessionId=$sessionId, token=$token")
+            Result.failure(e)
         } catch (e: Exception) {
             Log.e("AlianViewModel", "选择会话异常", e)
             Result.failure(e)
         }
     }
 
+    private suspend fun normalizeSessionEventsAttachments(
+        events: List<SessionEvent>,
+        backendClient: BackendChatClient?
+    ): List<SessionEvent> = withContext(Dispatchers.IO) {
+        if (backendClient == null) {
+            return@withContext events
+        }
+
+        val signedUrlCache = mutableMapOf<String, String>()
+
+        events.map { event ->
+            if (event.event != "plan_finished") {
+                return@map event
+            }
+
+            try {
+                val dataString = json.encodeToString(event.data)
+                val planData = json.decodeFromString<PlanFinishedData>(dataString)
+                val attachments = planData.attachments ?: emptyList()
+                if (attachments.isEmpty()) {
+                    return@map event
+                }
+
+                val resolvedAttachments = attachments.map { attachment ->
+                    val hasUsableUrl = !attachment.file_url.isNullOrBlank() || !attachment.url.isNullOrBlank()
+                    if (hasUsableUrl) {
+                        attachment
+                    } else {
+                        val fileId = attachment.file_id
+                        if (fileId.isNullOrBlank()) {
+                            attachment
+                        } else {
+                            val signedUrl = signedUrlCache[fileId] ?: run {
+                                val signedUrlResult = backendClient.getFileSignedUrl(fileId)
+                                if (signedUrlResult.isSuccess) {
+                                    val url = signedUrlResult.getOrNull()!!
+                                    signedUrlCache[fileId] = url
+                                    url
+                                } else {
+                                    Log.w("AlianViewModel", "file_id=$fileId 签名URL获取失败: ${signedUrlResult.exceptionOrNull()?.message}")
+                                    ""
+                                }
+                            }
+
+                            if (signedUrl.isNotBlank()) {
+                                attachment.copy(
+                                    file_url = signedUrl,
+                                    url = signedUrl
+                                )
+                            } else {
+                                attachment
+                            }
+                        }
+                    }
+                }
+
+                val normalizedPlanData = planData.copy(attachments = resolvedAttachments)
+                SessionEvent(
+                    event = event.event,
+                    data = json.encodeToJsonElement(normalizedPlanData)
+                )
+            } catch (e: Exception) {
+                Log.e("AlianViewModel", "标准化 plan_finished 附件失败，保持原始事件", e)
+                event
+            }
+        }
+    }
+
+    private fun attachSessionFilesAsFallback(attachments: List<Attachment>) {
+        val hasAnyMessageAttachment = _messages.any { it.attachments.isNotEmpty() }
+        if (hasAnyMessageAttachment) {
+            return
+        }
+
+        val lastAssistantIndex = _messages.indexOfLast { !it.isUser }
+        if (lastAssistantIndex < 0) {
+            return
+        }
+
+        val lastMessage = _messages[lastAssistantIndex]
+        val mergedAttachments = (lastMessage.attachments + attachments).distinctBy {
+            it.file_id ?: it.file_url ?: it.url ?: it.path ?: it.filename ?: it.name
+        }
+        val updatedMessage = lastMessage.copy(attachments = mergedAttachments)
+        _messages[lastAssistantIndex] = updatedMessage
+
+        val timelineIndex = _unifiedChatTimeline.indexOfFirst {
+            it is MessageItem && it.message.id == lastMessage.id
+        }
+        if (timelineIndex >= 0) {
+            _unifiedChatTimeline[timelineIndex] = MessageItem(updatedMessage)
+        }
+
+        Log.d("AlianViewModel", "历史附件兜底挂载到最后一条 assistant 消息: ${mergedAttachments.size} 个")
+    }
+
+    private fun loadSessionAttachmentsFallbackAsync(
+        sessionId: String,
+        backendClient: BackendChatClient,
+        token: Long
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (token != sessionLoadToken) {
+                return@launch
+            }
+            val attachmentsResult = backendClient.getSessionAttachments(sessionId)
+            if (attachmentsResult.isSuccess) {
+                val attachments = attachmentsResult.getOrNull().orEmpty()
+                if (attachments.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        if (token != sessionLoadToken) {
+                            return@withContext
+                        }
+                        attachSessionFilesAsFallback(attachments)
+                    }
+                }
+            } else {
+                Log.w("AlianViewModel", "获取会话附件失败: ${attachmentsResult.exceptionOrNull()?.message}")
+            }
+        }
+    }
+
     /**
      * 处理会话事件列表，转换为消息和UI事件
      */
-    private fun processSessionEvents(events: List<SessionEvent>) {
+    private suspend fun processSessionEvents(
+        events: List<SessionEvent>,
+        loadToken: Long,
+        sessionId: String
+    ) {
         // 辅助函数：将 JsonElement 正确序列化为 JSON 字符串
         fun JsonElement.toJsonString(): String = json.encodeToString(this)
 
@@ -1237,7 +1490,58 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         val messageTimestamps = mutableMapOf<String, Long>()
         // 用于收集每个消息的附件
         val messageAttachments = mutableMapOf<String, MutableList<Attachment>>()
+        // plan_finished 先于 assistant 消息到达时，暂存附件并在下一条 assistant 消息写入时合并
+        val pendingAssistantAttachments = mutableListOf<Attachment>()
 
+        fun mergeAttachments(
+            primary: List<Attachment>,
+            secondary: List<Attachment>
+        ): List<Attachment> {
+            return (primary + secondary).distinctBy {
+                it.file_id ?: it.file_url ?: it.url ?: it.path ?: it.filename ?: it.name
+            }
+        }
+
+        var switchingMarkedLoaded = false
+        fun markSwitchingLoadedOnce() {
+            if (switchingMarkedLoaded) return
+            if (loadToken != sessionLoadToken) return
+            if (_sessionLoadingState.value is SessionLoadingState.Switching) {
+                _sessionLoadingState.value = SessionLoadingState.Loaded(sessionId)
+            }
+            switchingMarkedLoaded = true
+        }
+
+        fun addHistoryMessage(message: ChatMessage) {
+            markSwitchingLoadedOnce()
+            _messages.add(message)
+            _unifiedChatTimeline.add(MessageItem(message))
+        }
+
+        fun attachOrQueuePlanFinishedAttachments(attachments: List<Attachment>) {
+            if (attachments.isEmpty()) return
+
+            val lastAssistantIndex = _messages.indexOfLast { !it.isUser }
+            if (lastAssistantIndex >= 0) {
+                val lastAssistant = _messages[lastAssistantIndex]
+                val merged = mergeAttachments(lastAssistant.attachments, attachments)
+                val updated = lastAssistant.copy(attachments = merged)
+                _messages[lastAssistantIndex] = updated
+
+                val timelineIndex = _unifiedChatTimeline.indexOfFirst {
+                    it is MessageItem && it.message.id == lastAssistant.id
+                }
+                if (timelineIndex >= 0) {
+                    _unifiedChatTimeline[timelineIndex] = MessageItem(updated)
+                }
+                Log.d("AlianViewModel", "plan_finished 附件已挂载到最后一条 assistant: ${attachments.size} 个")
+            } else {
+                pendingAssistantAttachments.addAll(attachments)
+                Log.d("AlianViewModel", "plan_finished 附件暂存，等待 assistant 消息: ${attachments.size} 个")
+            }
+        }
+
+        var processedEventCount = 0
         events.forEach { event ->
             when (event.event) {
                 "message" -> {
@@ -1245,18 +1549,30 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     try {
                         val dataString = event.data.toJsonString()
                         val messageData = json.decodeFromString<MessageData>(dataString)
-                        Log.d("AlianViewModel", "处理消息事件: role=${messageData.role}, content=${messageData.content.take(50)}...")
 
                         if (messageData.role == "user" || messageData.role == "assistant") {
+                            if (messageData.role == "user") {
+                                activePlanBubbleEventId = null
+                                activePlanBubbleTimestamp = null
+                                activePlanBoundaryUserMessageId = messageData.message_id
+                            }
                             // 不再在 content 中显示附件链接，因为已经有预览按钮了
                             val contentWithAttachments = messageData.content
+                            val rawAttachments = messageData.attachments ?: emptyList()
+                            val mergedAttachments = if (messageData.role == "assistant" && pendingAssistantAttachments.isNotEmpty()) {
+                                val merged = mergeAttachments(rawAttachments, pendingAssistantAttachments)
+                                pendingAssistantAttachments.clear()
+                                merged
+                            } else {
+                                rawAttachments
+                            }
 
-                            _messages.add(ChatMessage(
+                            addHistoryMessage(ChatMessage(
                                 id = messageData.message_id ?: generateMessageId(),
                                 content = contentWithAttachments,
                                 isUser = messageData.role == "user",
-                                timestamp = messageData.timestamp * 1000,
-                                attachments = messageData.attachments ?: emptyList()
+                                timestamp = normalizeTimestamp(messageData.timestamp),
+                                attachments = mergedAttachments
                             ))
                         }
                     } catch (e: Exception) {
@@ -1268,18 +1584,16 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     try {
                         val dataString = event.data.toJsonString()
                         val chunkData = json.decodeFromString<MessageChunkData>(dataString)
-                        Log.d("AlianViewModel", "处理消息块事件: messageId=${chunkData.message_id}, chunkIndex=${chunkData.chunk_index}")
 
                         // 累积消息块
                         val buffer = messageChunkBuffer.getOrPut(chunkData.message_id) { StringBuilder() }
                         buffer.append(chunkData.chunk)
-                        messageTimestamps[chunkData.message_id] = chunkData.timestamp
+                        messageTimestamps[chunkData.message_id] = normalizeTimestamp(chunkData.timestamp)
 
                         // 收集附件
                         if (chunkData.attachments != null && chunkData.attachments.isNotEmpty()) {
                             val attachments = messageAttachments.getOrPut(chunkData.message_id) { mutableListOf() }
                             attachments.addAll(chunkData.attachments)
-                            Log.d("AlianViewModel", "收集到 ${chunkData.attachments.size} 个附件到消息 ${chunkData.message_id}")
                         }
 
                         // 如果是最后一个块，创建完整消息
@@ -1287,13 +1601,21 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                             val fullContent = buffer.toString()
                             // 不再在 content 中显示附件链接，因为已经有预览按钮了
                             val contentWithAttachments = fullContent
+                            val rawAttachments = messageAttachments[chunkData.message_id] ?: emptyList()
+                            val mergedAttachments = if (pendingAssistantAttachments.isNotEmpty()) {
+                                val merged = mergeAttachments(rawAttachments, pendingAssistantAttachments)
+                                pendingAssistantAttachments.clear()
+                                merged
+                            } else {
+                                rawAttachments
+                            }
 
-                            _messages.add(ChatMessage(
+                            addHistoryMessage(ChatMessage(
                                 id = chunkData.message_id,
                                 content = contentWithAttachments,
                                 isUser = false,  // message_chunk 通常是 assistant 的消息
-                                timestamp = chunkData.timestamp * 1000,
-                                attachments = messageAttachments[chunkData.message_id] ?: emptyList()
+                                timestamp = normalizeTimestamp(chunkData.timestamp),
+                                attachments = mergedAttachments
                             ))
                             // 清理缓冲区
                             messageChunkBuffer.remove(chunkData.message_id)
@@ -1315,7 +1637,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         while (_deepThinkingSections.size <= 0) {
                             _deepThinkingSections.add(DeepThinkingSection(
                                 eventId = chunkData.event_id,
-                                timestamp = chunkData.timestamp * 1000,
+                                timestamp = normalizeTimestamp(chunkData.timestamp),
                                 title = "深度思考",
                                 paragraphs = mutableStateListOf("")  // 主段落
                             ))
@@ -1405,7 +1727,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         addUIEvent(
                             UIToolEvent(
                                 eventId = toolData.event_id,
-                                timestamp = toolData.timestamp,
+                                timestamp = normalizeTimestamp(toolData.timestamp),
                                 toolCall = uiToolCall
                             )
                         )
@@ -1425,10 +1747,10 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                             description = stepData.description,
                             status = stepData.status
                         )
-                        _uiEvents.add(
+                        addUIEvent(
                             UIStepEvent(
                                 eventId = stepData.event_id,
-                                timestamp = stepData.timestamp,
+                                timestamp = normalizeTimestamp(stepData.timestamp),
                                 step = uiStep
                             )
                         )
@@ -1443,56 +1765,21 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         val planData = json.decodeFromString<PlanData>(dataString)
                         Log.d("AlianViewModel", "处理计划事件: steps=${planData.steps.size}")
 
-                        // 查找是否已存在 UIPlanEvent
-                        val existingPlanEvent = _uiEvents.filterIsInstance<UIPlanEvent>().firstOrNull()
-
-                        val uiSteps = if (existingPlanEvent != null) {
-                            // 保留现有步骤的 toolCallIds
-                            val existingStepsMap = existingPlanEvent.steps.associateBy { it.id }
-                            planData.steps.map { step ->
-                                val existingStep = existingStepsMap[step.id]
-                                UIStep(
-                                    id = step.id,
-                                    description = step.description,
-                                    status = step.status,
-                                    toolCallIds = existingStep?.toolCallIds
-                                        ?: emptyList()  // 保留 toolCallIds
-                                )
-                            }
-                        } else {
-                            // 创建新的 UIStep
-                            planData.steps.map { step ->
-                                UIStep(
-                                    id = step.id,
-                                    description = step.description,
-                                    status = step.status
-                                )
-                            }
+                        val uiSteps = planData.steps.map { step ->
+                            UIStep(
+                                id = step.id,
+                                description = step.description,
+                                status = step.status
+                            )
                         }
 
-                        if (existingPlanEvent != null) {
-                            // 保留第一个 plan 事件的时间戳
-                            val updatedPlanEvent = UIPlanEvent(
+                        addUIEvent(
+                            UIPlanEvent(
                                 eventId = planData.event_id,
-                                timestamp = existingPlanEvent.timestamp,  // 保留第一个的时间戳
+                                timestamp = normalizeTimestamp(planData.timestamp),
                                 steps = uiSteps
                             )
-                            // 替换现有的 UIPlanEvent
-                            val existingIndex = _uiEvents.indexOf(existingPlanEvent)
-                            _uiEvents.removeAt(existingIndex)
-                            _uiEvents.add(existingIndex, updatedPlanEvent)
-                            Log.d("AlianViewModel", "更新现有的 UIPlanEvent，保留原始时间戳: ${existingPlanEvent.timestamp} 和 toolCallIds")
-                        } else {
-                            // 添加新的 UIPlanEvent
-                            _uiEvents.add(
-                                UIPlanEvent(
-                                    eventId = planData.event_id,
-                                    timestamp = planData.timestamp * 1000,  // 乘以 1000 转换为毫秒
-                                    steps = uiSteps
-                                )
-                            )
-                            Log.d("AlianViewModel", "添加新的 UIPlanEvent，时间戳: ${planData.timestamp * 1000}")
-                        }
+                        )
                     } catch (e: Exception) {
                         Log.e("AlianViewModel", "解析计划事件失败", e)
                     }
@@ -1506,7 +1793,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         Log.d("AlianViewModel", "处理文本消息开始事件: message_id=${startData.message_id}, message_type=${startData.message_type}")
                         // 初始化消息缓冲区
                         messageChunkBuffer.getOrPut(startData.message_id) { StringBuilder() }
-                        messageTimestamps[startData.message_id] = startData.timestamp
+                        messageTimestamps[startData.message_id] = normalizeTimestamp(startData.timestamp)
                     } catch (e: Exception) {
                         Log.e("AlianViewModel", "解析文本消息开始事件失败", e)
                     }
@@ -1516,12 +1803,11 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     try {
                         val dataString = event.data.toJsonString()
                         val chunkData = json.decodeFromString<TextMessageChunkData>(dataString)
-                        Log.d("AlianViewModel", "处理文本消息块事件: message_id=${chunkData.message_id}, delta=${chunkData.delta.take(50)}...")
 
                         // 累积消息块
                         val buffer = messageChunkBuffer.getOrPut(chunkData.message_id) { StringBuilder() }
                         buffer.append(chunkData.delta)
-                        messageTimestamps[chunkData.message_id] = chunkData.timestamp
+                        messageTimestamps[chunkData.message_id] = normalizeTimestamp(chunkData.timestamp)
                     } catch (e: Exception) {
                         Log.e("AlianViewModel", "解析文本消息块事件失败", e)
                     }
@@ -1538,12 +1824,20 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         if (buffer != null) {
                             val fullContent = buffer.toString()
                             if (fullContent.isNotBlank()) {
-                                _messages.add(ChatMessage(
+                                val rawAttachments = messageAttachments[endData.message_id] ?: emptyList()
+                                val mergedAttachments = if (pendingAssistantAttachments.isNotEmpty()) {
+                                    val merged = mergeAttachments(rawAttachments, pendingAssistantAttachments)
+                                    pendingAssistantAttachments.clear()
+                                    merged
+                                } else {
+                                    rawAttachments
+                                }
+                                addHistoryMessage(ChatMessage(
                                     id = endData.message_id,
                                     content = fullContent,
                                     isUser = false,
-                                    timestamp = (messageTimestamps[endData.message_id] ?: endData.timestamp) * 1000,
-                                    attachments = messageAttachments[endData.message_id] ?: emptyList()
+                                    timestamp = normalizeTimestamp(messageTimestamps[endData.message_id] ?: endData.timestamp),
+                                    attachments = mergedAttachments
                                 ))
                             }
                             // 清理缓冲区
@@ -1560,13 +1854,15 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     try {
                         val dataString = event.data.toJsonString()
                         val userData = json.decodeFromString<UserMessageData>(dataString)
-                        Log.d("AlianViewModel", "处理用户消息事件: message_id=${userData.message_id}, message=${userData.message.take(50)}...")
+                        activePlanBubbleEventId = null
+                        activePlanBubbleTimestamp = null
+                        activePlanBoundaryUserMessageId = userData.message_id
 
-                        _messages.add(ChatMessage(
+                        addHistoryMessage(ChatMessage(
                             id = userData.message_id,
                             content = userData.message,
                             isUser = true,
-                            timestamp = userData.timestamp * 1000,
+                            timestamp = normalizeTimestamp(userData.timestamp),
                             attachments = userData.attachments ?: emptyList()
                         ))
                     } catch (e: Exception) {
@@ -1676,10 +1972,10 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                                 status = phase.status
                             )
                         }
-                        _uiEvents.add(
+                        addUIEvent(
                             UIPlanEvent(
                                 eventId = planData.id,
-                                timestamp = planData.timestamp,
+                                timestamp = normalizeTimestamp(planData.timestamp),
                                 steps = uiSteps
                             )
                         )
@@ -1702,26 +1998,14 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                             )
                         }
 
-                        // 查找是否已存在 UIPlanEvent
-                        val existingPlanEvent = _uiEvents.filterIsInstance<UIPlanEvent>().firstOrNull()
-                        if (existingPlanEvent != null) {
-                            val updatedPlanEvent = UIPlanEvent(
+                        addUIEvent(
+                            UIPlanEvent(
                                 eventId = planData.id,
-                                timestamp = existingPlanEvent.timestamp,
+                                timestamp = normalizeTimestamp(planData.timestamp),
                                 steps = uiSteps
                             )
-                            val existingIndex = _uiEvents.indexOf(existingPlanEvent)
-                            _uiEvents.removeAt(existingIndex)
-                            _uiEvents.add(existingIndex, updatedPlanEvent)
-                        } else {
-                            _uiEvents.add(
-                                UIPlanEvent(
-                                    eventId = planData.id,
-                                    timestamp = planData.timestamp,
-                                    steps = uiSteps
-                                )
-                            )
-                        }
+                        )
+                        attachOrQueuePlanFinishedAttachments(planData.attachments ?: emptyList())
                     } catch (e: Exception) {
                         Log.e("AlianViewModel", "解析计划完成事件失败", e)
                     }
@@ -1733,10 +2017,10 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         val phaseData = json.decodeFromString<PhaseStartedData>(dataString)
                         Log.d("AlianViewModel", "处理阶段开始事件: phase_id=${phaseData.phase_id}, title=${phaseData.title}")
 
-                        _uiEvents.add(
+                        addUIEvent(
                             UIStepEvent(
                                 eventId = phaseData.id,
-                                timestamp = phaseData.timestamp,
+                                timestamp = normalizeTimestamp(phaseData.timestamp),
                                 step = UIStep(
                                     id = phaseData.phase_id,
                                     description = phaseData.title,
@@ -1755,10 +2039,10 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         val phaseData = json.decodeFromString<PhaseFinishedData>(dataString)
                         Log.d("AlianViewModel", "处理阶段完成事件: phase_id=${phaseData.phase_id}, title=${phaseData.title}")
 
-                        _uiEvents.add(
+                        addUIEvent(
                             UIStepEvent(
                                 eventId = phaseData.id,
-                                timestamp = phaseData.timestamp,
+                                timestamp = normalizeTimestamp(phaseData.timestamp),
                                 step = UIStep(
                                     id = phaseData.phase_id,
                                     description = phaseData.title,
@@ -1776,20 +2060,42 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     Log.d("AlianViewModel", "忽略事件类型: ${event.event}")
                 }
             }
+
+            processedEventCount++
+            if (processedEventCount == 1) {
+                markSwitchingLoadedOnce()
+            }
+            if (processedEventCount % 16 == 0) {
+                if (loadToken != sessionLoadToken) {
+                    Log.d("AlianViewModel", "事件处理中检测到会话切换，提前终止: token=$loadToken, current=$sessionLoadToken")
+                    return
+                }
+                yield()
+            }
         }
+
+        markSwitchingLoadedOnce()
 
         // 处理剩余的未完成消息块（如果有）
         messageChunkBuffer.forEach { (messageId, buffer) ->
             val fullContent = buffer.toString()
             if (fullContent.isNotBlank()) {
                 // 不再在 content 中显示附件链接，因为已经有预览按钮了
-                                            val contentWithAttachments = fullContent
-                _messages.add(ChatMessage(
+                val contentWithAttachments = fullContent
+                val rawAttachments = messageAttachments[messageId] ?: emptyList()
+                val mergedAttachments = if (pendingAssistantAttachments.isNotEmpty()) {
+                    val merged = mergeAttachments(rawAttachments, pendingAssistantAttachments)
+                    pendingAssistantAttachments.clear()
+                    merged
+                } else {
+                    rawAttachments
+                }
+                addHistoryMessage(ChatMessage(
                     id = messageId,
                     content = contentWithAttachments,
                     isUser = false,
-                    timestamp = (messageTimestamps[messageId] ?: System.currentTimeMillis() / 1000) * 1000,
-                    attachments = messageAttachments[messageId] ?: emptyList()
+                    timestamp = normalizeTimestamp(messageTimestamps[messageId] ?: System.currentTimeMillis()),
+                    attachments = mergedAttachments
                 ))
             }
         }
@@ -1810,11 +2116,6 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 section.paragraphs[1] = ""
                 Log.d("AlianViewModel", "将深度思考章节剩余缓冲区内容包裹在引用块中添加到主段落")
             }
-        }
-
-        // 将所有消息添加到统一时间线
-        _messages.forEach { message ->
-            _unifiedChatTimeline.add(MessageItem(message))
         }
 
         // 将所有深度思考章节添加到统一时间线

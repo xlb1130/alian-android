@@ -198,6 +198,8 @@ fun SettingsScreen(
     onNavigateToVoiceSelection: () -> Unit = {},
     onNavigateToSpeechProviderSettings: () -> Unit = {},
     onNavigateToFlowTemplate: () -> Unit = {},
+    initialSubScreen: SettingsSubScreen? = null,
+    onInitialSubScreenConsumed: () -> Unit = {},
     onBack: () -> Unit = {},
     mediaProjectionResultCode: Int? = null,
     mediaProjectionData: Intent? = null,
@@ -218,7 +220,16 @@ fun SettingsScreen(
     var showSuCommandWarningDialog by remember { mutableStateOf(false) }
 
     // 二级页面导航状态
-    var currentSubScreen by remember { mutableStateOf<SettingsSubScreen?>(null) }
+    var currentSubScreen by remember {
+        mutableStateOf<SettingsSubScreen?>(null)
+    }
+
+    LaunchedEffect(initialSubScreen) {
+        if (initialSubScreen != null) {
+            currentSubScreen = initialSubScreen
+            onInitialSubScreenConsumed()
+        }
+    }
 
     // 页面可见性状态（用于动画）
     var isPageVisible by remember { mutableStateOf(false) }
@@ -744,37 +755,11 @@ fun SettingsScreen(
                             CompactGridItem(
                                 icon = Icons.Default.HelpOutline,
                                 title = stringResource(R.string.settings_item_help),
+                                subtitle = stringResource(R.string.settings_item_help_subtitle),
                                 onClick = { currentSubScreen = SettingsSubScreen.HELP }
                             )
                         }
-                        // 反馈与调试
-                        Box(modifier = Modifier.weight(1f)) {
-                            CompactGridItem(
-                                icon = Icons.Default.Feedback,
-                                title = stringResource(R.string.settings_item_feedback),
-                                onClick = { currentSubScreen = SettingsSubScreen.FEEDBACK }
-                            )
-                        }
-                        // 关于
-                        Box(modifier = Modifier.weight(1f)) {
-                            CompactGridItem(
-                                icon = Icons.Default.Info,
-                                title = stringResource(R.string.settings_item_about),
-                                onClick = { currentSubScreen = SettingsSubScreen.ABOUT }
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Box(modifier = Modifier.staggeredFadeIn(13)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                        // 更新
                         Box(modifier = Modifier.weight(1f)) {
                             CompactGridItem(
                                 icon = Icons.Default.CloudSync,
@@ -783,8 +768,15 @@ fun SettingsScreen(
                                 onClick = { currentSubScreen = SettingsSubScreen.UPDATE }
                             )
                         }
-                        Box(modifier = Modifier.weight(1f)) {}
-                        Box(modifier = Modifier.weight(1f)) {}
+                        // 关于
+                        Box(modifier = Modifier.weight(1f)) {
+                            CompactGridItem(
+                                icon = Icons.Default.Info,
+                                title = stringResource(R.string.settings_item_about),
+                                subtitle = stringResource(R.string.settings_item_about_subtitle),
+                                onClick = { currentSubScreen = SettingsSubScreen.ABOUT }
+                            )
+                        }
                     }
                 }
             }

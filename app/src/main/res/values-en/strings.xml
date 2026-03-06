@@ -846,4 +846,8 @@
     <string name="flow_template_skip_screenshot">Skip screenshot (confidence: %1$d%%)</string>
     <string name="flow_template_verification">Verifying node...</string>
     <string name="flow_template_fallback">Fallback to traditional mode</string>
+
+    <!-- Settings Subtitles -->
+    <string name="settings_item_help_subtitle">Usage guide &amp; tips</string>
+    <string name="settings_item_about_subtitle">Version &amp; licenses</string>
 </resources>
