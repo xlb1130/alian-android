@@ -11,9 +11,13 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.alian.assistant.data.SettingsManager
 import com.alian.assistant.infrastructure.ai.asr.QwenSpeechClient
+import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
@@ -27,6 +31,13 @@ class VoiceRecognitionManager(private val context: Context) {
     
     // 用于千问语音识别的客户端
     private var qwenSpeechClient: QwenSpeechClient? = null
+    private var offlineAsrRecognizer: SherpaOfflineSpeechRecognizer? = null
+    private val settingsManager = SettingsManager(context)
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val offlineAsrEnabled: Boolean
+        get() = settingsManager.settings.value.offlineAsrEnabled
+    private val offlineAsrAutoFallbackToCloud: Boolean
+        get() = settingsManager.settings.value.offlineAsrAutoFallbackToCloud
 
     companion object {
         private const val TAG = "VoiceRecognitionManager"
@@ -70,8 +81,90 @@ class VoiceRecognitionManager(private val context: Context) {
 
     // 开始语音识别（使用千问API）
     fun startListeningWithQwen(listener: RecognitionListener) {
+        if (offlineAsrEnabled) {
+            Log.d(TAG, "离线ASR开关开启，优先使用离线语音识别")
+            startListeningOffline(listener)
+            return
+        }
+
+        startListeningWithQwenInternal(listener)
+    }
+
+    private fun startListeningOffline(listener: RecognitionListener) {
+        Log.d(TAG, "开始使用离线ASR进行语音识别")
+
+        if (!hasRecordAudioPermission()) {
+            Log.e(TAG, "录音权限未授予")
+            listener.onError(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
+            return
+        }
+
+        isListening = true
+        listener.onReadyForSpeech(null)
+        listener.onBeginningOfSpeech()
+
+        scope.launch {
+            val recognizer =
+                offlineAsrRecognizer ?: SherpaOfflineSpeechRecognizer(
+                    context = context,
+                    enableEndpoint = true
+                ).also {
+                    offlineAsrRecognizer = it
+                }
+
+            val initialized = recognizer.initializeIfNeeded()
+            if (!initialized) {
+                Log.e(TAG, "离线ASR初始化失败")
+                isListening = false
+                if (shouldFallbackToCloud()) {
+                    Log.w(TAG, "离线ASR初始化失败，回退千问在线识别")
+                    startListeningWithQwenInternal(listener)
+                } else {
+                    listener.onError(SpeechRecognizer.ERROR_CLIENT)
+                }
+                return@launch
+            }
+
+            val started = recognizer.startListening(
+                object : SherpaOfflineSpeechRecognizer.Listener {
+                    override fun onPartial(text: String) {
+                        listener.onPartialResults(buildRecognitionBundle(text))
+                    }
+
+                    override fun onFinal(text: String) {
+                        listener.onResults(buildRecognitionBundle(text))
+                        listener.onEndOfSpeech()
+                        isListening = false
+                    }
+
+                    override fun onError(message: String) {
+                        Log.e(TAG, "离线ASR识别错误: $message")
+                        isListening = false
+                        if (shouldFallbackToCloud() && message != "没有录音权限") {
+                            Log.w(TAG, "离线ASR识别失败，回退千问在线识别")
+                            startListeningWithQwenInternal(listener)
+                        } else {
+                            listener.onError(SpeechRecognizer.ERROR_SERVER)
+                        }
+                    }
+                }
+            )
+
+            if (!started) {
+                Log.e(TAG, "离线ASR启动失败")
+                isListening = false
+                if (shouldFallbackToCloud()) {
+                    startListeningWithQwenInternal(listener)
+                } else {
+                    listener.onError(SpeechRecognizer.ERROR_CLIENT)
+                }
+            }
+        }
+    }
+
+    private fun startListeningWithQwenInternal(listener: RecognitionListener) {
         Log.d(TAG, "开始使用千问API进行语音识别")
-        
+
         if (!hasRecordAudioPermission()) {
             Log.e(TAG, "录音权限未授予")
             listener.onError(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
@@ -86,56 +179,38 @@ class VoiceRecognitionManager(private val context: Context) {
 
         try {
             isListening = true
-            
-            // 通知开始录音
             listener.onReadyForSpeech(null)
             listener.onBeginningOfSpeech()
-            
-            // 设置回调来处理实时识别结果
+
             qwenSpeechClient?.setCallbacks(
                 onPartialResult = { partialText ->
                     Log.d(TAG, "收到部分识别结果: $partialText")
-                    // 通知部分识别结果
-                    val partialBundle = Bundle().apply {
-                        putStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION,
-                            arrayListOf(partialText)
-                        )
-                    }
-                    listener.onPartialResults(partialBundle)
+                    listener.onPartialResults(buildRecognitionBundle(partialText))
                 },
                 onFinalResult = { finalText ->
                     Log.d(TAG, "收到最终识别结果: $finalText")
-                    // 通知最终识别结果
-                    val resultBundle = Bundle().apply {
-                        putStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION,
-                            arrayListOf(finalText)
-                        )
-                    }
-                    listener.onResults(resultBundle)
+                    listener.onResults(buildRecognitionBundle(finalText))
                     listener.onEndOfSpeech()
                     isListening = false
                 },
                 onError = { error ->
-                    Log.e(TAG, "语音识别错误: ${'$'}{error.message}")
+                    Log.e(TAG, "语音识别错误: ${error.message}")
                     listener.onError(SpeechRecognizer.ERROR_SERVER)
                     isListening = false
                 }
             )
-            
-            // 在后台启动实时识别
-            CoroutineScope(Dispatchers.Main).launch {
+
+            scope.launch {
                 qwenSpeechClient?.recognizeSpeechRealTime(context)?.let { result ->
                     if (result.isFailure) {
-                        Log.e(TAG, "千问API识别失败: ${'$'}{result.exceptionOrNull()?.message}")
-                        if (isListening) {  // 只有在仍在监听状态下才报告错误
+                        Log.e(TAG, "千问API识别失败: ${result.exceptionOrNull()?.message}")
+                        if (isListening) {
                             listener.onError(SpeechRecognizer.ERROR_SERVER)
                             isListening = false
                         }
                     }
                 } ?: run {
-                    if (isListening) {  // 只有在仍在监听状态下才报告错误
+                    if (isListening) {
                         listener.onError(SpeechRecognizer.ERROR_CLIENT)
                         isListening = false
                     }
@@ -147,12 +222,33 @@ class VoiceRecognitionManager(private val context: Context) {
         }
     }
 
+    private fun buildRecognitionBundle(text: String): Bundle {
+        return Bundle().apply {
+            putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf(text))
+        }
+    }
+
+    private fun shouldFallbackToCloud(): Boolean {
+        return offlineAsrAutoFallbackToCloud && qwenSpeechClient != null
+    }
+
     // 停止语音识别并使用千问API进行实时识别
     fun stopListeningWithQwen(listener: RecognitionListener) {
         Log.d(TAG, "停止录音并结束千问API识别")
         
         if (!isListening) {
             Log.d(TAG, "语音识别未在运行，无需停止")
+            return
+        }
+
+        if (offlineAsrRecognizer?.isCurrentlyListening() == true) {
+            try {
+                offlineAsrRecognizer?.stopListening()
+                isListening = false
+            } catch (e: Exception) {
+                Log.e(TAG, "停止离线ASR失败: ${e.message}", e)
+                listener.onError(SpeechRecognizer.ERROR_AUDIO)
+            }
             return
         }
 
@@ -171,11 +267,17 @@ class VoiceRecognitionManager(private val context: Context) {
     // 开始语音识别（使用系统原生或千问API）
     fun startListening(listener: RecognitionListener) {
         Log.d(TAG, "开始语音识别")
-        
+
+        if (offlineAsrEnabled) {
+            Log.d(TAG, "离线ASR开关开启，优先使用离线语音识别")
+            startListeningOffline(listener)
+            return
+        }
+
         // 优先尝试使用千问API
         if (qwenSpeechClient != null) {
             Log.d(TAG, "使用千问API进行语音识别")
-            startListeningWithQwen(listener)
+            startListeningWithQwenInternal(listener)
         } else {
             Log.d(TAG, "使用系统原生语音识别")
             
@@ -288,49 +390,60 @@ class VoiceRecognitionManager(private val context: Context) {
     // 停止语音识别
     fun stopListening() {
         Log.d(TAG, "停止语音识别，当前状态: $isListening")
-        if (isListening) {
-            // 如果使用千问API，则调用对应的方法
-            if (qwenSpeechClient != null) {
-                Log.d(TAG, "使用千问API的录音停止逻辑")
-                // 完成语音识别过程
-                try {
-                    // 创建一个空的识别监听器来处理结果
-                    val dummyListener = object : RecognitionListener {
-                        override fun onReadyForSpeech(params: Bundle?) {}
-                            
-                        override fun onBeginningOfSpeech() {}
-                            
-                        override fun onRmsChanged(rmsdB: Float) {}
-                            
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-                            
-                        override fun onEndOfSpeech() {}
-                            
-                        override fun onError(error: Int) {
-                            Log.e(TAG, "停止录音时发生错误: $error")
-                            isListening = false
-                        }
-                            
-                        override fun onResults(results: Bundle?) {
-                            Log.d(TAG, "录音结果已返回")
-                            isListening = false
-                        }
-                            
-                        override fun onPartialResults(partialResults: Bundle?) {}
-                            
-                        override fun onEvent(eventType: Int, params: Bundle?) {}
+        if (!isListening) {
+            Log.d(TAG, "语音识别未在运行，无需停止")
+            return
+        }
+
+        if (offlineAsrRecognizer?.isCurrentlyListening() == true) {
+            try {
+                offlineAsrRecognizer?.stopListening()
+                isListening = false
+            } catch (e: Exception) {
+                Log.e(TAG, "停止离线ASR失败: ${e.message}", e)
+            }
+            return
+        }
+
+        // 如果使用千问API，则调用对应的方法
+        if (qwenSpeechClient != null) {
+            Log.d(TAG, "使用千问API的录音停止逻辑")
+            // 完成语音识别过程
+            try {
+                // 创建一个空的识别监听器来处理结果
+                val dummyListener = object : RecognitionListener {
+                    override fun onReadyForSpeech(params: Bundle?) {}
+
+                    override fun onBeginningOfSpeech() {}
+
+                    override fun onRmsChanged(rmsdB: Float) {}
+
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+
+                    override fun onEndOfSpeech() {}
+
+                    override fun onError(error: Int) {
+                        Log.e(TAG, "停止录音时发生错误: $error")
+                        isListening = false
                     }
-                    stopListeningWithQwen(dummyListener)
-                } catch (e: Exception) {
-                    Log.e(TAG, "停止录音失败: ${'$'}{e.message}", e)
-                    isListening = false
+
+                    override fun onResults(results: Bundle?) {
+                        Log.d(TAG, "录音结果已返回")
+                        isListening = false
+                    }
+
+                    override fun onPartialResults(partialResults: Bundle?) {}
+
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
                 }
-            } else {
-                speechRecognizer?.stopListening()
+                stopListeningWithQwen(dummyListener)
+            } catch (e: Exception) {
+                Log.e(TAG, "停止录音失败: ${e.message}", e)
                 isListening = false
             }
         } else {
-            Log.d(TAG, "语音识别未在运行，无需停止")
+            speechRecognizer?.stopListening()
+            isListening = false
         }
     }
 
@@ -338,6 +451,17 @@ class VoiceRecognitionManager(private val context: Context) {
     fun cancelListening() {
         Log.d(TAG, "取消语音识别，当前状态: $isListening")
         if (isListening) {
+            if (offlineAsrRecognizer?.isCurrentlyListening() == true) {
+                try {
+                    offlineAsrRecognizer?.cancelListening()
+                    isListening = false
+                    Log.d(TAG, "离线语音识别已取消")
+                } catch (e: Exception) {
+                    Log.e(TAG, "取消离线语音识别失败: ${e.message}", e)
+                }
+                return
+            }
+
             // 如果使用千问API，则调用对应的方法
             if (qwenSpeechClient != null) {
                 Log.d(TAG, "使用千问API的录音取消逻辑")
@@ -378,6 +502,8 @@ class VoiceRecognitionManager(private val context: Context) {
         try {
             // 停止千问语音识别
             qwenSpeechClient?.stopRecognition()
+            offlineAsrRecognizer?.cancelListening()
+            offlineAsrRecognizer?.destroy()
             
             // 删除临时音频文件
             if (audioFilePath.isNotEmpty()) {
@@ -393,6 +519,8 @@ class VoiceRecognitionManager(private val context: Context) {
         // 清理原生识别器资源
         speechRecognizer?.destroy()
         speechRecognizer = null
+        offlineAsrRecognizer = null
+        scope.cancel()
         isListening = false
         Log.d(TAG, "语音识别资源已销毁")
     }

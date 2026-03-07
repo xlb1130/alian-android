@@ -33,7 +33,8 @@ class AecQwenSpeechClient(
     private val model: String = "fun-asr-realtime-2025-09-15",
     private val sampleRate: Int = 16000,
     private val audioFormat: String = "pcm",
-    private val vadEnabled: Boolean = true
+    private val vadEnabled: Boolean = true,
+    private val maxSentenceSilenceMs: Int = 1200
 ) : INativeNuiCallback {
     companion object {
         private const val TAG = "AecQwenSpeechClient"
@@ -385,9 +386,8 @@ class AecQwenSpeechClient(
         
         nls_config["punctuation_prediction_enabled"] = true
         
-        // 设置句子结束静音时间，减少识别延迟
-        // 默认值通常是 2000ms，设置为 800ms 可以更快识别句子结束
-        nls_config["max_sentence_silence"] = 800
+        // 句末静音阈值适当放宽，降低噪声环境下“半句被截断”概率
+        nls_config["max_sentence_silence"] = maxSentenceSilenceMs
         
         val tmp = JSONObject()
         tmp["nls_config"] = nls_config

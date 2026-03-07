@@ -238,6 +238,7 @@ class MainActivity : ComponentActivity() {
     // MediaProjection 权限请求
     private var mediaProjectionResultCode by mutableStateOf<Int?>(null)
     private var mediaProjectionData by mutableStateOf<Intent?>(null)
+    private var isRecoveringMediaProjection = false
 
     // 待执行的指令（用于权限授予后自动执行）
     private var pendingInstruction: String? = null
@@ -309,6 +310,18 @@ class MainActivity : ComponentActivity() {
 
     // 请求 MediaProjection 权限
     fun requestMediaProjectionPermission() {
+        if (mediaProjectionResultCode == RESULT_OK && mediaProjectionData != null) {
+            Log.d(TAG, "MediaProjection token already available, skipping request")
+            Toast.makeText(this, "屏幕录制权限已可用", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (AccessibilityKeepAliveService.isMediaProjectionAvailable()) {
+            Log.d(TAG, "MediaProjection already active in keep-alive service, skipping request")
+            Toast.makeText(this, "屏幕录制权限已可用", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         runCatching {
             val intent = PermissionManager.createMediaProjectionRequestIntent(this)
             mediaProjectionLauncher.launch(intent)
@@ -509,6 +522,30 @@ class MainActivity : ComponentActivity() {
             override fun onMediaProjectionRevoked() {
                 Log.w(TAG, "⚠️ MediaProjection 被系统停止，清除授权状态")
                 runOnUiThread {
+                    val canTryRecover = !isRecoveringMediaProjection &&
+                            mediaProjectionResultCode == RESULT_OK &&
+                            mediaProjectionData != null
+
+                    if (canTryRecover) {
+                        isRecoveringMediaProjection = true
+                        try {
+                            Log.w(TAG, "尝试使用现有授权恢复 MediaProjection")
+                            AccessibilityKeepAliveService.setMediaProjectionParams(
+                                mediaProjectionResultCode!!,
+                                mediaProjectionData!!
+                            )
+
+                            if (AccessibilityKeepAliveService.isMediaProjectionAvailable()) {
+                                Log.i(TAG, "MediaProjection 已自动恢复，无需重新授权")
+                                return@runOnUiThread
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "自动恢复 MediaProjection 失败: ${e.message}")
+                        } finally {
+                            isRecoveringMediaProjection = false
+                        }
+                    }
+
                     mediaProjectionResultCode = null
                     mediaProjectionData = null
                     Toast.makeText(
@@ -917,7 +954,7 @@ class MainActivity : ComponentActivity() {
                                     ttsVoice = settings.ttsVoice,
                                     ttsSpeed = settings.ttsSpeed,
                                     ttsInterruptEnabled = settings.ttsInterruptEnabled,
-                                    enableAEC = settings.ttsInterruptEnabled,
+                                    enableAEC = settings.enableAEC,
                                     enableStreaming = settings.enableStreaming,
                                     volume = settings.volume,
                                     executionStrategy = currentExecutionStrategy,
@@ -1037,6 +1074,7 @@ class MainActivity : ComponentActivity() {
                                 ttsVoice = settings.ttsVoice,
                                 ttsSpeed = settings.ttsSpeed,
                                 ttsInterruptEnabled = settings.ttsInterruptEnabled,
+                                enableAEC = settings.enableAEC,
                                 enableStreaming = settings.enableStreaming,
                                 volume = settings.volume,
                                 executionStrategy = settings.executionStrategy,

@@ -57,6 +57,11 @@ class AgentPermissionCheck(
             object NeedsMediaProjection : CheckResult()
 
             /**
+             * 需要 Shizuku 权限
+             */
+            object NeedsShizuku : CheckResult()
+
+            /**
              * 需要多个权限
              */
             data class NeedsMultiplePermissions(val missingPermissions: List<CheckResult>) : CheckResult()
@@ -91,7 +96,17 @@ class AgentPermissionCheck(
         }
         Log.d(TAG, "✓ 悬浮窗权限已授予")
 
-        // 2. 检查无障碍服务（仅在使用无障碍或混合模式时需要）
+        // 3. 检查 Shizuku 权限（仅在 shizuku_only 模式下强制）
+        val needsShizukuOnly = settings.executionStrategy == "shizuku_only"
+        if (needsShizukuOnly) {
+            if (!PermissionManager.isPermissionGranted(context, PermissionType.SHIZUKU)) {
+                Log.d(TAG, "Shizuku 权限未授予")
+                return CheckResult.NeedsShizuku
+            }
+            Log.d(TAG, "✓ Shizuku 权限已授予")
+        }
+
+        // 4. 检查无障碍服务（仅在使用无障碍或混合模式时需要）
         val needsAccessibility = PermissionManager.needsMediaProjectionPermission(settings.executionStrategy)
         Log.d(TAG, "需要无障碍服务: $needsAccessibility")
 
@@ -106,16 +121,17 @@ class AgentPermissionCheck(
             Log.d(TAG, "系统已启用的无障碍服务: $enabledServices")
 
             val isAccessibilityEnabled = PermissionManager.isPermissionGranted(context, PermissionType.ACCESSIBILITY_SERVICE)
-            Log.d(TAG, "无障碍服务状态: $isAccessibilityEnabled")
+            val isAccessibilityConnected = AlianAccessibilityService.isConnected()
+            Log.d(TAG, "无障碍服务状态: enabled=$isAccessibilityEnabled, connected=$isAccessibilityConnected")
 
-            if (!isAccessibilityEnabled) {
-                Log.d(TAG, "无障碍服务未启用")
+            if (!isAccessibilityEnabled || !isAccessibilityConnected) {
+                Log.d(TAG, "无障碍服务未就绪（未开启或未连接）")
                 return CheckResult.NeedsAccessibilityService
             }
             Log.d(TAG, "✓ 无障碍服务已启用")
         }
 
-        // 3. 检查 MediaProjection 权限（仅在使用无障碍或混合模式时需要）
+        // 5. 检查 MediaProjection 权限（仅在使用无障碍或混合模式时需要）
         val needsMediaProjection = PermissionManager.needsMediaProjectionPermission(settings.executionStrategy)
         Log.d(TAG, "需要 MediaProjection 权限: $needsMediaProjection")
         Log.d(TAG, "MediaProjection 权限状态: resultCode=$mediaProjectionResultCode, data=${if (mediaProjectionData != null) "available" else "null"}")
@@ -166,23 +182,35 @@ class AgentPermissionCheck(
             Log.d(TAG, "✓ 悬浮窗权限已授予")
         }
 
-        // 3. 检查无障碍服务（仅在使用无障碍或混合模式时需要）
+        // 3. 检查 Shizuku 权限（仅在 shizuku_only 模式下强制）
+        val needsShizukuOnly = settings.executionStrategy == "shizuku_only"
+        if (needsShizukuOnly) {
+            if (!PermissionManager.isPermissionGranted(context, PermissionType.SHIZUKU)) {
+                Log.d(TAG, "Shizuku 权限未授予")
+                missingPermissions.add(CheckResult.NeedsShizuku)
+            } else {
+                Log.d(TAG, "✓ Shizuku 权限已授予")
+            }
+        }
+
+        // 4. 检查无障碍服务（仅在使用无障碍或混合模式时需要）
         val needsAccessibility = PermissionManager.needsMediaProjectionPermission(settings.executionStrategy)
         Log.d(TAG, "需要无障碍服务: $needsAccessibility")
 
         if (needsAccessibility) {
             val isAccessibilityEnabled = PermissionManager.isPermissionGranted(context, PermissionType.ACCESSIBILITY_SERVICE)
-            Log.d(TAG, "无障碍服务状态: $isAccessibilityEnabled")
+            val isAccessibilityConnected = AlianAccessibilityService.isConnected()
+            Log.d(TAG, "无障碍服务状态: enabled=$isAccessibilityEnabled, connected=$isAccessibilityConnected")
 
-            if (!isAccessibilityEnabled) {
-                Log.d(TAG, "无障碍服务未启用")
+            if (!isAccessibilityEnabled || !isAccessibilityConnected) {
+                Log.d(TAG, "无障碍服务未就绪（未开启或未连接）")
                 missingPermissions.add(CheckResult.NeedsAccessibilityService)
             } else {
                 Log.d(TAG, "✓ 无障碍服务已启用")
             }
         }
 
-        // 4. 检查 MediaProjection 权限（仅在使用无障碍或混合模式时需要）
+        // 5. 检查 MediaProjection 权限（仅在使用无障碍或混合模式时需要）
         val needsMediaProjection = PermissionManager.needsMediaProjectionPermission(settings.executionStrategy)
         Log.d(TAG, "需要 MediaProjection 权限: $needsMediaProjection")
         Log.d(TAG, "MediaProjection 权限状态: resultCode=$mediaProjectionResultCode, data=${if (mediaProjectionData != null) "available" else "null"}")
@@ -249,8 +277,9 @@ class AgentPermissionCheck(
             CheckResult.Granted -> "所有权限已授予"
             CheckResult.NeedsRecordAudio -> "录音权限用于语音识别和对话"
             CheckResult.NeedsSystemAlertWindow -> "悬浮窗权限用于显示执行进度和控制界面"
-            CheckResult.NeedsAccessibilityService -> "无障碍服务用于自动化操作和控制其他应用"
+            CheckResult.NeedsAccessibilityService -> "无障碍服务用于自动化操作和控制其他应用（需保持已开启且已连接）"
             CheckResult.NeedsMediaProjection -> "屏幕录制权限用于截取屏幕内容进行视觉识别\n\n注意：此权限仅用于截图，不会录制视频或音频"
+            CheckResult.NeedsShizuku -> "Shizuku 权限用于控制手机操作（shizuku_only 模式必需）"
             is CheckResult.NeedsMultiplePermissions -> {
                 val descriptions = result.missingPermissions.map { getPermissionDescription(it) }
                 "需要以下权限才能正常使用手机通话功能：\n\n${descriptions.joinToString("\n\n") { "• $it" }}"
@@ -268,6 +297,7 @@ class AgentPermissionCheck(
             CheckResult.NeedsSystemAlertWindow -> "需要悬浮窗权限"
             CheckResult.NeedsAccessibilityService -> "需要无障碍服务"
             CheckResult.NeedsMediaProjection -> "需要屏幕录制权限"
+            CheckResult.NeedsShizuku -> "需要 Shizuku 权限"
             is CheckResult.NeedsMultiplePermissions -> "需要多个权限"
         }
     }
@@ -291,6 +321,9 @@ class AgentPermissionCheck(
                 // MediaProjection 需要特殊处理，由调用方处理
                 // 这里不做任何操作，调用方应该通过 onRequireMediaProjection 回调处理
                 Log.w(TAG, "MediaProjection 权限需要调用方通过回调处理")
+            }
+            CheckResult.NeedsShizuku -> {
+                PermissionManager.openPermissionSettings(context, PermissionType.SHIZUKU)
             }
             is CheckResult.NeedsMultiplePermissions -> {
                 // 优先处理非 MediaProjection 权限（因为 MediaProjection 需要特殊处理）

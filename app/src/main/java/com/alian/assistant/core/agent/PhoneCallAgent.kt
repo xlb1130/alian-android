@@ -374,6 +374,16 @@ $historyText
         private val executor = ExecutorImprove()
         private val reflector = ReflectorImprove(controller)
 
+        private suspend fun safeHideFloatingWindow() {
+            runCatching { onHideFloatingWindow?.invoke() }
+                .onFailure { Log.w(TAG, "隐藏悬浮窗失败，继续执行自动化: ${it.message}") }
+        }
+
+        private suspend fun safeShowFloatingWindow() {
+            runCatching { onShowFloatingWindow?.invoke() }
+                .onFailure { Log.w(TAG, "恢复悬浮窗失败，继续执行自动化: ${it.message}") }
+        }
+
         /**
          * 协调对话和操作的执行
          * @param userText 用户输入
@@ -450,7 +460,7 @@ $historyText
                 // 每一步开始时强制截图（参考 MobileAgentImprove）
                 // 截图前隐藏悬浮窗
                 Log.d(TAG, "截图前隐藏悬浮窗")
-                onHideFloatingWindow?.invoke()
+                safeHideFloatingWindow()
                 delay(100) // 等待悬浮窗完全隐藏
 
                 Log.d(TAG, "获取当前屏幕截图...")
@@ -463,7 +473,7 @@ $historyText
 
                 // 截图后恢复悬浮窗显示
                 Log.d(TAG, "截图后恢复悬浮窗")
-                onShowFloatingWindow?.invoke()
+                safeShowFloatingWindow()
 
                 // === 1. 检查错误升级 ===
                 checkErrorEscalation(infoPool)
@@ -606,7 +616,7 @@ $historyText
                     // === 5. 截图（动作后）===
                     // 截图前隐藏悬浮窗
                     Log.d(TAG, "动作后截图前隐藏悬浮窗")
-                    onHideFloatingWindow?.invoke()
+                    safeHideFloatingWindow()
                     delay(100) // 等待悬浮窗完全隐藏
 
                     val afterScreenshotResult = controller.screenshotWithFallback()
@@ -617,7 +627,7 @@ $historyText
 
                     // 截图后恢复悬浮窗显示
                     Log.d(TAG, "动作后截图后恢复悬浮窗")
-                    onShowFloatingWindow?.invoke()
+                    safeShowFloatingWindow()
 
                     // === 6. Reflector 验证 ===
                     if (beforeScreenshot != null && afterScreenshot != null) {
@@ -674,83 +684,72 @@ $historyText
         ) = withContext(Dispatchers.IO) {
             val (screenWidth, screenHeight) = controller.getScreenSize()
 
-            // 隐藏悬浮窗
-            Log.d(TAG, "执行操作前隐藏悬浮窗")
-            onHideFloatingWindow?.invoke()
-            delay(100) // 等待悬浮窗完全隐藏
-
-            try {
-                when (action.type) {
-                    "click" -> {
-                        val (x, y) = mapClickCoordinates(action, screenWidth, screenHeight)
-                        Log.d(TAG, "点击: ($x, $y)")
-                        controller.tap(x, y)
-                    }
-                    "double_tap" -> {
-                        val (x, y) = mapClickCoordinates(action, screenWidth, screenHeight)
-                        Log.d(TAG, "双击: ($x, $y)")
-                        controller.doubleTap(x, y)
-                    }
-                    "long_press" -> {
-                        val (x, y) = mapClickCoordinates(action, screenWidth, screenHeight)
-                        Log.d(TAG, "长按: ($x, $y)")
-                        controller.longPress(x, y)
-                    }
-                    "swipe" -> {
-                        val velocity = com.alian.assistant.App.getInstance().settingsManager.settings.value.swipeVelocity
-                        if (action.direction != null) {
-                            val centerX = action.x?.let { mapCoordinate(it, screenWidth) } ?: (screenWidth / 2)
-                            val centerY = action.y?.let { mapCoordinate(it, screenHeight) } ?: (screenHeight / 2)
-                            val distance = 400
-                            Log.d(TAG, "方向滑动: ${action.direction}, 中心: ($centerX, $centerY), 力度: $velocity")
-                            when (action.direction.lowercase()) {
-                                "up" -> controller.swipe(centerX, centerY + distance, centerX, centerY - distance, velocity = velocity)
-                                "down" -> controller.swipe(centerX, centerY - distance, centerX, centerY + distance, velocity = velocity)
-                                "left" -> controller.swipe(centerX + distance, centerY, centerX - distance, centerY, velocity = velocity)
-                                "right" -> controller.swipe(centerX - distance, centerY, centerX + distance, centerY, velocity = velocity)
-                                else -> Log.w(TAG, "未知滑动方向: ${action.direction}")
-                            }
-                        } else {
-                            val x1 = mapCoordinate(action.x ?: 0, screenWidth)
-                            val y1 = mapCoordinate(action.y ?: 0, screenHeight)
-                            val x2 = mapCoordinate(action.x2 ?: 0, screenWidth)
-                            val y2 = mapCoordinate(action.y2 ?: 0, screenHeight)
-                            Log.d(TAG, "坐标滑动: ($x1,$y1) -> ($x2,$y2), 力度: $velocity")
-                            controller.swipe(x1, y1, x2, y2, velocity = velocity)
+            when (action.type) {
+                "click" -> {
+                    val (x, y) = mapClickCoordinates(action, screenWidth, screenHeight)
+                    Log.d(TAG, "点击: ($x, $y)")
+                    controller.tap(x, y)
+                }
+                "double_tap" -> {
+                    val (x, y) = mapClickCoordinates(action, screenWidth, screenHeight)
+                    Log.d(TAG, "双击: ($x, $y)")
+                    controller.doubleTap(x, y)
+                }
+                "long_press" -> {
+                    val (x, y) = mapClickCoordinates(action, screenWidth, screenHeight)
+                    Log.d(TAG, "长按: ($x, $y)")
+                    controller.longPress(x, y)
+                }
+                "swipe" -> {
+                    val velocity = com.alian.assistant.App.getInstance().settingsManager.settings.value.swipeVelocity
+                    if (action.direction != null) {
+                        val centerX = action.x?.let { mapCoordinate(it, screenWidth) } ?: (screenWidth / 2)
+                        val centerY = action.y?.let { mapCoordinate(it, screenHeight) } ?: (screenHeight / 2)
+                        val distance = 400
+                        Log.d(TAG, "方向滑动: ${action.direction}, 中心: ($centerX, $centerY), 力度: $velocity")
+                        when (action.direction.lowercase()) {
+                            "up" -> controller.swipe(centerX, centerY + distance, centerX, centerY - distance, velocity = velocity)
+                            "down" -> controller.swipe(centerX, centerY - distance, centerX, centerY + distance, velocity = velocity)
+                            "left" -> controller.swipe(centerX + distance, centerY, centerX - distance, centerY, velocity = velocity)
+                            "right" -> controller.swipe(centerX - distance, centerY, centerX + distance, centerY, velocity = velocity)
+                            else -> Log.w(TAG, "未知滑动方向: ${action.direction}")
                         }
-                    }
-                    "type" -> {
-                        Log.d(TAG, "输入文本: ${action.text}")
-                        action.text?.let { controller.type(it) }
-                    }
-                    "system_button" -> {
-                        Log.d(TAG, "系统按键: ${action.button}")
-                        when (action.button) {
-                            "Back", "back" -> controller.back()
-                            "Home", "home" -> controller.home()
-                            "Enter", "enter" -> controller.enter()
-                            else -> Log.w(TAG, "未知系统按钮: ${action.button}")
-                        }
-                    }
-                    "open_app" -> {
-                        val appName = action.text ?: ""
-                        Log.d(TAG, "打开应用: $appName")
-                        controller.openApp(appName)
-                        delay(1500)
-                    }
-                    "wait" -> {
-                        val duration = (action.duration ?: 3).coerceIn(1, 10)
-                        Log.d(TAG, "等待 ${duration} 秒")
-                        delay(duration * 1000L)
-                    }
-                    else -> {
-                        Log.w(TAG, "未知动作类型: ${action.type}")
+                    } else {
+                        val x1 = mapCoordinate(action.x ?: 0, screenWidth)
+                        val y1 = mapCoordinate(action.y ?: 0, screenHeight)
+                        val x2 = mapCoordinate(action.x2 ?: 0, screenWidth)
+                        val y2 = mapCoordinate(action.y2 ?: 0, screenHeight)
+                        Log.d(TAG, "坐标滑动: ($x1,$y1) -> ($x2,$y2), 力度: $velocity")
+                        controller.swipe(x1, y1, x2, y2, velocity = velocity)
                     }
                 }
-            } finally {
-                // 恢复悬浮窗显示
-                Log.d(TAG, "执行操作后恢复悬浮窗")
-                onShowFloatingWindow?.invoke()
+                "type" -> {
+                    Log.d(TAG, "输入文本: ${action.text}")
+                    action.text?.let { controller.type(it) }
+                }
+                "system_button" -> {
+                    Log.d(TAG, "系统按键: ${action.button}")
+                    when (action.button) {
+                        "Back", "back" -> controller.back()
+                        "Home", "home" -> controller.home()
+                        "Enter", "enter" -> controller.enter()
+                        else -> Log.w(TAG, "未知系统按钮: ${action.button}")
+                    }
+                }
+                "open_app" -> {
+                    val appName = action.text ?: ""
+                    Log.d(TAG, "打开应用: $appName")
+                    controller.openApp(appName)
+                    delay(1500)
+                }
+                "wait" -> {
+                    val duration = (action.duration ?: 3).coerceIn(1, 10)
+                    Log.d(TAG, "等待 ${duration} 秒")
+                    delay(duration * 1000L)
+                }
+                else -> {
+                    Log.w(TAG, "未知动作类型: ${action.type}")
+                }
             }
         }
 

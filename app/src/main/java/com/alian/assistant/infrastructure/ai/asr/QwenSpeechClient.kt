@@ -31,7 +31,8 @@ class QwenSpeechClient(
     private val model: String = "fun-asr-realtime-2025-09-15",
     private val sampleRate: Int = 16000,
     private val audioFormat: String = "pcm",
-    private val vadEnabled: Boolean = true // 语音活动检测断句
+    private val vadEnabled: Boolean = true, // 语音活动检测断句
+    private val maxSentenceSilenceMs: Int = 1200
 ) : INativeNuiCallback {
     companion object {
         private const val TAG = "QwenSpeechClient"
@@ -266,8 +267,8 @@ class QwenSpeechClient(
         if (vadEnabled) {
             // 设置开启VAD（Voice Activity Detection，语音活动检测）断句
             nls_config["semantic_punctuation_enabled"] = false
-            // 可选：设置VAD静音时长阈值
-            // nls_config["max_sentence_silence"] = 800
+            // 句末静音阈值适当放宽，降低噪声环境下“半句被截断”概率
+            nls_config["max_sentence_silence"] = maxSentenceSilenceMs
             // nls_config["multi_threshold_mode_enabled"] = true
         } else {
             // 设置开启语义断句

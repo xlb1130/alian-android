@@ -2,6 +2,8 @@ package com.alian.assistant.core.agent
 
 import android.content.Context
 import android.util.Log
+import com.alian.assistant.common.utils.SpeechTextGuard
+import com.alian.assistant.common.utils.VoiceTerminalMetrics
 import com.alian.assistant.core.agent.improve.AdjustChatImprove
 import com.alian.assistant.core.agent.improve.InfoPoolImprove
 import com.alian.assistant.core.agent.memory.Action
@@ -189,6 +191,7 @@ class InterruptOrchestrator(
                 ttsSpeed = settings.ttsSpeed,
                 ttsInterruptEnabled = true,  // 启用语音打断
                 volume = settings.volume,
+                metricsScene = "agent_interrupt",
                 usePersistentAec = true      // MobileAgent 场景下启用长生命周期 AEC
             )
             Log.d(TAG, "AEC 音频管理器已初始化（包含 TTS 功能）")
@@ -338,19 +341,30 @@ class InterruptOrchestrator(
 
         // 在 PAUSED_FOR_CHAT 状态下，处理"继续"指令或其他对话
         if (_state.value == OrchestratorState.PAUSED_FOR_CHAT) {
+            val guardedChatText = SpeechTextGuard.sanitizeFinalText(text, minMeaningfulChars = 1)
             // 检查是否为空结果
-            if (text.isBlank()) {
+            if (guardedChatText.isBlank()) {
                 Log.d(TAG, "⚠️ 识别结果为空，重新开始监听")
+                VoiceTerminalMetrics.recordAsrFinalFiltered(
+                    scene = "agent_interrupt",
+                    source = "orchestrator_chat_guard",
+                    reason = "noise_guard"
+                )
                 Log.d(TAG, "=================================")
                 startListening()
                 return
             }
+            VoiceTerminalMetrics.recordAsrFinalAccepted(
+                scene = "agent_interrupt",
+                source = "orchestrator_chat_guard",
+                textLength = guardedChatText.length
+            )
 
             Log.d(TAG, "✓ 检测到对话文本，调用 handleChatSession 进行对话")
             // 调用 handleChatSession 进行对话，根据 shouldResume 决定是否恢复执行
             val snapshot = createSnapshot()
             if (snapshot != null) {
-                handleChatSession(snapshot, text)
+                handleChatSession(snapshot, guardedChatText)
             } else {
                 Log.e(TAG, "无法创建 snapshot，重新开始监听")
                 startListening()
@@ -367,6 +381,27 @@ class InterruptOrchestrator(
         }
 
         // 去抖检查
+        val guardedInterruptText = SpeechTextGuard.sanitizeInterruptText(
+            raw = text,
+            keywords = INTERRUPT_KEYWORDS,
+            nonKeywordMinMeaningfulChars = 4
+        )
+        if (guardedInterruptText.isBlank()) {
+            Log.d(TAG, "⚠️ 打断文本被判定为噪声，重新开始监听")
+            VoiceTerminalMetrics.recordAsrFinalFiltered(
+                scene = "agent_interrupt",
+                source = "orchestrator_interrupt_guard",
+                reason = "noise_guard"
+            )
+            startListening()
+            return
+        }
+        VoiceTerminalMetrics.recordAsrFinalAccepted(
+            scene = "agent_interrupt",
+            source = "orchestrator_interrupt_guard",
+            textLength = guardedInterruptText.length
+        )
+
         val now = System.currentTimeMillis()
         val timeSinceLastInterrupt = now - lastInterruptTime
         Log.d(TAG, "距离上次打断: ${timeSinceLastInterrupt}ms (阈值: ${DEBOUNCE_MS}ms)")
@@ -379,11 +414,15 @@ class InterruptOrchestrator(
         lastInterruptTime = now
 
         // 有效性检查
-        val isValid = isValidInterrupt(text)
+        val isValid = isValidInterrupt(guardedInterruptText)
         Log.d(TAG, "有效性检查: $isValid")
 
         if (!isValid) {
             Log.d(TAG, "❌ 无效打断，重新开始监听")
+            VoiceTerminalMetrics.recordInterruptRejected(
+                scene = "agent_interrupt",
+                reason = "invalid_interrupt"
+            )
             Log.d(TAG, "=================================")
             startListening()
             return
@@ -400,7 +439,7 @@ class InterruptOrchestrator(
             updateState(OrchestratorState.PAUSED_FOR_CHAT)
 
             // 处理聊天
-            handleChatSession(snapshot, text)
+            handleChatSession(snapshot, guardedInterruptText)
         }
         Log.d(TAG, "=================================")
     }
@@ -410,24 +449,21 @@ class InterruptOrchestrator(
      */
     private fun isValidInterrupt(text: String): Boolean {
         Log.d(TAG, "----- 有效性检查 -----")
+        val normalized = text.trim()
+        if (normalized.isBlank()) {
+            Log.d(TAG, "  空文本，判定无效")
+            return false
+        }
 
         // 长度检查
-        val lengthCheck = text.length >= MIN_TEXT_LENGTH
-        Log.d(TAG, "  长度检查: ${text.length} >= $MIN_TEXT_LENGTH = $lengthCheck")
+        val lengthCheck = normalized.length >= MIN_TEXT_LENGTH
+        Log.d(TAG, "  长度检查: ${normalized.length} >= $MIN_TEXT_LENGTH = $lengthCheck")
         if (!lengthCheck) {
             return false
         }
 
-        // 过滤噪声词
-        val noiseWords = listOf("嗯", "啊", "喂", "呃", "那个", "这个")
-        val isNoise = text.trim() in noiseWords
-        Log.d(TAG, "  噪声词检查: $isNoise")
-        if (isNoise) {
-            return false
-        }
-
         // 检查打断关键词
-        val matchedKeywords = INTERRUPT_KEYWORDS.filter { it in text }
+        val matchedKeywords = INTERRUPT_KEYWORDS.filter { it in normalized }
         val hasKeyword = matchedKeywords.isNotEmpty()
         Log.d(TAG, "  关键词检查: $hasKeyword")
         if (hasKeyword) {
@@ -435,9 +471,12 @@ class InterruptOrchestrator(
             return true
         }
 
-        // 如果文本较长（>= 3个字符），认为是有效打断
-        val longTextCheck = text.length >= 3
-        Log.d(TAG, "  长文本检查: ${text.length} >= 3 = $longTextCheck")
+        // 非关键词场景从严：至少 4 个有效字符才允许打断
+        val meaningfulChars = normalized.count {
+            it.isLetterOrDigit() || Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN
+        }
+        val longTextCheck = meaningfulChars >= 4
+        Log.d(TAG, "  非关键词有效字符检查: $meaningfulChars >= 4 = $longTextCheck")
         Log.d(TAG, "---------------------")
         return longTextCheck
     }

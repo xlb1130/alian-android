@@ -5,6 +5,8 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
@@ -73,8 +75,18 @@ class PhoneCallFloatingWindowView(
         private const val TAG = "PhoneCallFloatingWindow"
     }
 
-    private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private val overlayContext = context.applicationContext
+    private val windowManager = overlayContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var floatingView: View? = null
+
+    private fun runOnMainThread(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
+    }
 
     /**
      * 显示浮动窗口
@@ -134,7 +146,7 @@ class PhoneCallFloatingWindowView(
         )
 
         // 创建 ComposeView
-        val composeView = ComposeView(context).apply {
+        val composeView = ComposeView(overlayContext).apply {
             // 设置 ViewTreeLifecycleOwner
             this.setViewTreeLifecycleOwner(lifecycleOwner)
             // 设置 ViewTreeViewModelStoreOwner
@@ -228,8 +240,13 @@ class PhoneCallFloatingWindowView(
         }
 
         // 添加到窗口管理器
-        windowManager.addView(composeView, params)
-        floatingView = composeView
+        try {
+            windowManager.addView(composeView, params)
+            floatingView = composeView
+        } catch (e: Exception) {
+            Log.e(TAG, "添加浮动窗口失败", e)
+            floatingView = null
+        }
     }
 
     /**
@@ -237,14 +254,16 @@ class PhoneCallFloatingWindowView(
      */
     fun hide() {
         Log.d(TAG, "隐藏浮动窗口")
-        floatingView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                Log.e(TAG, "移除浮动窗口失败", e)
+        runOnMainThread {
+            floatingView?.let {
+                try {
+                    windowManager.removeView(it)
+                } catch (e: Exception) {
+                    Log.e(TAG, "移除浮动窗口失败", e)
+                }
             }
+            floatingView = null
         }
-        floatingView = null
     }
 
     /**
@@ -256,8 +275,10 @@ class PhoneCallFloatingWindowView(
      * @param visible true 显示，false 隐藏
      */
     fun setVisible(visible: Boolean) {
-        floatingView?.let { view ->
-            view.visibility = if (visible) View.VISIBLE else View.GONE
+        runOnMainThread {
+            floatingView?.let { view ->
+                view.visibility = if (visible) View.VISIBLE else View.GONE
+            }
         }
     }
 

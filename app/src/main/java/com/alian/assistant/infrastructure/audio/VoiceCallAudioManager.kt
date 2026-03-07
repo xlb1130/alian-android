@@ -6,6 +6,10 @@ import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.util.Log
 import com.alibaba.fastjson.JSON
+import com.alian.assistant.common.utils.SpeechTextGuard
+import com.alian.assistant.common.utils.VoiceTerminalMetrics
+import com.alian.assistant.data.SettingsManager
+import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
 import com.alian.assistant.infrastructure.ai.tts.CosyVoiceTTSClient
 import com.alian.assistant.infrastructure.ai.asr.QwenSpeechClient
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +31,8 @@ class VoiceCallAudioManager(
     private val ttsVoice: String,
     private val ttsSpeed: Float = 1.0f,  // TTS语速
     private val ttsInterruptEnabled: Boolean = false,  // 实时语音打断开关
-    private val volume: Int = 50  // 音量，取值范围 [0, 100]，默认为 50
+    private val volume: Int = 50,  // 音量，取值范围 [0, 100]，默认为 50
+    private val metricsScene: String = "voice_call"
 ) : IAudioManager {
     companion object {
         private const val TAG = "VoiceCallAudioManager"
@@ -39,6 +44,7 @@ class VoiceCallAudioManager(
 
     // 语音识别客户端
     private var qwenSpeechClient: QwenSpeechClient? = null
+    private var offlineAsrRecognizer: SherpaOfflineSpeechRecognizer? = null
 
     // 语音合成客户端
     private var cosyVoiceTTSClient: CosyVoiceTTSClient? = null
@@ -64,9 +70,25 @@ class VoiceCallAudioManager(
     // 统一的协程作用域，用于管理所有协程
     private val managerJob = SupervisorJob()
     private val managerScope = CoroutineScope(managerJob + Dispatchers.IO)
+    private val settingsManager = SettingsManager(context)
+    private val offlineAsrEnabled: Boolean
+        get() = settingsManager.settings.value.offlineAsrEnabled
+    private val offlineAsrAutoFallbackToCloud: Boolean
+        get() = settingsManager.settings.value.offlineAsrAutoFallbackToCloud
+
+    private enum class ActiveAsrEngine {
+        NONE,
+        OFFLINE,
+        CLOUD
+    }
+
+    private var activeAsrEngine: ActiveAsrEngine = ActiveAsrEngine.NONE
 
     init {
-        Log.d(TAG, "VoiceCallAudioManager 初始化")
+        Log.d(
+            TAG,
+            "VoiceCallAudioManager 初始化, offlineAsrEnabled=$offlineAsrEnabled, offlineAsrAutoFallbackToCloud=$offlineAsrAutoFallbackToCloud"
+        )
         initializeClients()
     }
 
@@ -110,7 +132,8 @@ class VoiceCallAudioManager(
         onError: (String) -> Unit,
         onSilenceTimeout: () -> Unit
     ) {
-        Log.d(TAG, "开始录音")
+        val useOfflineAsr = offlineAsrEnabled
+        Log.d(TAG, "开始录音, useOfflineAsr=$useOfflineAsr")
 
         if (isRecording) {
             Log.w(TAG, "已经在录音中，忽略此次请求")
@@ -124,6 +147,145 @@ class VoiceCallAudioManager(
             return
         }
 
+        if (useOfflineAsr) {
+            startOfflineRecording(onPartialResult, onFinalResult, onError, onSilenceTimeout)
+            return
+        }
+
+        startOnlineRecording(onPartialResult, onFinalResult, onError, onSilenceTimeout)
+    }
+
+    private fun startOfflineRecording(
+        onPartialResult: (String) -> Unit,
+        onFinalResult: (String) -> Unit,
+        onError: (String) -> Unit,
+        onSilenceTimeout: () -> Unit
+    ) {
+        recordingJob = managerScope.launch {
+            try {
+                ensureResourcesReleased()
+                delay(200)
+
+                val recognizer =
+                    offlineAsrRecognizer ?: SherpaOfflineSpeechRecognizer(
+                        context = context,
+                        enableEndpoint = true
+                    ).also {
+                        offlineAsrRecognizer = it
+                    }
+
+                val initialized = recognizer.initializeIfNeeded()
+                if (!initialized) {
+                    Log.e(TAG, "离线 ASR 初始化失败")
+                    isRecording = false
+                    activeAsrEngine = ActiveAsrEngine.NONE
+                    if (offlineAsrAutoFallbackToCloud && apiKey.isNotBlank()) {
+                        Log.w(TAG, "离线 ASR 初始化失败，回退在线 ASR")
+                        startOnlineRecording(
+                            onPartialResult = onPartialResult,
+                            onFinalResult = onFinalResult,
+                            onError = onError,
+                            onSilenceTimeout = onSilenceTimeout
+                        )
+                    } else {
+                        onError("离线语音识别初始化失败")
+                    }
+                    return@launch
+                }
+
+                isRecording = true
+                isStopping = false
+                lastAudioTime = System.currentTimeMillis()
+                requestAudioFocus()
+                activeAsrEngine = ActiveAsrEngine.OFFLINE
+
+                val started = recognizer.startListening(
+                    object : SherpaOfflineSpeechRecognizer.Listener {
+                        override fun onPartial(text: String) {
+                            if (isPlaying) {
+                                Log.d(TAG, "正在播放 TTS，忽略离线部分结果")
+                                return
+                            }
+                            lastAudioTime = System.currentTimeMillis()
+                            onPartialResult(text)
+                        }
+
+                        override fun onFinal(text: String) {
+                            if (isPlaying) {
+                                Log.d(TAG, "正在播放 TTS，忽略离线最终结果")
+                                return
+                            }
+                            isStopping = true
+                            stopRecording()
+                            val guardedText = SpeechTextGuard.sanitizeFinalText(text)
+                            if (guardedText.isBlank()) {
+                                Log.d(TAG, "离线最终结果被判定为噪声，忽略")
+                                VoiceTerminalMetrics.recordAsrFinalFiltered(
+                                    scene = metricsScene,
+                                    source = "offline",
+                                    reason = "noise_guard"
+                                )
+                            } else {
+                                VoiceTerminalMetrics.recordAsrFinalAccepted(
+                                    scene = metricsScene,
+                                    source = "offline",
+                                    textLength = guardedText.length
+                                )
+                            }
+                            onFinalResult(guardedText)
+                        }
+
+                        override fun onError(message: String) {
+                            Log.e(TAG, "离线 ASR 错误: $message")
+                            isStopping = true
+                            stopRecording()
+                            if (offlineAsrAutoFallbackToCloud && apiKey.isNotBlank()) {
+                                startOnlineRecording(
+                                    onPartialResult = onPartialResult,
+                                    onFinalResult = onFinalResult,
+                                    onError = onError,
+                                    onSilenceTimeout = onSilenceTimeout
+                                )
+                            } else {
+                                onError(message)
+                            }
+                        }
+                    }
+                )
+
+                if (!started) {
+                    isRecording = false
+                    activeAsrEngine = ActiveAsrEngine.NONE
+                    if (offlineAsrAutoFallbackToCloud && apiKey.isNotBlank()) {
+                        Log.w(TAG, "离线 ASR 启动失败，回退在线 ASR")
+                        startOnlineRecording(
+                            onPartialResult = onPartialResult,
+                            onFinalResult = onFinalResult,
+                            onError = onError,
+                            onSilenceTimeout = onSilenceTimeout
+                        )
+                    } else {
+                        onError("离线语音识别启动失败")
+                    }
+                    return@launch
+                }
+
+                startSilenceDetection(onSilenceTimeout)
+            } catch (e: Exception) {
+                Log.e(TAG, "离线录音启动异常", e)
+                isRecording = false
+                activeAsrEngine = ActiveAsrEngine.NONE
+                onError(e.message ?: "离线录音启动异常")
+            }
+        }
+    }
+
+    private fun startOnlineRecording(
+        onPartialResult: (String) -> Unit,
+        onFinalResult: (String) -> Unit,
+        onError: (String) -> Unit,
+        onSilenceTimeout: () -> Unit
+    ) {
         // 在 IO 线程中启动录音，确保上一次的 AudioRecord 已完全释放
         recordingJob = managerScope.launch {
             try {
@@ -140,6 +302,7 @@ class VoiceCallAudioManager(
                 isRecording = true
                 isStopping = false
                 lastAudioTime = System.currentTimeMillis()
+                activeAsrEngine = ActiveAsrEngine.NONE
 
                 // 请求音频焦点
                 requestAudioFocus()
@@ -184,7 +347,22 @@ class VoiceCallAudioManager(
                         // 停止录音
                         stopRecording()
 
-                        onFinalResult(text)
+                        val guardedText = SpeechTextGuard.sanitizeFinalText(text)
+                        if (guardedText.isBlank()) {
+                            Log.d(TAG, "在线最终结果被判定为噪声，忽略")
+                            VoiceTerminalMetrics.recordAsrFinalFiltered(
+                                scene = metricsScene,
+                                source = "cloud",
+                                reason = "noise_guard"
+                            )
+                        } else {
+                            VoiceTerminalMetrics.recordAsrFinalAccepted(
+                                scene = metricsScene,
+                                source = "cloud",
+                                textLength = guardedText.length
+                            )
+                        }
+                        onFinalResult(guardedText)
                     },
                     onError = { error ->
                         Log.e(TAG, "录音错误: ${error.message}")
@@ -206,16 +384,24 @@ class VoiceCallAudioManager(
                         val error = result.exceptionOrNull()
                         Log.e(TAG, "录音启动失败: ${error?.message}")
                         isRecording = false
+                        activeAsrEngine = ActiveAsrEngine.NONE
                         onError(error?.message ?: "录音启动失败")
                     }
                 }
 
+                if (!isRecording) {
+                    return@launch
+                }
+
+                activeAsrEngine = ActiveAsrEngine.CLOUD
+
                 // 启动静音检测
-                startSilenceDetection(onFinalResult, onSilenceTimeout)
+                startSilenceDetection(onSilenceTimeout)
 
             } catch (e: Exception) {
                 Log.e(TAG, "录音启动异常", e)
                 isRecording = false
+                activeAsrEngine = ActiveAsrEngine.NONE
                 onError(e.message ?: "录音启动异常")
             }
         }
@@ -224,7 +410,7 @@ class VoiceCallAudioManager(
     /**
      * 启动静音检测
      */
-    private fun startSilenceDetection(onFinalResult: (String) -> Unit, onSilenceTimeout: () -> Unit) {
+    private fun startSilenceDetection(onSilenceTimeout: () -> Unit) {
         Log.d(TAG, "启动静音检测")
 
         silenceTimer = managerScope.launch {
@@ -242,21 +428,8 @@ class VoiceCallAudioManager(
                 // 如果静音时间超过阈值，自动停止录音并挂机
                 if (silenceDuration > SILENCE_DURATION_MS) {
                     Log.d(TAG, "检测到静音超过 ${SILENCE_DURATION_MS}ms，自动停止录音并挂机")
-                    
-                    // 标记为正在停止
                     isStopping = true
-                    
-                    // 停止录音（只调用一次）
-                    val client = qwenSpeechClient
-                    launch {
-                        try {
-                            client?.stopRecognition()
-                            Log.d(TAG, "静音超时：语音识别已停止")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "静音超时：停止语音识别失败", e)
-                        }
-                    }
-                    
+                    stopRecording()
                     // 调用静音超时回调，通知 ViewModel 自动挂机
                     onSilenceTimeout()
                     break
@@ -269,9 +442,9 @@ class VoiceCallAudioManager(
      * 停止录音
      */
     override fun stopRecording() {
-        Log.d(TAG, "停止录音")
+        Log.d(TAG, "停止录音, activeAsrEngine=$activeAsrEngine")
 
-        if (!isRecording) {
+        if (!isRecording && activeAsrEngine == ActiveAsrEngine.NONE) {
             return
         }
 
@@ -282,25 +455,35 @@ class VoiceCallAudioManager(
         silenceTimer?.cancel()
         silenceTimer = null
 
-        // 停止语音识别（不释放客户端资源）
-        // 注意：这里只停止当前的识别会话，不释放客户端资源
-        // 客户端资源只在通话结束时（stopAll）释放
-        if (!isStopping && qwenSpeechClient != null) {
-            // 在后台线程停止识别，避免阻塞
-                    qwenSpeechClient?.let { client ->
-                        managerScope.launch {                    try {
-                        client.stopRecognition()
-                        Log.d(TAG, "语音识别已停止")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "停止语音识别失败", e)
-                    }
-                }
-            }
-        }
-
         // 取消录音任务
         recordingJob?.cancel()
         recordingJob = null
+
+        val engineToStop = activeAsrEngine
+        activeAsrEngine = ActiveAsrEngine.NONE
+        managerScope.launch {
+            try {
+                when (engineToStop) {
+                    ActiveAsrEngine.OFFLINE -> {
+                        if (isStopping) {
+                            offlineAsrRecognizer?.cancelListening()
+                        } else {
+                            offlineAsrRecognizer?.stopListening()
+                        }
+                        Log.d(TAG, "离线语音识别已停止")
+                    }
+
+                    ActiveAsrEngine.CLOUD -> {
+                        qwenSpeechClient?.stopRecognition()
+                        Log.d(TAG, "在线语音识别已停止")
+                    }
+
+                    ActiveAsrEngine.NONE -> Unit
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "停止语音识别失败", e)
+            }
+        }
 
         // 等待一小段时间，确保 AudioRecord 已被释放
         // 这样可以避免在重新初始化时出现麦克风错误
@@ -447,16 +630,21 @@ class VoiceCallAudioManager(
 
         // 释放客户端（先保存引用，避免在释放过程中被设置为 null）
         val speechClient = qwenSpeechClient
+        val offlineRecognizer = offlineAsrRecognizer
         val ttsClient = cosyVoiceTTSClient
 
         // 清空引用
         qwenSpeechClient = null
+        offlineAsrRecognizer = null
         cosyVoiceTTSClient = null
+        activeAsrEngine = ActiveAsrEngine.NONE
 
         // 在后台线程释放语音识别客户端，避免阻塞主线程
         managerScope.launch {
             try {
                 speechClient?.stopRecognition()
+                offlineRecognizer?.cancelListening()
+                offlineRecognizer?.destroy()
                 Log.d(TAG, "语音识别客户端已释放")
             } catch (e: Exception) {
                 Log.e(TAG, "释放语音识别客户端失败", e)
@@ -556,11 +744,11 @@ class VoiceCallAudioManager(
     override fun release() {
         Log.d(TAG, "释放所有资源")
 
-        // 取消所有协程
-        managerJob.cancel()
-
         // 停止所有音频操作
         stopAll()
+
+        // 取消所有协程
+        managerJob.cancel()
 
         Log.d(TAG, "所有资源已释放")
     }
@@ -592,6 +780,8 @@ class VoiceCallAudioManager(
      * 检查资源是否已释放
      */
     private fun checkResourcesReleased(): Boolean {
-        return !isRecording && qwenSpeechClient == null
+        return !isRecording &&
+            activeAsrEngine == ActiveAsrEngine.NONE &&
+            offlineAsrRecognizer?.isCurrentlyListening() != true
     }
 }

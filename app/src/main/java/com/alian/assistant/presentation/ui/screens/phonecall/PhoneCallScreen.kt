@@ -32,7 +32,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +39,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import com.alian.assistant.R
@@ -53,6 +53,8 @@ import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.presentation.viewmodel.FloatingWindowState
 import com.alian.assistant.presentation.viewmodel.PhoneCallState
 import com.alian.assistant.presentation.viewmodel.PhoneCallViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -88,7 +90,7 @@ fun PhoneCallScreen(
 
     val colors = BaoziTheme.colors
     val scope = rememberCoroutineScope()
-    val view = LocalView.current
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // 创建 ViewModel
     val viewModel = remember { PhoneCallViewModel(context) }
@@ -98,6 +100,9 @@ fun PhoneCallScreen(
 
     // 获取浮动窗口状态
     val floatingWindowState by viewModel.floatingWindowState.collectAsState()
+    // 获取通话状态
+    val state by viewModel.callState.collectAsState()
+    val stateColor = viewModel.getStateColor()
 
     // 监听浮动窗口状态变化
     LaunchedEffect(floatingWindowState) {
@@ -107,7 +112,7 @@ fun PhoneCallScreen(
             is FloatingWindowState.Normal, is FloatingWindowState.Maximized, is FloatingWindowState.Minimized -> {
                 if (floatingWindowView == null) {
                     floatingWindowView = PhoneCallFloatingWindowView(
-                        context = context,
+                        context = context.applicationContext,
                         viewModel = viewModel,
                         onClose = {
                             viewModel.stopCall()
@@ -132,9 +137,46 @@ fun PhoneCallScreen(
         }
     }
 
+    // 最小化 App 时确保悬浮窗显示
+    val latestCallState by rememberUpdatedState(state)
+    val latestFloatingState by rememberUpdatedState(floatingWindowState)
+    val latestFloatingWindowView by rememberUpdatedState(floatingWindowView)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_STOP) {
+                return@LifecycleEventObserver
+            }
+
+            val callIsActive = latestCallState is PhoneCallState.Recording ||
+                    latestCallState is PhoneCallState.Processing ||
+                    latestCallState is PhoneCallState.Playing ||
+                    latestCallState is PhoneCallState.Operating
+
+            if (!callIsActive) {
+                return@LifecycleEventObserver
+            }
+
+            if (latestFloatingState is FloatingWindowState.Disabled) {
+                Log.d("PhoneCallScreen", "应用进入后台且通话中，启用悬浮窗")
+                viewModel.enableFloatingMode()
+            } else {
+                latestFloatingWindowView?.setVisible(true)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     // 权限检查对话框状态
     var showPermissionDialog by remember { mutableStateOf(false) }
     var permissionCheckResult by remember { mutableStateOf<AgentPermissionCheck.CheckResult?>(null) }
+    val syncMediaProjectionResult = {
+        if (mediaProjectionResultCode != null && mediaProjectionData != null) {
+            viewModel.setMediaProjectionResult(mediaProjectionResultCode, mediaProjectionData)
+        }
+    }
 
     // 更新配置
     LaunchedEffect(apiKey, baseUrl, model, systemPrompt, ttsVoice, ttsSpeed, ttsInterruptEnabled, enableAEC, enableStreaming, volume, deviceController) {
@@ -157,11 +199,14 @@ fun PhoneCallScreen(
     LaunchedEffect(mediaProjectionResultCode, mediaProjectionData) {
         Log.d("PhoneCallScreen", "MediaProjection 参数变化: resultCode=$mediaProjectionResultCode, data=${mediaProjectionData != null}")
         if (mediaProjectionResultCode != null && mediaProjectionData != null) {
-            viewModel.setMediaProjectionResult(mediaProjectionResultCode, mediaProjectionData)
+            syncMediaProjectionResult()
             Log.d("PhoneCallScreen", "MediaProjection 权限已更新: resultCode=$mediaProjectionResultCode")
 
             // 权限更新后重新检查
-            val permissionResult = viewModel.checkAllPhoneCallPermissions()
+            val permissionResult = viewModel.checkAllPhoneCallPermissions(
+                mediaProjectionResultCode = mediaProjectionResultCode,
+                mediaProjectionData = mediaProjectionData
+            )
             Log.d("PhoneCallScreen", "权限更新后的检查结果: $permissionResult")
             if (permissionResult is AgentPermissionCheck.CheckResult.Granted) {
                 showPermissionDialog = false
@@ -171,10 +216,6 @@ fun PhoneCallScreen(
             }
         }
     }
-
-    // 获取状态
-    val state by viewModel.callState.collectAsState()
-    val stateColor = viewModel.getStateColor()
 
     // 监听通话状态，通话开始时自动显示浮动窗口
     LaunchedEffect(state) {
@@ -223,7 +264,10 @@ fun PhoneCallScreen(
             
             // 检查是否是权限相关的错误
             if (errorMessage.contains("需要") || errorMessage.contains("权限")) {
-                permissionCheckResult = viewModel.checkAllPhoneCallPermissions()
+                permissionCheckResult = viewModel.checkAllPhoneCallPermissions(
+                    mediaProjectionResultCode = mediaProjectionResultCode,
+                    mediaProjectionData = mediaProjectionData
+                )
                 if (permissionCheckResult !is AgentPermissionCheck.CheckResult.Granted) {
                     showPermissionDialog = true
                 }
@@ -261,6 +305,17 @@ fun PhoneCallScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
+                    syncMediaProjectionResult()
+                    val latestPermissionResult = viewModel.checkAllPhoneCallPermissions(
+                        mediaProjectionResultCode = mediaProjectionResultCode,
+                        mediaProjectionData = mediaProjectionData
+                    )
+                    permissionCheckResult = latestPermissionResult
+                    if (latestPermissionResult is AgentPermissionCheck.CheckResult.Granted) {
+                        showPermissionDialog = false
+                        return@TextButton
+                    }
+
                     when (permissionCheckResult) {
                         is AgentPermissionCheck.CheckResult.NeedsMediaProjection -> {
                             // MediaProjection 需要特殊处理：优先走宿主回调请求系统授权弹窗。
@@ -362,7 +417,11 @@ fun PhoneCallScreen(
                 scope = scope,
                 onBackClick = onBackClick,
                 onStartCall = {
-                    val permissionResult = viewModel.checkAllPhoneCallPermissions()
+                    syncMediaProjectionResult()
+                    val permissionResult = viewModel.checkAllPhoneCallPermissions(
+                        mediaProjectionResultCode = mediaProjectionResultCode,
+                        mediaProjectionData = mediaProjectionData
+                    )
                     if (permissionResult is AgentPermissionCheck.CheckResult.Granted) {
                         viewModel.startCall()
                     } else {

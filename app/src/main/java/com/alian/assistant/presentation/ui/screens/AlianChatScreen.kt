@@ -88,6 +88,7 @@ fun AlianChatScreen(
     ttsVoice: String = "longyingmu_v3",
     ttsSpeed: Float = 1.0f,
     ttsInterruptEnabled: Boolean = false,
+    enableAEC: Boolean = false,
     enableStreaming: Boolean = false,
     volume: Int = 50,
     voiceRecognitionManager: VoiceRecognitionManager? = null,
@@ -467,7 +468,7 @@ fun AlianChatScreen(
                         ttsVoice = ttsVoice,
                         ttsSpeed = ttsSpeed,
                         ttsInterruptEnabled = ttsInterruptEnabled,
-                        enableAEC = ttsInterruptEnabled,  // 当启用语音打断时，自动启用 AEC
+                        enableAEC = enableAEC,
                         enableStreaming = enableStreaming,  // 启用流式 LLM + 流式 TTS
                         volume = volume,
                         onBackClick = {
@@ -497,7 +498,7 @@ fun AlianChatScreen(
                         ttsVoice = ttsVoice,
                         ttsSpeed = ttsSpeed,
                         ttsInterruptEnabled = ttsInterruptEnabled,
-                        enableAEC = ttsInterruptEnabled,
+                        enableAEC = enableAEC,
                         enableStreaming = enableStreaming,
                         volume = volume,
                         onBackClick = {
@@ -527,7 +528,7 @@ fun AlianChatScreen(
                         ttsVoice = ttsVoice,
                         ttsSpeed = ttsSpeed,
                         ttsInterruptEnabled = ttsInterruptEnabled,
-                        enableAEC = ttsInterruptEnabled,
+                        enableAEC = enableAEC,
                         enableStreaming = enableStreaming,
                         volume = volume,
                         deviceController = deviceController,

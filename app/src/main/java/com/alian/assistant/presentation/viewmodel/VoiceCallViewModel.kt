@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
+import com.alian.assistant.common.utils.SpeechTextGuard
 import com.alian.assistant.infrastructure.audio.AecVoiceCallAudioManager
 import com.alian.assistant.infrastructure.audio.IAudioManager
 import com.alian.assistant.infrastructure.audio.VoiceCallAudioManager
@@ -148,7 +149,8 @@ class VoiceCallViewModel(private val context: Context) {
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                volume = volume
+                volume = volume,
+                metricsScene = "voice_call"
             )
             // 设置播放中断回调
             aecManager.setOnPlaybackInterrupted {
@@ -165,7 +167,8 @@ class VoiceCallViewModel(private val context: Context) {
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                volume = volume
+                volume = volume,
+                metricsScene = "voice_call"
             )
         }
 
@@ -316,11 +319,13 @@ class VoiceCallViewModel(private val context: Context) {
 
         // 过滤掉上一轮AI的回复
         val filteredText = filterOutAIResponse(contentText)
-        
-        Log.d(TAG, "过滤后的文本内容: $filteredText")
+
+        val guardedText = SpeechTextGuard.sanitizeFinalText(filteredText)
+
+        Log.d(TAG, "过滤后的文本内容: $filteredText, 闸门后文本: $guardedText")
 
         // 如果过滤后为空，则忽略此次识别
-        if (filteredText.isBlank()) {
+        if (guardedText.isBlank()) {
             Log.w(TAG, "过滤后文本为空，忽略此次识别结果")
             // 继续录音
             startRecording()
@@ -330,7 +335,7 @@ class VoiceCallViewModel(private val context: Context) {
         // 添加用户消息到历史
         val userMessage = VoiceCallMessage(
             id = generateMessageId(),
-            content = filteredText,
+            content = guardedText,
             isUser = true
         )
         _conversationHistory.add(userMessage)
@@ -344,7 +349,7 @@ class VoiceCallViewModel(private val context: Context) {
         // 发送到 API（使用 viewModelScope 统一管理）
         currentJob = viewModelScope.launch {
             try {
-                processUserMessage(filteredText)
+                processUserMessage(guardedText)
             } finally {
                 // 处理完成后重置标志
                 isProcessing = false
