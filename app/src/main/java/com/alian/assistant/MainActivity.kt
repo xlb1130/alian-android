@@ -417,27 +417,25 @@ class MainActivity : ComponentActivity() {
                     voiceRecognitionManager.initializeQwenSpeechClient(
                         settings.apiKey,
                         settings.speechModel,
-                        16000,      // sample rate
-                        "pcm",      // audio format
-                        true,       // vad enabled
-                        true        // punctuation enabled
+                        16000,
+                        "pcm",
+                        true,
+                        true
                     )
-
-                    // 初始化流式语音识别管理器
-                    streamingVoiceRecognitionManager = StreamingVoiceRecognitionManager(
-                        context = this@MainActivity,
-                        apiKey = settings.apiKey,
-                        model = settings.speechModel
-                    )
-                    Log.d("MainActivity", "StreamingVoiceRecognitionManager 初始化成功")
-                } else {
-                    Log.w("MainActivity", "apiKey 为空，无法初始化 StreamingVoiceRecognitionManager")
-                    Toast.makeText(
-                        this@MainActivity,
-                        "请先设置 API Key 以使用语音功能",
-                        Toast.LENGTH_LONG
-                    ).show()
                 }
+
+                streamingVoiceRecognitionManager?.destroy()
+                streamingVoiceRecognitionManager = StreamingVoiceRecognitionManager(
+                    context = this@MainActivity,
+                    apiKey = settings.apiKey,
+                    model = settings.speechModel,
+                    offlineAsrEnabled = settings.offlineAsrEnabled,
+                    offlineAsrAutoFallbackToCloud = settings.offlineAsrAutoFallbackToCloud
+                )
+                Log.d(
+                    "MainActivity",
+                    "StreamingVoiceRecognitionManager 初始化成功: offlineAsrEnabled=${settings.offlineAsrEnabled}"
+                )
 
                 // 初始化AlianClient
                 alianClient = if (settings.useBackend) {
@@ -1322,6 +1320,8 @@ class MainActivity : ComponentActivity() {
                                 currentProvider = settings.speechProvider,
                                 credentials = settings.speechCredentials,
                                 models = settings.speechModels,
+                                offlineAsrEnabled = settings.offlineAsrEnabled,
+                                offlineAsrAutoFallbackToCloud = settings.offlineAsrAutoFallbackToCloud,
                                 onBack = { currentScreen = Screen.Settings },
                                 onSelectProvider = { provider ->
                                     settingsManager.selectSpeechProvider(provider)
@@ -1331,6 +1331,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onUpdateModels = { provider, models ->
                                     settingsManager.updateSpeechModels(provider, models)
+                                },
+                                onUpdateOfflineAsrEnabled = {
+                                    settingsManager.updateOfflineAsrEnabled(it)
+                                },
+                                onUpdateOfflineAsrAutoFallbackToCloud = {
+                                    settingsManager.updateOfflineAsrAutoFallbackToCloud(it)
                                 }
                             )
 

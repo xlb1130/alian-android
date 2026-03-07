@@ -58,9 +58,13 @@ fun SpeechProviderSettingsContent(
     currentProvider: SpeechProvider,
     credentials: Map<SpeechProvider, SpeechProviderCredentials>,
     models: Map<SpeechProvider, SpeechModels>,
+    offlineAsrEnabled: Boolean,
+    offlineAsrAutoFallbackToCloud: Boolean,
     onSelectProvider: (SpeechProvider) -> Unit,
     onUpdateCredentials: (SpeechProvider, SpeechProviderCredentials) -> Unit,
-    onUpdateModels: (SpeechProvider, SpeechModels) -> Unit
+    onUpdateModels: (SpeechProvider, SpeechModels) -> Unit,
+    onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
+    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
     val context = LocalContext.current
@@ -92,6 +96,15 @@ fun SpeechProviderSettingsContent(
                     color = colors.textHint
                 )
             }
+        }
+
+        item {
+            OfflineAsrSettingsCard(
+                offlineAsrEnabled = offlineAsrEnabled,
+                offlineAsrAutoFallbackToCloud = offlineAsrAutoFallbackToCloud,
+                onUpdateOfflineAsrEnabled = onUpdateOfflineAsrEnabled,
+                onUpdateOfflineAsrAutoFallbackToCloud = onUpdateOfflineAsrAutoFallbackToCloud
+            )
         }
 
         // 服务商选择
@@ -133,6 +146,91 @@ fun SpeechProviderSettingsContent(
         // 底部间距
         item {
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun OfflineAsrSettingsCard(
+    offlineAsrEnabled: Boolean,
+    offlineAsrAutoFallbackToCloud: Boolean,
+    onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
+    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit
+) {
+    val colors = BaoziTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                width = 1.dp,
+                color = colors.textHint.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .background(colors.backgroundCard)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "离线 ASR（实验性）",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.textPrimary
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "本地离线语音识别（Sherpa）",
+                    fontSize = 13.sp,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (offlineAsrEnabled) {
+                        "按住说话优先使用本地识别，不依赖网络"
+                    } else {
+                        "关闭后使用当前服务商的在线 ASR"
+                    },
+                    fontSize = 11.sp,
+                    color = colors.textHint
+                )
+            }
+            Switch(
+                checked = offlineAsrEnabled,
+                onCheckedChange = onUpdateOfflineAsrEnabled
+            )
+        }
+        if (offlineAsrEnabled) {
+            HorizontalDivider(color = colors.textHint.copy(alpha = 0.2f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "离线失败自动回退在线识别",
+                        fontSize = 13.sp,
+                        color = colors.textPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "关闭后若离线初始化失败，将直接报错",
+                        fontSize = 11.sp,
+                        color = colors.textHint
+                    )
+                }
+                Switch(
+                    checked = offlineAsrAutoFallbackToCloud,
+                    onCheckedChange = onUpdateOfflineAsrAutoFallbackToCloud
+                )
+            }
         }
     }
 }
