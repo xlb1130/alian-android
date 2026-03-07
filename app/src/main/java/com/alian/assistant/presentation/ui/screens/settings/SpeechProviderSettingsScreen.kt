@@ -22,10 +22,14 @@ fun SpeechProviderSettingsScreen(
     currentProvider: SpeechProvider,
     credentials: Map<SpeechProvider, SpeechProviderCredentials>,
     models: Map<SpeechProvider, SpeechModels>,
+    offlineAsrEnabled: Boolean,
+    offlineAsrAutoFallbackToCloud: Boolean,
     onBack: () -> Unit,
     onSelectProvider: (SpeechProvider) -> Unit,
     onUpdateCredentials: (SpeechProvider, SpeechProviderCredentials) -> Unit,
-    onUpdateModels: (SpeechProvider, SpeechModels) -> Unit
+    onUpdateModels: (SpeechProvider, SpeechModels) -> Unit,
+    onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
+    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
     var isPageVisible by remember { mutableStateOf(false) }
@@ -57,9 +61,13 @@ fun SpeechProviderSettingsScreen(
             currentProvider = currentProvider,
             credentials = credentials,
             models = models,
+            offlineAsrEnabled = offlineAsrEnabled,
+            offlineAsrAutoFallbackToCloud = offlineAsrAutoFallbackToCloud,
             onSelectProvider = onSelectProvider,
             onUpdateCredentials = onUpdateCredentials,
-            onUpdateModels = onUpdateModels
+            onUpdateModels = onUpdateModels,
+            onUpdateOfflineAsrEnabled = onUpdateOfflineAsrEnabled,
+            onUpdateOfflineAsrAutoFallbackToCloud = onUpdateOfflineAsrAutoFallbackToCloud
         )
     }
 }

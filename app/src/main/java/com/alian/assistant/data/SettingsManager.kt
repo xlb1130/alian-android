@@ -140,6 +140,8 @@ data class AppSettings(
     val phoneCallFloatingWindowRememberPosition: Boolean = true,  // 记住窗口位置
     val phoneCallFloatingWindowEdgeSnap: Boolean = true,  // 边缘吸附
     val phoneCallFloatingWindowMinimizeOnTap: Boolean = false,  // 点击空白处最小化
+    val offlineAsrEnabled: Boolean = false,  // 是否启用本地离线 ASR（Sherpa）
+    val offlineAsrAutoFallbackToCloud: Boolean = true,  // 本地离线 ASR 失败时是否自动回退在线 ASR
 
     // ========== ASR/TTS 服务商配置 ==========
     val speechProvider: SpeechProvider = SpeechProvider.BAILIAN,  // 当前 ASR/TTS 服务商
@@ -350,6 +352,8 @@ class SettingsManager(context: Context) {
             phoneCallFloatingWindowRememberPosition = prefs.getBoolean("phone_call_floating_window_remember_position", true),
             phoneCallFloatingWindowEdgeSnap = prefs.getBoolean("phone_call_floating_window_edge_snap", true),
             phoneCallFloatingWindowMinimizeOnTap = prefs.getBoolean("phone_call_floating_window_minimize_on_tap", false),
+            offlineAsrEnabled = prefs.getBoolean("offline_asr_enabled", false),
+            offlineAsrAutoFallbackToCloud = prefs.getBoolean("offline_asr_auto_fallback_to_cloud", true),
             
             // 加载 ASR/TTS 服务商配置
             speechProvider = loadSpeechProvider(),
@@ -776,6 +780,16 @@ class SettingsManager(context: Context) {
     fun updatePhoneCallFloatingWindowMinimizeOnTap(minimizeOnTap: Boolean) {
         prefs.edit().putBoolean("phone_call_floating_window_minimize_on_tap", minimizeOnTap).apply()
         _settings.value = _settings.value.copy(phoneCallFloatingWindowMinimizeOnTap = minimizeOnTap)
+    }
+
+    fun updateOfflineAsrEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("offline_asr_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(offlineAsrEnabled = enabled)
+    }
+
+    fun updateOfflineAsrAutoFallbackToCloud(enabled: Boolean) {
+        prefs.edit().putBoolean("offline_asr_auto_fallback_to_cloud", enabled).apply()
+        _settings.value = _settings.value.copy(offlineAsrAutoFallbackToCloud = enabled)
     }
 
     // ========== ASR/TTS 服务商配置方法 ==========
