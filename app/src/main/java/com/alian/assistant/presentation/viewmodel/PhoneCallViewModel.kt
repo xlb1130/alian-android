@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
+import com.alian.assistant.common.utils.SpeechTextGuard
 import com.alian.assistant.core.agent.PhoneCallAgent
 import com.alian.assistant.core.agent.PhoneCallMessage
 import com.alian.assistant.infrastructure.ai.llm.VLMClient
@@ -17,9 +18,14 @@ import com.alian.assistant.infrastructure.audio.AecVoiceCallAudioManager
 import com.alian.assistant.infrastructure.audio.IAudioManager
 import com.alian.assistant.infrastructure.audio.VoiceCallAudioManager
 import com.alian.assistant.infrastructure.device.ScreenCaptureManager
+import com.alian.assistant.infrastructure.device.controller.interfaces.ControllerType
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
+import com.alian.assistant.infrastructure.device.controller.shizuku.ShizukuController
 import com.alian.assistant.presentation.ui.screens.phonecall.MCPPhoneCallClient
 import com.alian.assistant.presentation.ui.screens.phonecall.PhoneCallOverlayService
+import com.alibaba.fastjson.JSON
+import com.alian.assistant.common.utils.PermissionManager
+import com.alian.assistant.common.utils.PermissionType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 手机通话状态
@@ -233,20 +240,30 @@ class PhoneCallViewModel(private val context: Context) {
     /**
      * 检查手机通话所需的权限
      */
-    fun checkPhoneCallPermissions(): AgentPermissionCheck.CheckResult {
+    fun checkPhoneCallPermissions(
+        mediaProjectionResultCode: Int? = null,
+        mediaProjectionData: Intent? = null
+    ): AgentPermissionCheck.CheckResult {
+        val effectiveResultCode = mediaProjectionResultCode ?: this.mediaProjectionResultCode
+        val effectiveData = mediaProjectionData ?: this.mediaProjectionData
         return permissionChecker.checkPermissions(
-            mediaProjectionResultCode = mediaProjectionResultCode,
-            mediaProjectionData = mediaProjectionData
+            mediaProjectionResultCode = effectiveResultCode,
+            mediaProjectionData = effectiveData
         )
     }
 
     /**
      * 检查所有缺失的手机通话权限
      */
-    fun checkAllPhoneCallPermissions(): AgentPermissionCheck.CheckResult {
+    fun checkAllPhoneCallPermissions(
+        mediaProjectionResultCode: Int? = null,
+        mediaProjectionData: Intent? = null
+    ): AgentPermissionCheck.CheckResult {
+        val effectiveResultCode = mediaProjectionResultCode ?: this.mediaProjectionResultCode
+        val effectiveData = mediaProjectionData ?: this.mediaProjectionData
         return permissionChecker.checkAllPermissions(
-            mediaProjectionResultCode = mediaProjectionResultCode,
-            mediaProjectionData = mediaProjectionData
+            mediaProjectionResultCode = effectiveResultCode,
+            mediaProjectionData = effectiveData
         )
     }
 
@@ -313,8 +330,35 @@ class PhoneCallViewModel(private val context: Context) {
             return
         }
 
-        if (deviceController == null || !deviceController!!.isAvailable()) {
-            _callState.value = PhoneCallState.Error("设备控制器不可用，请检查权限")
+        val controller = deviceController
+        if (controller == null) {
+            _callState.value = PhoneCallState.Error("设备控制器未初始化，请检查权限或重新进入页面")
+            return
+        }
+
+        // Shizuku 控制器未就绪时先尝试绑定服务，再做可用性判断
+        if (!controller.isAvailable() && controller is ShizukuController) {
+            Log.d(TAG, "Shizuku 控制器未就绪，尝试重新绑定服务")
+            controller.bindService()
+        }
+
+        if (!controller.isAvailable()) {
+            val hint = when (controller.getControllerType()) {
+                ControllerType.SHIZUKU -> "Shizuku 服务未连接，请在设置中启动并授权 Shizuku 后重试"
+                ControllerType.ACCESSIBILITY -> {
+                    val accessibilityEnabled = PermissionManager.isPermissionGranted(
+                        context,
+                        PermissionType.ACCESSIBILITY_SERVICE
+                    )
+                    if (accessibilityEnabled) {
+                        "无障碍服务已开启但当前未连接，请到系统无障碍页面关闭后重新开启，再重试"
+                    } else {
+                        "无障碍服务未开启，请先开启无障碍服务"
+                    }
+                }
+                ControllerType.HYBRID -> "控制器不可用，请检查无障碍服务或 Shizuku 是否已就绪"
+            }
+            _callState.value = PhoneCallState.Error(hint)
             return
         }
 
@@ -339,7 +383,8 @@ class PhoneCallViewModel(private val context: Context) {
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                volume = volume
+                volume = volume,
+                metricsScene = "phone_call"
             )
         } else {
             VoiceCallAudioManager(
@@ -348,7 +393,8 @@ class PhoneCallViewModel(private val context: Context) {
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                volume = volume
+                volume = volume,
+                metricsScene = "phone_call"
             )
         }
 
@@ -444,10 +490,24 @@ class PhoneCallViewModel(private val context: Context) {
             return
         }
 
+        val contentText = try {
+            val json = JSON.parseObject(text)
+            json.getString("text") ?: text
+        } catch (e: Exception) {
+            text
+        }
+
+        val guardedText = SpeechTextGuard.sanitizeFinalText(contentText)
+        if (guardedText.isBlank()) {
+            Log.w(TAG, "识别文本被判定为噪声，忽略并继续监听")
+            startRecording()
+            return
+        }
+
         // 添加用户消息到历史
         val userMessage = PhoneCallMessage(
             id = generateMessageId(),
-            content = text,
+            content = guardedText,
             isUser = true
         )
         _conversationHistory.add(userMessage)
@@ -461,7 +521,7 @@ class PhoneCallViewModel(private val context: Context) {
         // 发送到处理（使用 viewModelScope）
         currentJob = viewModelScope.launch {
             try {
-                processUserMessage(text)
+                processUserMessage(guardedText)
             } finally {
                 // 处理完成后重置标志
                 isProcessing = false
@@ -731,7 +791,9 @@ class PhoneCallViewModel(private val context: Context) {
      */
     suspend fun hideFloatingWindowForOperation() {
         Log.d(TAG, "隐藏悬浮窗（操作前）")
-        floatingWindowView?.setVisible(false)
+        withContext(Dispatchers.Main.immediate) {
+            floatingWindowView?.setVisible(false)
+        }
     }
 
     /**
@@ -739,7 +801,9 @@ class PhoneCallViewModel(private val context: Context) {
      */
     suspend fun showFloatingWindowForOperation() {
         Log.d(TAG, "显示悬浮窗（操作后）")
-        floatingWindowView?.setVisible(true)
+        withContext(Dispatchers.Main.immediate) {
+            floatingWindowView?.setVisible(true)
+        }
     }
 
     /**

@@ -518,7 +518,7 @@ fun AlianLocalScreen(
                         ttsVoice = ttsVoice,
                         ttsSpeed = ttsSpeed,
                         ttsInterruptEnabled = ttsInterruptEnabled,
-                        enableAEC = ttsInterruptEnabled,
+                        enableAEC = enableAEC,
                         enableStreaming = enableStreaming,
                         volume = volume,
                         onBackClick = {
@@ -548,7 +548,7 @@ fun AlianLocalScreen(
                         ttsVoice = ttsVoice,
                         ttsSpeed = ttsSpeed,
                         ttsInterruptEnabled = ttsInterruptEnabled,
-                        enableAEC = ttsInterruptEnabled,
+                        enableAEC = enableAEC,
                         enableStreaming = enableStreaming,
                         volume = volume,
                         onBackClick = {
@@ -578,7 +578,7 @@ fun AlianLocalScreen(
                         ttsVoice = ttsVoice,
                         ttsSpeed = ttsSpeed,
                         ttsInterruptEnabled = ttsInterruptEnabled,
-                        enableAEC = ttsInterruptEnabled,
+                        enableAEC = enableAEC,
                         enableStreaming = enableStreaming,
                         volume = volume,
                         onRequireMediaProjection = onRequireMediaProjection,

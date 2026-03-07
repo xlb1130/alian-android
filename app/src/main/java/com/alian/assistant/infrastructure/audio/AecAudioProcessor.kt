@@ -5,6 +5,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.util.Log
+import com.alian.assistant.common.utils.VoiceTerminalMetrics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,12 +29,20 @@ import kotlin.math.sqrt
 class AecAudioProcessor(
     private val sampleRate: Int = 16000,
     private val channelConfig: Int = AudioFormat.CHANNEL_IN_MONO,
-    private val audioFormat: Int = AudioFormat.ENCODING_PCM_16BIT
+    private val audioFormat: Int = AudioFormat.ENCODING_PCM_16BIT,
+    private val metricsScene: String = "voice_call"
 ) {
     companion object {
         private const val TAG = "AecAudioProcessor"
         private const val BUFFER_SIZE_MS = 20  // 20ms 缓冲区
         private const val BYTES_PER_SAMPLE = 2  // 16-bit = 2 bytes
+        private const val BASE_ENERGY_THRESHOLD = 500.0
+        private const val PLAYBACK_NO_REF_THRESHOLD = 1000.0
+        private const val PLAYBACK_GUARD_THRESHOLD = 1200.0
+        private const val NOISE_FLOOR_ADAPT_RATE = 0.05
+        private const val NOISE_THRESHOLD_FACTOR = 2.2
+        private const val MIN_INTERRUPT_HOLD_MS = 120L
+        private const val INTERRUPT_COOLDOWN_MS = 900L
     }
 
     // 录音相关
@@ -75,6 +84,9 @@ class AecAudioProcessor(
     private var userSpeechDetected = false
     private var consecutiveSpeechDetectionCount = 0  // 连续检测到用户说话的次数
     private val REQUIRED_CONSECUTIVE_DETECTIONS = 2  // 需要连续检测到的次数（防抖机制）
+    private var speechCandidateStartTime: Long = 0L
+    private var lastInterruptTriggerTime: Long = 0L
+    private var dynamicNoiseFloor = 120.0
 
     // TTS 播放状态感知（用于优化 VAD 检测，避免回声误触发）
     @Volatile
@@ -134,6 +146,7 @@ class AecAudioProcessor(
         isPlaybackActive = true
         playbackStartTime = System.currentTimeMillis()
         consecutiveSpeechDetectionCount = 0
+        speechCandidateStartTime = 0L
         Log.d(TAG, "TTS 播放已开始，启动打断保护期 ${PLAYBACK_PROTECTION_PERIOD_MS}ms")
     }
 
@@ -143,6 +156,7 @@ class AecAudioProcessor(
     fun notifyPlaybackStopped() {
         isPlaybackActive = false
         consecutiveSpeechDetectionCount = 0
+        speechCandidateStartTime = 0L
         Log.d(TAG, "TTS 播放已停止")
     }
 
@@ -209,6 +223,8 @@ class AecAudioProcessor(
         isRecording.set(false)
         recordingJob?.cancel()
         recordingJob = null
+        speechCandidateStartTime = 0L
+        consecutiveSpeechDetectionCount = 0
 
         audioRecord?.let {
             if (it.state == AudioRecord.STATE_INITIALIZED && it.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
@@ -369,33 +385,43 @@ class AecAudioProcessor(
      * @param useHighThreshold 是否使用更高的能量阈值（TTS 播放中但无参考信号时使用，降低回声误触发）
      */
     private fun detectUserSpeech(audioData: ByteArray, useHighThreshold: Boolean = false) {
-        // 计算音频能量（RMS）
-        var energy = 0.0
-        for (i in audioData.indices step 2) {
-            val sample = ((audioData[i + 1].toInt() and 0xFF) shl 8 or (audioData[i].toInt() and 0xFF)).toShort()
-            energy += sample * sample
-        }
-        energy = sqrt(energy / (audioData.size / 2))
+        // 计算基础特征：能量 + 过零率 + 峰值
+        val energy = calculateRms(audioData)
+        val zcr = calculateZeroCrossingRate(audioData)
+        val peak = calculatePeakAbs(audioData)
 
         // 根据当前状态选择能量阈值：
         // - TTS 播放初期保护期（滤波器未收敛）：使用较高阈值 1200.0，过滤回声残留但用户说话仍可打断
         // - TTS 播放中但无参考信号（回声未被消除）：使用稍高阈值 1000.0
         // - 正常情况：使用标准阈值 500.0
-        val threshold = if (isPlaybackActive) {
+        val baseThreshold = if (isPlaybackActive) {
             val elapsedSincePlaybackStart = System.currentTimeMillis() - playbackStartTime
             if (elapsedSincePlaybackStart < PLAYBACK_PROTECTION_PERIOD_MS) {
-                1200.0  // 保护期内使用较高阈值
+                PLAYBACK_GUARD_THRESHOLD  // 保护期内使用较高阈值
             } else if (useHighThreshold) {
-                1000.0  // 无参考信号时使用稍高阈值
+                PLAYBACK_NO_REF_THRESHOLD  // 无参考信号时使用稍高阈值
             } else {
-                500.0   // AEC 处理后使用标准阈值
+                BASE_ENERGY_THRESHOLD   // AEC 处理后使用标准阈值
             }
         } else {
-            500.0  // 非播放状态使用标准阈值
+            BASE_ENERGY_THRESHOLD  // 非播放状态使用标准阈值
         }
 
+        // 动态噪声底估计：播放中或接近阈值时减缓更新，避免把语音吞进噪声底
+        if (!isPlaybackActive || energy < baseThreshold * 0.8) {
+            dynamicNoiseFloor =
+                dynamicNoiseFloor * (1 - NOISE_FLOOR_ADAPT_RATE) + energy * NOISE_FLOOR_ADAPT_RATE
+            if (dynamicNoiseFloor < 80.0) {
+                dynamicNoiseFloor = 80.0
+            }
+        }
 
-        if (energy > threshold) {
+        val adaptiveThreshold = maxOf(baseThreshold, dynamicNoiseFloor * NOISE_THRESHOLD_FACTOR)
+        val zcrValid = zcr in 0.02..0.45
+        val peakValid = peak > adaptiveThreshold * 1.15
+        val speechLike = energy > adaptiveThreshold && zcrValid && peakValid
+
+        if (speechLike) {
             // 检测到用户说话
             val currentTime = System.currentTimeMillis()
             lastUserSpeechTime = currentTime
@@ -403,22 +429,98 @@ class AecAudioProcessor(
 
             // 增加连续检测计数
             consecutiveSpeechDetectionCount++
+            if (speechCandidateStartTime == 0L) {
+                speechCandidateStartTime = currentTime
+                VoiceTerminalMetrics.recordInterruptCandidate(
+                    scene = metricsScene,
+                    duringPlayback = isPlaybackActive
+                )
+            }
+            val holdMs = currentTime - speechCandidateStartTime
 
-            Log.d(TAG, "检测到用户说话，能量=$energy，连续检测次数=$consecutiveSpeechDetectionCount/$REQUIRED_CONSECUTIVE_DETECTIONS")
+            Log.d(
+                TAG,
+                "检测到候选语音，energy=$energy, zcr=$zcr, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, count=$consecutiveSpeechDetectionCount/$REQUIRED_CONSECUTIVE_DETECTIONS"
+            )
 
             // 只有连续检测到指定次数才触发回调（防抖机制）
-            if (consecutiveSpeechDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS) {
+            val inCooldown = (currentTime - lastInterruptTriggerTime) < INTERRUPT_COOLDOWN_MS
+            if (!inCooldown &&
+                holdMs >= MIN_INTERRUPT_HOLD_MS &&
+                consecutiveSpeechDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS
+            ) {
                 Log.d(TAG, "连续检测确认用户说话，触发语音打断回调")
+                VoiceTerminalMetrics.recordInterruptConfirmed(
+                    scene = metricsScene,
+                    latencyMs = holdMs
+                )
                 onUserSpeechDetected?.invoke()
                 // 重置计数，避免重复触发
                 consecutiveSpeechDetectionCount = 0
+                speechCandidateStartTime = 0L
+                lastInterruptTriggerTime = currentTime
+            } else if (inCooldown && consecutiveSpeechDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS) {
+                VoiceTerminalMetrics.recordInterruptRejected(
+                    scene = metricsScene,
+                    reason = "cooldown"
+                )
             }
         } else {
+            val hadCandidate = speechCandidateStartTime != 0L
             // 能量低于阈值，重置连续检测计数
             if (consecutiveSpeechDetectionCount > 0) {
                 consecutiveSpeechDetectionCount = 0
             }
+            speechCandidateStartTime = 0L
+            if (hadCandidate) {
+                VoiceTerminalMetrics.recordInterruptRejected(
+                    scene = metricsScene,
+                    reason = "short_burst"
+                )
+            }
         }
+    }
+
+    private fun calculateRms(audioData: ByteArray): Double {
+        var energy = 0.0
+        for (i in audioData.indices step 2) {
+            val sample =
+                ((audioData[i + 1].toInt() and 0xFF) shl 8 or (audioData[i].toInt() and 0xFF)).toShort()
+            energy += sample * sample
+        }
+        return sqrt(energy / (audioData.size / 2))
+    }
+
+    private fun calculatePeakAbs(audioData: ByteArray): Double {
+        var peak = 0
+        for (i in audioData.indices step 2) {
+            val sample =
+                ((audioData[i + 1].toInt() and 0xFF) shl 8 or (audioData[i].toInt() and 0xFF)).toShort()
+            val value = kotlin.math.abs(sample.toInt())
+            if (value > peak) {
+                peak = value
+            }
+        }
+        return peak.toDouble()
+    }
+
+    private fun calculateZeroCrossingRate(audioData: ByteArray): Double {
+        var zeroCrossings = 0
+        var prev = 0
+        var first = true
+        var count = 0
+        for (i in audioData.indices step 2) {
+            val sample =
+                ((audioData[i + 1].toInt() and 0xFF) shl 8 or (audioData[i].toInt() and 0xFF)).toShort()
+            val cur = sample.toInt()
+            if (!first && ((cur >= 0 && prev < 0) || (cur < 0 && prev >= 0))) {
+                zeroCrossings++
+            }
+            prev = cur
+            first = false
+            count++
+        }
+        return if (count <= 1) 0.0 else zeroCrossings.toDouble() / (count - 1).toDouble()
     }
 
     /**

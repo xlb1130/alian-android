@@ -1,6 +1,7 @@
 package com.alian.assistant.common.utils
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -21,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import com.alian.assistant.R
+import com.alian.assistant.infrastructure.device.accessibility.AccessibilityKeepAliveService
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import rikka.shizuku.Shizuku
 
@@ -311,7 +313,9 @@ object PermissionManager {
         resultCode: Int?,
         data: Intent?
     ): PermissionState {
-        val available = resultCode != null && data != null
+        val hasValidToken = resultCode == Activity.RESULT_OK && data != null
+        val hasActiveProjection = AccessibilityKeepAliveService.isMediaProjectionAvailable()
+        val available = hasValidToken || hasActiveProjection
         return PermissionState(
             type = PermissionType.MEDIA_PROJECTION,
             status = if (available) PermissionStatus.GRANTED else PermissionStatus.NOT_REQUESTED

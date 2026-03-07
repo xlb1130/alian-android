@@ -22,6 +22,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -30,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class SherpaOfflineSpeechRecognizer(
     private val context: Context,
+    private val enableEndpoint: Boolean = false,
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main
 ) {
     interface Listener {
@@ -51,7 +54,9 @@ class SherpaOfflineSpeechRecognizer(
     private val isInitialized = AtomicBoolean(false)
     private val isListening = AtomicBoolean(false)
     private val finalDelivered = AtomicBoolean(false)
+    private val useExternalPcm = AtomicBoolean(false)
     private var lastPartialText: String = ""
+    private val externalPcmQueue = LinkedBlockingQueue<ShortArray>(200)
 
     private val sampleRate = 16000
     private val channelConfig = AudioFormat.CHANNEL_IN_MONO
@@ -84,7 +89,7 @@ class SherpaOfflineSpeechRecognizer(
                     featConfig = featConfig,
                     modelConfig = modelConfig,
                     decoderConfig = decoderConfig,
-                    enableEndpoint = false,
+                    enableEndpoint = enableEndpoint,
                     rule1MinTrailingSilence = 2.4f,
                     rule2MinTrailingSilence = 1.2f,
                     rule3MinUtteranceLength = 20.0f,
@@ -101,9 +106,33 @@ class SherpaOfflineSpeechRecognizer(
         }
     }
 
-    fun startListening(listener: Listener): Boolean {
+    fun startListening(listener: Listener, externalPcmMode: Boolean = false): Boolean {
         if (isListening.get()) return true
         this.listener = listener
+
+        if (externalPcmMode) {
+            if (!isReady()) {
+                deliverError("离线语音模型未就绪")
+                return false
+            }
+            recognizer?.reset(false)
+            finalDelivered.set(false)
+            lastPartialText = ""
+            useExternalPcm.set(true)
+            externalPcmQueue.clear()
+            isListening.set(true)
+
+            recordingJob = scope.launch(Dispatchers.IO) {
+                try {
+                    consumeExternalPcmLoop()
+                } finally {
+                    withContext(callbackDispatcher) {
+                        this@SherpaOfflineSpeechRecognizer.listener?.onStopped()
+                    }
+                }
+            }
+            return true
+        }
 
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
@@ -157,6 +186,8 @@ class SherpaOfflineSpeechRecognizer(
         audioRecord = localRecord
         finalDelivered.set(false)
         lastPartialText = ""
+        useExternalPcm.set(false)
+        externalPcmQueue.clear()
         isListening.set(true)
 
         recordingJob = scope.launch(Dispatchers.IO) {
@@ -189,6 +220,16 @@ class SherpaOfflineSpeechRecognizer(
                             this@SherpaOfflineSpeechRecognizer.listener?.onPartial(text)
                         }
                     }
+
+                    if (enableEndpoint && localRecognizer.isEndpoint()) {
+                        if (finalDelivered.compareAndSet(false, true)) {
+                            withContext(callbackDispatcher) {
+                                this@SherpaOfflineSpeechRecognizer.listener?.onFinal(text)
+                            }
+                        }
+                        isListening.set(false)
+                        break
+                    }
                 }
             } finally {
                 releaseAudioRecord()
@@ -206,6 +247,7 @@ class SherpaOfflineSpeechRecognizer(
         finalizeAndEmit()
         recordingJob?.cancel()
         recordingJob = null
+        externalPcmQueue.clear()
     }
 
     fun cancelListening() {
@@ -215,6 +257,7 @@ class SherpaOfflineSpeechRecognizer(
         recordingJob?.cancel()
         recordingJob = null
         releaseAudioRecord()
+        externalPcmQueue.clear()
     }
 
     fun destroy() {
@@ -222,6 +265,25 @@ class SherpaOfflineSpeechRecognizer(
         runCatching { scope.cancel() }
         recognizer = null
         isInitialized.set(false)
+    }
+
+    /**
+     * 外部 PCM 输入（16kHz / mono / PCM16 LE）
+     * 仅在 externalPcmMode=true 且正在监听时生效。
+     */
+    fun addAudioData(audioData: ByteArray) {
+        if (!isListening.get() || !useExternalPcm.get()) {
+            return
+        }
+        if (audioData.isEmpty()) return
+        val shortData = byteArrayToShortArray(audioData)
+        if (shortData.isEmpty()) return
+
+        // 队列满时丢弃最旧帧，优先保留最新语音帧，降低延迟
+        if (!externalPcmQueue.offer(shortData)) {
+            externalPcmQueue.poll()
+            externalPcmQueue.offer(shortData)
+        }
     }
 
     private fun finalizeAndEmit() {
@@ -240,6 +302,41 @@ class SherpaOfflineSpeechRecognizer(
             localRecognizer.reset(false)
         } catch (t: Throwable) {
             deliverError("完成离线识别失败: ${t.message}")
+        }
+    }
+
+    private suspend fun consumeExternalPcmLoop() {
+        val localRecognizer = recognizer ?: return
+        while (kotlin.coroutines.coroutineContext.isActive && isListening.get()) {
+            val shortBuffer = externalPcmQueue.poll(120, TimeUnit.MILLISECONDS) ?: continue
+
+            emitAmplitude(shortBuffer, shortBuffer.size)
+
+            val samples = FloatArray(shortBuffer.size) { index ->
+                shortBuffer[index] / 32768.0f
+            }
+            localRecognizer.acceptSamples(samples)
+            while (localRecognizer.isReady()) {
+                localRecognizer.decode()
+            }
+
+            val text = localRecognizer.text.trim()
+            if (text.isNotBlank() && text != lastPartialText) {
+                lastPartialText = text
+                withContext(callbackDispatcher) {
+                    this@SherpaOfflineSpeechRecognizer.listener?.onPartial(text)
+                }
+            }
+
+            if (enableEndpoint && localRecognizer.isEndpoint()) {
+                if (finalDelivered.compareAndSet(false, true)) {
+                    withContext(callbackDispatcher) {
+                        this@SherpaOfflineSpeechRecognizer.listener?.onFinal(text)
+                    }
+                }
+                isListening.set(false)
+                break
+            }
         }
     }
 
@@ -272,5 +369,21 @@ class SherpaOfflineSpeechRecognizer(
         scope.launch(callbackDispatcher) {
             listener?.onError(message)
         }
+    }
+
+    private fun byteArrayToShortArray(data: ByteArray): ShortArray {
+        if (data.size < 2) return ShortArray(0)
+        val length = data.size / 2
+        val out = ShortArray(length)
+        var outIdx = 0
+        var i = 0
+        while (i + 1 < data.size && outIdx < length) {
+            val low = data[i].toInt() and 0xFF
+            val high = data[i + 1].toInt() and 0xFF
+            out[outIdx] = ((high shl 8) or low).toShort()
+            outIdx++
+            i += 2
+        }
+        return out
     }
 }

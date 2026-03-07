@@ -42,6 +42,7 @@ fun AlianScreen(
     ttsVoice: String = "longyingmu_v3",
     ttsSpeed: Float = 1.0f,
     ttsInterruptEnabled: Boolean = false,
+    enableAEC: Boolean = false,
     enableStreaming: Boolean = false,
     volume: Int = 50,
     onVoiceInput: ((String) -> Unit)? = null,
@@ -130,7 +131,7 @@ fun AlianScreen(
                     ttsVoice = ttsVoice,
                     ttsSpeed = ttsSpeed,
                     ttsInterruptEnabled = ttsInterruptEnabled,
-                    enableAEC = ttsInterruptEnabled,
+                    enableAEC = enableAEC,
                     enableStreaming = enableStreaming,
                     volume = volume,
                     onExecute = onExecute,
@@ -194,6 +195,7 @@ fun AlianScreen(
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
+                enableAEC = enableAEC,
                 enableStreaming = enableStreaming,
                 volume = volume,
                 voiceRecognitionManager = voiceRecognitionManager,
@@ -276,7 +278,7 @@ fun AlianScreen(
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                enableAEC = ttsInterruptEnabled,
+                enableAEC = enableAEC,
                 enableStreaming = enableStreaming,
                 volume = volume,
                 onExecute = onExecute,
@@ -301,7 +303,11 @@ fun AlianScreen(
                 isLoggedIn = false,
                 useBackend = useBackend,
                 executionStrategy = executionStrategy,
-                accessibilityEnabled = accessibilityEnabled
+                accessibilityEnabled = accessibilityEnabled,
+                onRequireMediaProjection = onRequestMediaProjectionPermission,
+                mediaProjectionResultCode = mediaProjectionResultCode,
+                mediaProjectionData = mediaProjectionData,
+                deviceController = deviceController
             )
         }
     }

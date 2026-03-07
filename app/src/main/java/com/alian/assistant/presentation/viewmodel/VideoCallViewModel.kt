@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.Color
+import com.alian.assistant.common.utils.SpeechTextGuard
 import com.alian.assistant.infrastructure.ai.llm.VLMClient
 import com.alian.assistant.infrastructure.audio.AecVoiceCallAudioManager
 import com.alian.assistant.infrastructure.audio.IAudioManager
@@ -220,7 +221,8 @@ class VideoCallViewModel(private val context: Context) {
                 apiKey = apiKey,
                 ttsVoice = ttsVoice,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                volume = volume
+                volume = volume,
+                metricsScene = "video_call"
             )
             aecManager.setOnPlaybackInterrupted {
                 Log.d(TAG, "播放被中断，更新状态并开始录音")
@@ -236,7 +238,8 @@ class VideoCallViewModel(private val context: Context) {
                 apiKey = apiKey,
                 ttsVoice = ttsVoice,
                 ttsInterruptEnabled = ttsInterruptEnabled,
-                volume = volume
+                volume = volume,
+                metricsScene = "video_call"
             )
         }
 
@@ -429,8 +432,9 @@ class VideoCallViewModel(private val context: Context) {
         }
 
         val filteredText = filterOutAIResponse(contentText)
+        val guardedText = SpeechTextGuard.sanitizeFinalText(filteredText)
 
-        if (filteredText.isBlank()) {
+        if (guardedText.isBlank()) {
             Log.w(TAG, "过滤后文本为空，忽略此次识别结果")
             startRecording()
             return
@@ -438,7 +442,7 @@ class VideoCallViewModel(private val context: Context) {
 
         val userMessage = VideoCallMessage(
             id = generateMessageId(),
-            content = filteredText,
+            content = guardedText,
             isUser = true
         )
         _conversationHistory.add(userMessage)
@@ -448,7 +452,7 @@ class VideoCallViewModel(private val context: Context) {
 
         currentJob = viewModelScope.launch {
             try {
-                processUserMessage(filteredText)
+                processUserMessage(guardedText)
             } finally {
                 isProcessing = false
             }

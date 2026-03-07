@@ -110,6 +110,12 @@ class AgentRunner(
                 onRequireMediaProjection(instruction)
                 return
             }
+            is AgentPermissionCheck.CheckResult.NeedsShizuku -> {
+                Log.d(TAG, "缺少 Shizuku 权限")
+                Toast.makeText(context, permissionCheck.getPermissionDescription(permissionResult), Toast.LENGTH_LONG).show()
+                permissionCheck.openPermissionSettings(permissionResult)
+                return
+            }
             is AgentPermissionCheck.CheckResult.NeedsMultiplePermissions -> {
                 Log.d(TAG, "缺少多个权限")
                 val missingPermissions = permissionResult.missingPermissions
