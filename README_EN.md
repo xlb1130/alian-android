@@ -584,8 +584,10 @@ cd alian-android
 - [x] **ASR (Automatic Speech Recognition)** - Alibaba Cloud Dashscope streaming ASR
 - [x] **Offline Local ASR (Sherpa)** - Supports on-device offline recognition (push-to-talk + call pipelines)
 - [x] **TTS (Text-to-Speech)** - CosyVoice TTS client
+- [x] **Offline Local TTS (sherpa-onnx, Experimental)** - Supports on-device offline speech synthesis
 - [x] **Voice Input** - Support voice input commands
 - [x] **Offline ASR Toggle** - Settings support enabling offline ASR with optional auto fallback to online ASR
+- [x] **Offline TTS Toggle** - Settings support enabling offline TTS with optional auto fallback to online TTS
 - [x] **Offline Toggle Governs All Online ASR Paths** - Voice input, voice call, video call, phone call, and InterruptOrchestrator now follow one offline switch
 - [x] **Offline ASR with AEC Audio Path** - AEC-processed audio can now be fed directly into offline ASR, enabling barge-in in offline mode
 - [x] **Noise-Robust Barge-in Upgrade** - Interrupt detection now uses dynamic noise floor + multi-feature checks + minimum hold + cooldown

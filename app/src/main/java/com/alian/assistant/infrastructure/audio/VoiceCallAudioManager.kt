@@ -10,8 +10,8 @@ import com.alian.assistant.common.utils.SpeechTextGuard
 import com.alian.assistant.common.utils.VoiceTerminalMetrics
 import com.alian.assistant.data.SettingsManager
 import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
-import com.alian.assistant.infrastructure.ai.tts.CosyVoiceTTSClient
 import com.alian.assistant.infrastructure.ai.asr.QwenSpeechClient
+import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * 语音通话音频管理器
- * 管理录音和播放功能，复用现有的 QwenSpeechClient 和 CosyVoiceTTSClient
+ * 管理录音和播放功能，复用现有的 QwenSpeechClient 和 TTS 客户端
  */
 class VoiceCallAudioManager(
     private val context: Context,
@@ -47,7 +47,7 @@ class VoiceCallAudioManager(
     private var offlineAsrRecognizer: SherpaOfflineSpeechRecognizer? = null
 
     // 语音合成客户端
-    private var cosyVoiceTTSClient: CosyVoiceTTSClient? = null
+    private var cosyVoiceTTSClient: HybridTtsClient? = null
 
     // 当前录音任务
     private var recordingJob: Job? = null
@@ -75,6 +75,10 @@ class VoiceCallAudioManager(
         get() = settingsManager.settings.value.offlineAsrEnabled
     private val offlineAsrAutoFallbackToCloud: Boolean
         get() = settingsManager.settings.value.offlineAsrAutoFallbackToCloud
+    private val offlineTtsEnabled: Boolean
+        get() = settingsManager.settings.value.offlineTtsEnabled
+    private val offlineTtsAutoFallbackToCloud: Boolean
+        get() = settingsManager.settings.value.offlineTtsAutoFallbackToCloud
 
     private enum class ActiveAsrEngine {
         NONE,
@@ -87,7 +91,7 @@ class VoiceCallAudioManager(
     init {
         Log.d(
             TAG,
-            "VoiceCallAudioManager 初始化, offlineAsrEnabled=$offlineAsrEnabled, offlineAsrAutoFallbackToCloud=$offlineAsrAutoFallbackToCloud"
+            "VoiceCallAudioManager 初始化, offlineAsrEnabled=$offlineAsrEnabled, offlineAsrAutoFallbackToCloud=$offlineAsrAutoFallbackToCloud, offlineTtsEnabled=$offlineTtsEnabled"
         )
         initializeClients()
     }
@@ -107,13 +111,14 @@ class VoiceCallAudioManager(
         )
 
         // 初始化语音合成客户端
-        cosyVoiceTTSClient = CosyVoiceTTSClient(
+        cosyVoiceTTSClient = HybridTtsClient(
+            appContext = context,
             apiKey = apiKey,
-            wsUrl = "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
-            model = "cosyvoice-v3-flash",
             voice = ttsVoice,
             rate = ttsSpeed,
-            volume = volume
+            volume = volume,
+            offlineTtsEnabled = offlineTtsEnabled,
+            offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud
         )
 
         Log.d(TAG, "客户端初始化完成")

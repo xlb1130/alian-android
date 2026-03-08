@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
@@ -78,6 +79,8 @@ fun AlianInputArea(
     streamingVoiceRecognitionManager: StreamingVoiceRecognitionManager? = null,
     isProcessing: Boolean = false,
     onCancel: (() -> Unit)? = null,
+    canSend: Boolean = inputText.isNotBlank(),
+    onAttachmentClick: (() -> Unit)? = null,
     sessionId: String? = null,
     backendClient: BackendChatClient? = null,
     onVoiceRippleChanged: (Boolean) -> Unit = {},
@@ -653,6 +656,26 @@ fun AlianInputArea(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (onAttachmentClick != null) {
+                        IconButton(
+                            onClick = {
+                                vibrate()
+                                onAttachmentClick()
+                            },
+                            enabled = !isProcessing,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .scale(buttonScale)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "添加附件",
+                                tint = if (isProcessing) colors.textSecondary else colors.textPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
                     // 语音/文字切换按钮（最左边）
                     if (onVoiceInputModeChanged != null) {
                         // 录音权限检查对话框状态
@@ -843,7 +866,7 @@ fun AlianInputArea(
                                     sendSuccess = false
                                 }
                             },
-                            enabled = inputText.isNotBlank(),
+                            enabled = canSend,
                             modifier = Modifier
                                 .size(32.dp)
                                 .scale(buttonScale * sendButtonPressScale * sendFlyoutScale)
@@ -851,7 +874,7 @@ fun AlianInputArea(
                             Icon(
                                 imageVector = Icons.Default.Send,
                                 contentDescription = stringResource(R.string.cd_send),
-                                tint = if (inputText.isNotBlank()) colors.primary else colors.textSecondary,
+                                tint = if (canSend) colors.primary else colors.textSecondary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }

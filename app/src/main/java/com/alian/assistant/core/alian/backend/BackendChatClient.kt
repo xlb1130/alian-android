@@ -1,6 +1,8 @@
 package com.alian.assistant.core.alian.backend
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -11,16 +13,21 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -84,6 +91,86 @@ class BackendChatClient(
         
         Log.d("BackendChatClient", "未检测到认证失败信息")
         return false
+    }
+
+    private fun extractPlanFinishedAttachments(
+        rawEventData: String,
+        decodedAttachments: List<Attachment>
+    ): List<Attachment> {
+        if (decodedAttachments.isNotEmpty()) {
+            return decodedAttachments
+        }
+
+        return try {
+            val root = json.parseToJsonElement(rawEventData).jsonObject
+            extractPlanFinishedAttachmentsFromRoot(root)
+        } catch (e: Exception) {
+            Log.w("BackendChatClient", "PLAN_FINISHED 附件兼容解析失败: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun extractPlanFinishedAttachmentsFromRoot(root: JsonObject): List<Attachment> {
+        val candidates = mutableListOf<JsonElement>()
+        root["attachments"]?.let { candidates.add(it) }
+
+        val plan = root["plan"] as? JsonObject
+        plan?.get("attachments")?.let { candidates.add(it) }
+
+        val planResult = plan?.get("result") as? JsonObject
+        planResult?.get("attachments")?.let { candidates.add(it) }
+
+        val planOutput = plan?.get("output") as? JsonObject
+        planOutput?.get("attachments")?.let { candidates.add(it) }
+
+        val dataObj = root["data"] as? JsonObject
+        dataObj?.get("attachments")?.let { candidates.add(it) }
+
+        return candidates
+            .flatMap { decodeAttachmentsElement(it) }
+            .distinctBy { it.file_id ?: it.file_url ?: it.url ?: it.path ?: it.filename ?: it.name }
+    }
+
+    private fun decodeAttachmentsElement(element: JsonElement): List<Attachment> {
+        val array = element as? JsonArray ?: return emptyList()
+        return array.mapNotNull { item ->
+            when (item) {
+                is JsonObject -> {
+                    try {
+                        json.decodeFromJsonElement(Attachment.serializer(), item)
+                    } catch (_: Exception) {
+                        val fileId = item["file_id"]?.jsonPrimitive?.contentOrNull
+                        val fileName = item["filename"]?.jsonPrimitive?.contentOrNull
+                            ?: item["name"]?.jsonPrimitive?.contentOrNull
+                        val fileUrl = item["file_url"]?.jsonPrimitive?.contentOrNull
+                            ?: item["url"]?.jsonPrimitive?.contentOrNull
+                        val path = item["path"]?.jsonPrimitive?.contentOrNull
+                            ?: item["file_path"]?.jsonPrimitive?.contentOrNull
+                        val contentType = item["content_type"]?.jsonPrimitive?.contentOrNull
+                        val size = item["size"]?.jsonPrimitive?.longOrNull
+                        Attachment(
+                            file_id = fileId,
+                            filename = fileName,
+                            name = fileName,
+                            path = path,
+                            size = size,
+                            url = fileUrl,
+                            file_url = fileUrl,
+                            content_type = contentType
+                        )
+                    }
+                }
+                is JsonPrimitive -> {
+                    val text = item.contentOrNull ?: return@mapNotNull null
+                    if (text.isBlank()) {
+                        null
+                    } else {
+                        Attachment(file_id = text, filename = text)
+                    }
+                }
+                else -> null
+            }
+        }
     }
 
     /**
@@ -313,6 +400,106 @@ class BackendChatClient(
     }
 
     /**
+     * 上传文件
+     * @param fileUri 本地文件 Uri
+     * @param overrideFileName 可选覆盖文件名
+     * @param overrideMimeType 可选覆盖 MIME 类型
+     */
+    suspend fun uploadFile(
+        fileUri: Uri,
+        overrideFileName: String? = null,
+        overrideMimeType: String? = null
+    ): Result<UploadedFileData> = withContext(Dispatchers.IO) {
+        try {
+            val resolver = context.contentResolver
+            var queriedFileName: String? = null
+            var queriedSize: Long? = null
+
+            resolver.query(
+                fileUri,
+                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (nameIndex >= 0) {
+                        queriedFileName = cursor.getString(nameIndex)
+                    }
+                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                        queriedSize = cursor.getLong(sizeIndex)
+                    }
+                }
+            }
+
+            val fileName = overrideFileName
+                ?: queriedFileName
+                ?: "upload_${System.currentTimeMillis()}"
+            val mimeType = overrideMimeType
+                ?: resolver.getType(fileUri)
+                ?: "application/octet-stream"
+
+            val bytes = resolver.openInputStream(fileUri)?.use { input ->
+                input.readBytes()
+            } ?: return@withContext Result.failure(Exception("无法读取文件内容"))
+
+            if (bytes.isEmpty()) {
+                return@withContext Result.failure(Exception("文件内容为空"))
+            }
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                    name = "file",
+                    filename = fileName,
+                    body = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+                )
+                .build()
+
+            Log.d(
+                "BackendChatClient",
+                "上传文件: uri=$fileUri, fileName=$fileName, mimeType=$mimeType, size=${queriedSize ?: bytes.size.toLong()}"
+            )
+
+            val request = Request.Builder()
+                .url("$baseUrl/files")
+                .post(requestBody)
+                .build()
+
+            val response = client.newCall(request).execute()
+
+            if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                if (checkAndHandleAuthFailure(errorBody)) {
+                    return@withContext Result.failure(Exception("Authentication failed"))
+                }
+                return@withContext Result.failure(
+                    Exception("Upload file failed: ${response.code} - $errorBody")
+                )
+            }
+
+            val responseBody = response.body?.string()
+                ?: return@withContext Result.failure(Exception("Empty response body"))
+
+            if (checkAndHandleAuthFailure(responseBody)) {
+                return@withContext Result.failure(Exception("Authentication failed"))
+            }
+
+            val uploadResponse = json.decodeFromString<UploadFileResponse>(responseBody)
+            if (uploadResponse.code != 0 || uploadResponse.data == null) {
+                return@withContext Result.failure(Exception(uploadResponse.msg))
+            }
+
+            Result.success(uploadResponse.data)
+        } catch (e: Exception) {
+            Log.e("BackendChatClient", "上传文件异常", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 获取会话列表
      */
     suspend fun getSessions(): Result<List<SessionData>> = withContext(Dispatchers.IO) {
@@ -380,13 +567,15 @@ class BackendChatClient(
     fun sendMessageStream(
         sessionId: String,
         message: String,
-        eventId: String? = null
+        eventId: String? = null,
+        attachments: List<ChatAttachmentRef> = emptyList()
     ): Flow<SSEEvent> = flow {
         try {
             val chatRequest = ChatRequest(
                 message = message,
                 timestamp = System.currentTimeMillis() / 1000,
-                event_id = eventId
+                event_id = eventId,
+                attachments = attachments
             )
 
             val requestBody = json.encodeToString(chatRequest).toRequestBody(mediaType)
@@ -544,17 +733,19 @@ class BackendChatClient(
         sessionId: String,
         message: String,
         eventId: String? = null,
+        attachments: List<ChatAttachmentRef> = emptyList(),
         onPartialResponse: (String) -> Unit = {},
         onEvent: ((UIEvent) -> Unit)? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val fullResponse = StringBuilder()
+            var hasRenderableAssistantOutput = false
             var hasError = false
             var errorInfo: String? = null
             var sessionTitle: String? = null
 
             // 收集流式响应
-            sendMessageStream(sessionId, message, eventId).collect { event ->
+            sendMessageStream(sessionId, message, eventId, attachments).collect { event ->
                 when (event.type) {
                     SSEEventType.MESSAGE -> {
                         Log.d("BackendChatClient", "收到MESSAGE事件")
@@ -564,6 +755,11 @@ class BackendChatClient(
                             val messageData = json.decodeFromString<MessageData>(event.data)
                             Log.d("BackendChatClient", "解析消息: role=${messageData.role}, content=${messageData.content.take(50)}...")
                             System.out.flush()
+                            if (messageData.role == "assistant" &&
+                                (messageData.content.isNotBlank() || !messageData.attachments.isNullOrEmpty())
+                            ) {
+                                hasRenderableAssistantOutput = true
+                            }
                             // 添加内容到聊天框，但需要过滤掉工具执行内容
                             // 工具执行内容通常包含特定的标记或格式，这里暂时不过滤
                             // 如果需要过滤，可以根据 content 的特征来判断
@@ -596,6 +792,9 @@ class BackendChatClient(
                             val chunkData = json.decodeFromString<MessageChunkData>(event.data)
                             Log.d("BackendChatClient", "解析消息块: messageId=${chunkData.message_id}, chunkIndex=${chunkData.chunk_index}, done=${chunkData.done}, chunk=${chunkData.chunk.take(50)}...")
                             System.out.flush()
+                            if (chunkData.chunk.isNotBlank() || !chunkData.attachments.isNullOrEmpty()) {
+                                hasRenderableAssistantOutput = true
+                            }
                             
                             // 追加内容到响应，但需要过滤掉工具执行内容
                             fullResponse.append(chunkData.chunk)
@@ -830,6 +1029,9 @@ class BackendChatClient(
                             val chunkData = json.decodeFromString<TextMessageChunkData>(event.data)
                             Log.d("BackendChatClient", "文本消息块: message_id=${chunkData.message_id}, delta=${chunkData.delta.take(50)}...")
                             System.out.flush()
+                            if (chunkData.delta.isNotBlank()) {
+                                hasRenderableAssistantOutput = true
+                            }
                             
                             // 追加内容到响应
                             fullResponse.append(chunkData.delta)
@@ -1028,8 +1230,52 @@ class BackendChatClient(
                                     steps = uiSteps
                                 )
                             )
+
+                            val attachments = extractPlanFinishedAttachments(
+                                rawEventData = event.data,
+                                decodedAttachments = planData.attachments.orEmpty()
+                            )
+                            if (attachments.isNotEmpty()) {
+                                hasRenderableAssistantOutput = true
+                                Log.d("BackendChatClient", "PLAN_FINISHED 附件数量: ${attachments.size}，下发为附件消息事件")
+                                onEvent?.invoke(
+                                    UIMessageEvent(
+                                        eventId = "${planData.id}_attachments",
+                                        timestamp = planData.timestamp,
+                                        role = "assistant",
+                                        content = "",
+                                        attachments = attachments
+                                    )
+                                )
+                            }
                         } catch (e: Exception) {
                             Log.e("BackendChatClient", "解析PLAN_FINISHED事件失败", e)
+                            try {
+                                val root = json.parseToJsonElement(event.data).jsonObject
+                                val fallbackEventId = root["id"]?.jsonPrimitive?.contentOrNull
+                                    ?: "plan_finished_${System.currentTimeMillis()}"
+                                val fallbackTimestamp = root["timestamp"]?.jsonPrimitive?.longOrNull
+                                    ?: System.currentTimeMillis()
+                                val fallbackAttachments = extractPlanFinishedAttachmentsFromRoot(root)
+                                if (fallbackAttachments.isNotEmpty()) {
+                                    hasRenderableAssistantOutput = true
+                                    Log.d(
+                                        "BackendChatClient",
+                                        "PLAN_FINISHED 兜底解析到附件 ${fallbackAttachments.size} 个，下发附件消息事件"
+                                    )
+                                    onEvent?.invoke(
+                                        UIMessageEvent(
+                                            eventId = "${fallbackEventId}_attachments",
+                                            timestamp = fallbackTimestamp,
+                                            role = "assistant",
+                                            content = "",
+                                            attachments = fallbackAttachments
+                                        )
+                                    )
+                                }
+                            } catch (inner: Exception) {
+                                Log.e("BackendChatClient", "PLAN_FINISHED 兜底解析失败", inner)
+                            }
                         }
                     }
                     SSEEventType.PHASE_STARTED -> {
@@ -1093,7 +1339,7 @@ class BackendChatClient(
                 return@withContext Result.failure(Exception(errorInfo ?: "Unknown error"))
             }
 
-            if (fullResponse.isEmpty()) {
+            if (fullResponse.isEmpty() && !hasRenderableAssistantOutput) {
                 Log.w("BackendChatClient", "响应为空")
                 return@withContext Result.failure(Exception("Empty response"))
             }

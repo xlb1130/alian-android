@@ -40,6 +40,7 @@ import com.alian.assistant.presentation.ui.settings.flowtemplate.FlowTemplateDet
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import com.alian.assistant.infrastructure.voice.VoiceRecognitionManager
+import com.alian.assistant.infrastructure.ai.tts.OfflineTtsReadiness
 import com.alian.assistant.infrastructure.ai.llm.VLMClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1076,6 +1077,8 @@ class MainActivity : ComponentActivity() {
                                 ttsInterruptEnabled = settings.ttsInterruptEnabled,
                                 enableAEC = settings.enableAEC,
                                 enableStreaming = settings.enableStreaming,
+                                offlineTtsEnabled = settings.offlineTtsEnabled,
+                                offlineTtsAutoFallbackToCloud = settings.offlineTtsAutoFallbackToCloud,
                                 volume = settings.volume,
                                 executionStrategy = settings.executionStrategy,
                                 accessibilityEnabled = AccessibilityUtils.isAccessibilityServiceEnabled(
@@ -1218,6 +1221,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onUpdateEnableAEC = { settingsManager.updateEnableAEC(it) },
                                 onUpdateEnableStreaming = { settingsManager.updateEnableStreaming(it) },
+                                onUpdateOfflineTtsEnabled = {
+                                    onOfflineTtsEnabledChanged(it)
+                                },
+                                onUpdateOfflineTtsAutoFallbackToCloud = {
+                                    settingsManager.updateOfflineTtsAutoFallbackToCloud(it)
+                                },
                                 onUpdateVolume = { settingsManager.updateVolume(it) },
                                 onUpdateBackendUrl = { settingsManager.updateBackendBaseUrl(it) },
                                 onUpdateVoiceCallSystemPrompt = {
@@ -1306,7 +1315,15 @@ class MainActivity : ComponentActivity() {
                                     currentScreen = Screen.Capabilities
                                 },
                                 onNavigateToVoiceSelection = {
-                                    currentScreen = Screen.VoiceSelection
+                                    if (settings.offlineTtsEnabled) {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "离线 TTS 模式下已隐藏音色配置",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        currentScreen = Screen.VoiceSelection
+                                    }
                                 },
                                 onNavigateToSpeechProviderSettings = {
                                     currentScreen = Screen.SpeechProviderSettings
@@ -1328,19 +1345,33 @@ class MainActivity : ComponentActivity() {
                                 onShowShizukuHelpDialog = { showShizukuHelpDialog = true }
                             )
 
-                            Screen.VoiceSelection -> VoiceSelectionScreen(
-                                currentVoice = settings.ttsVoice,
-                                onBack = {
-                                    settingsInitialSubScreen = SettingsSubScreen.ALIAN
-                                    currentScreen = Screen.Settings
-                                },
-                                onSelectVoice = { voiceParam, auditionUrl ->
-                                    settingsManager.updateTTSVoice(voiceParam)
-                                },
-                                onPlayVoice = { voiceParam ->
-                                    // 试听功能已在VoiceSelectionScreen内部实现
+                            Screen.VoiceSelection -> {
+                                if (settings.offlineTtsEnabled) {
+                                    LaunchedEffect(settings.offlineTtsEnabled) {
+                                        Toast.makeText(
+                                            this@MainActivity,
+                                            "离线 TTS 模式下已隐藏音色配置",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        settingsInitialSubScreen = SettingsSubScreen.ALIAN
+                                        currentScreen = Screen.Settings
+                                    }
+                                } else {
+                                    VoiceSelectionScreen(
+                                        currentVoice = settings.ttsVoice,
+                                        onBack = {
+                                            settingsInitialSubScreen = SettingsSubScreen.ALIAN
+                                            currentScreen = Screen.Settings
+                                        },
+                                        onSelectVoice = { voiceParam, auditionUrl ->
+                                            settingsManager.updateTTSVoice(voiceParam)
+                                        },
+                                        onPlayVoice = { voiceParam ->
+                                            // 试听功能已在VoiceSelectionScreen内部实现
+                                        }
+                                    )
                                 }
-                            )
+                            }
 
                             Screen.SkillCreator -> SkillCreatorScreen(
                                 editingSkill = editingSkillConfig,
@@ -1360,6 +1391,8 @@ class MainActivity : ComponentActivity() {
                                 models = settings.speechModels,
                                 offlineAsrEnabled = settings.offlineAsrEnabled,
                                 offlineAsrAutoFallbackToCloud = settings.offlineAsrAutoFallbackToCloud,
+                                offlineTtsEnabled = settings.offlineTtsEnabled,
+                                offlineTtsAutoFallbackToCloud = settings.offlineTtsAutoFallbackToCloud,
                                 onBack = { currentScreen = Screen.Settings },
                                 onSelectProvider = { provider ->
                                     settingsManager.selectSpeechProvider(provider)
@@ -1375,6 +1408,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onUpdateOfflineAsrAutoFallbackToCloud = {
                                     settingsManager.updateOfflineAsrAutoFallbackToCloud(it)
+                                },
+                                onUpdateOfflineTtsEnabled = {
+                                    onOfflineTtsEnabledChanged(it)
+                                },
+                                onUpdateOfflineTtsAutoFallbackToCloud = {
+                                    settingsManager.updateOfflineTtsAutoFallbackToCloud(it)
                                 }
                             )
 
@@ -1665,6 +1704,19 @@ class MainActivity : ComponentActivity() {
         } else {
             shizukuAvailable.value = true
         }
+    }
+
+    private fun onOfflineTtsEnabledChanged(enabled: Boolean) {
+        settingsManager.updateOfflineTtsEnabled(enabled)
+        if (!enabled) return
+
+        val status = OfflineTtsReadiness.check(this)
+        val toastText = if (status.ready) {
+            "离线 TTS 资源已就绪"
+        } else {
+            "离线 TTS 资源未就绪：${status.message}"
+        }
+        Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
     }
 
     private fun runAgent(

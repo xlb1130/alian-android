@@ -1,6 +1,8 @@
 package com.alian.assistant.presentation.viewmodel
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.MutableState
@@ -16,6 +18,7 @@ import com.alian.assistant.core.alian.AlianClient
 import com.alian.assistant.core.alian.backend.Attachment
 import com.alian.assistant.core.alian.backend.AuthManager
 import com.alian.assistant.core.alian.backend.BackendChatClient
+import com.alian.assistant.core.alian.backend.ChatAttachmentRef
 import com.alian.assistant.core.alian.backend.DeepThinkingChunkData
 import com.alian.assistant.core.alian.backend.MessageChunkData
 import com.alian.assistant.core.alian.backend.MessageData
@@ -46,7 +49,7 @@ import com.alian.assistant.core.alian.backend.UIStep
 import com.alian.assistant.core.alian.backend.UIStepEvent
 import com.alian.assistant.core.alian.backend.UIToolCall
 import com.alian.assistant.core.alian.backend.UIToolEvent
-import com.alian.assistant.infrastructure.ai.tts.CosyVoiceTTSClient
+import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -69,6 +72,17 @@ data class ChatMessage(
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
     val attachments: List<Attachment> = emptyList()
+)
+
+/**
+ * 待发送附件（本地）
+ */
+data class PendingUploadAttachment(
+    val id: String,
+    val uriString: String,
+    val fileName: String,
+    val mimeType: String,
+    val sizeBytes: Long? = null
 )
 
 /**
@@ -175,6 +189,10 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     private val _currentAttachments = mutableStateListOf<Attachment>()
     val currentAttachments: SnapshotStateList<Attachment> = _currentAttachments
 
+    // 输入框待发送附件
+    private val _pendingUploadAttachments = mutableStateListOf<PendingUploadAttachment>()
+    val pendingUploadAttachments: SnapshotStateList<PendingUploadAttachment> = _pendingUploadAttachments
+
     // 处理状态（机器人是否正在输出）
     private val _isProcessing = mutableStateOf(false)
     val isProcessing: State<Boolean> = _isProcessing
@@ -270,7 +288,9 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     var ttsEnabled: Boolean = false
     var ttsRealtime: Boolean = false
     var ttsVoice: String = "longyingmu_v3"
-    private var ttsClient: CosyVoiceTTSClient? = null
+    var offlineTtsEnabled: Boolean = false
+    var offlineTtsAutoFallbackToCloud: Boolean = true
+    private var ttsClient: HybridTtsClient? = null
 
     // TTS 播放状态
     private val _isPlayingTTS = mutableStateOf(false)
@@ -344,12 +364,20 @@ class AlianViewModel(private val context: Context) : ViewModel() {
      * 更新TTS客户端配置
      */
     private fun updateTTSClient() {
-        if (ttsEnabled && apiKey.isNotBlank()) {
-            ttsClient = CosyVoiceTTSClient(
+        ttsClient?.release()
+        ttsClient = null
+        if (ttsEnabled && (offlineTtsEnabled || apiKey.isNotBlank())) {
+            ttsClient = HybridTtsClient(
+                appContext = context,
                 apiKey = apiKey,
-                voice = ttsVoice
+                voice = ttsVoice,
+                offlineTtsEnabled = offlineTtsEnabled,
+                offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud
             )
-            Log.d("AlianViewModel", "TTS客户端已初始化: voice=$ttsVoice")
+            Log.d(
+                "AlianViewModel",
+                "TTS客户端已初始化: voice=$ttsVoice, offlineTtsEnabled=$offlineTtsEnabled"
+            )
         } else {
             ttsClient = null
             Log.d("AlianViewModel", "TTS客户端已禁用")
@@ -359,10 +387,18 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     /**
      * 更新TTS配置
      */
-    fun updateTTSConfig(enabled: Boolean, realtime: Boolean, voice: String) {
+    fun updateTTSConfig(
+        enabled: Boolean,
+        realtime: Boolean,
+        voice: String,
+        offlineEnabled: Boolean = false,
+        offlineAutoFallbackToCloud: Boolean = true
+    ) {
         ttsEnabled = enabled
         ttsRealtime = realtime
         ttsVoice = voice
+        offlineTtsEnabled = offlineEnabled
+        offlineTtsAutoFallbackToCloud = offlineAutoFallbackToCloud
         updateTTSClient()
     }
 
@@ -471,22 +507,23 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         }
     }
 
-    fun addUserMessage(content: String) {
-        if (content.isNotBlank()) {
+    fun addUserMessage(content: String, attachments: List<Attachment> = emptyList()) {
+        if (content.isNotBlank() || attachments.isNotEmpty()) {
             // 新的一轮用户输入，重置 Plan 锚点
             activePlanBubbleEventId = null
             activePlanBubbleTimestamp = null
             val message = ChatMessage(
                 id = generateMessageId(),
                 content = content,
-                isUser = true
+                isUser = true,
+                attachments = attachments
             )
             activePlanBoundaryUserMessageId = message.id
             _messages.add(message)
             // 添加到统一时间线
             _unifiedChatTimeline.add(MessageItem(message))
             _unifiedChatTimeline.sortBy { it.timestamp }
-            Log.d("AlianViewModel", "添加用户消息: timestamp=${message.timestamp}, content=$content.take(20)}...")
+            Log.d("AlianViewModel", "添加用户消息: timestamp=${message.timestamp}, content=$content.take(20)}..., 附件数量=${attachments.size}")
         }
     }
 
@@ -632,14 +669,15 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             is UIMessageEvent -> {
                 // 普通消息事件
                 // 兼容 user/assistant 角色
-                if (event.content.isNotBlank()) {
-                    if (event.role == "user") {
+                val attachments = event.attachments ?: emptyList()
+                if (event.role == "user") {
+                    if (event.content.isNotBlank()) {
                         val message = ChatMessage(
                             id = generateMessageId(),
                             content = event.content,
                             isUser = true,
                             timestamp = normalizeTimestamp(event.timestamp),
-                            attachments = event.attachments ?: emptyList()
+                            attachments = attachments
                         )
                         activePlanBubbleEventId = null
                         activePlanBubbleTimestamp = null
@@ -648,11 +686,17 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         _unifiedChatTimeline.add(MessageItem(message))
                         _unifiedChatTimeline.sortBy { it.timestamp }
                     } else {
-                        // assistant 消息
+                        Log.d("AlianViewModel", "忽略空的用户消息事件: eventId=${event.eventId}")
+                    }
+                } else {
+                    // assistant 消息允许"空文本 + 附件"场景
+                    if (event.content.isNotBlank() || attachments.isNotEmpty()) {
                         addAssistantMessage(
                             event.content,
-                            event.attachments ?: emptyList()
+                            attachments
                         )
+                    } else {
+                        Log.d("AlianViewModel", "忽略空的助手消息事件: eventId=${event.eventId}")
                     }
                 }
             }
@@ -1003,6 +1047,67 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     }
 
     /**
+     * 添加待发送附件
+     */
+    fun addPendingAttachment(uri: Uri) {
+        try {
+            val resolver = context.contentResolver
+            var fileName: String? = null
+            var sizeBytes: Long? = null
+
+            resolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (nameIndex >= 0) {
+                        fileName = cursor.getString(nameIndex)
+                    }
+                    if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                        sizeBytes = cursor.getLong(sizeIndex)
+                    }
+                }
+            }
+
+            val safeFileName = fileName
+                ?: uri.lastPathSegment?.substringAfterLast('/')
+                ?: "image_${System.currentTimeMillis()}.jpg"
+            val mimeType = resolver.getType(uri) ?: "application/octet-stream"
+
+            if (_pendingUploadAttachments.any { it.uriString == uri.toString() }) {
+                Log.d("AlianViewModel", "附件已存在，跳过重复添加: $uri")
+                return
+            }
+
+            val pending = PendingUploadAttachment(
+                id = generatePendingAttachmentId(),
+                uriString = uri.toString(),
+                fileName = safeFileName,
+                mimeType = mimeType,
+                sizeBytes = sizeBytes
+            )
+            _pendingUploadAttachments.add(pending)
+            Log.d("AlianViewModel", "添加待发送附件: fileName=${pending.fileName}, mimeType=${pending.mimeType}")
+        } catch (e: Exception) {
+            Log.e("AlianViewModel", "添加待发送附件失败", e)
+            Toast.makeText(context, "添加附件失败: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun removePendingAttachment(attachmentId: String) {
+        _pendingUploadAttachments.removeAll { it.id == attachmentId }
+    }
+
+    fun clearPendingUploadAttachments() {
+        _pendingUploadAttachments.clear()
+    }
+
+    /**
      * 创建新Session
      */
     fun createNewSession() {
@@ -1016,6 +1121,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         clearUIEvents()
         clearDeepThinkingSections()
         clearToolCalls()
+        clearPendingUploadAttachments()
         alianClient?.clearCurrentSession()
         _currentSessionIdUi.value = null
         _sessionLoadingState.value = SessionLoadingState.Idle
@@ -1029,6 +1135,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         activePlanBoundaryUserMessageId = null
         // 清除统一时间线中的所有项
         _unifiedChatTimeline.clear()
+        _pendingUploadAttachments.clear()
         // 注意：不清除SessionId，继续使用缓存的Session
         Log.d("AlianViewModel", "清除消息和统一时间线，保留Session，时间线大小: ${_unifiedChatTimeline.size}")
     }
@@ -1049,8 +1156,67 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         _chatState.value = AlianChatState.Idle
     }
 
+    private fun generatePendingAttachmentId(): String {
+        return "pending_${System.currentTimeMillis()}_${_pendingUploadAttachments.size}"
+    }
+
     private fun generateMessageId(): String {
         return "msg_${System.currentTimeMillis()}_${_messages.size}"
+    }
+
+    private fun toLocalAttachment(pending: PendingUploadAttachment): Attachment {
+        return Attachment(
+            filename = pending.fileName,
+            name = pending.fileName,
+            path = pending.uriString,
+            size = pending.sizeBytes,
+            content_type = pending.mimeType
+        )
+    }
+
+    private suspend fun uploadAttachmentsForBackend(
+        attachments: List<PendingUploadAttachment>
+    ): Result<List<ChatAttachmentRef>> = withContext(Dispatchers.IO) {
+        if (attachments.isEmpty()) {
+            return@withContext Result.success(emptyList())
+        }
+
+        if (!useBackend) {
+            return@withContext Result.failure(Exception("当前模式不支持附件上传"))
+        }
+
+        if (alianClient == null) {
+            updateAlianClient()
+        }
+
+        val backendClient = alianClient?.getBackendClient()
+            ?: return@withContext Result.failure(Exception("Backend 客户端未初始化"))
+
+        val refs = mutableListOf<ChatAttachmentRef>()
+        for (pending in attachments) {
+            val uri = Uri.parse(pending.uriString)
+            val uploadResult = backendClient.uploadFile(
+                fileUri = uri,
+                overrideFileName = pending.fileName,
+                overrideMimeType = pending.mimeType
+            )
+            if (uploadResult.isFailure) {
+                val error = uploadResult.exceptionOrNull()?.message ?: "未知错误"
+                return@withContext Result.failure(Exception("上传 ${pending.fileName} 失败: $error"))
+            }
+
+            val uploaded = uploadResult.getOrNull()
+                ?: return@withContext Result.failure(Exception("上传 ${pending.fileName} 失败: 无返回数据"))
+
+            refs.add(
+                ChatAttachmentRef(
+                    file_id = uploaded.file_id,
+                    filename = uploaded.filename ?: pending.fileName
+                )
+            )
+        }
+
+        Result.success(refs)
     }
 
     private fun normalizeTimestamp(timestamp: Long): Long {
@@ -2175,21 +2341,41 @@ class AlianViewModel(private val context: Context) : ViewModel() {
      * 发送聊天消息
      */
     fun sendMessage(content: String) {
+        val pendingAttachments = _pendingUploadAttachments.toList()
+        if (content.isBlank() && pendingAttachments.isEmpty()) {
+            return
+        }
+
         // 先添加用户消息到消息列表，这样气泡会立即显示
-        addUserMessage(content)
+        addUserMessage(
+            content = content,
+            attachments = pendingAttachments.map(::toLocalAttachment)
+        )
+        _pendingUploadAttachments.clear()
         
         // 如果已经有任务在运行，先取消它
         currentMessageJob?.cancel()
         
         currentMessageJob = viewModelScope.launch {
-            sendMessageInternal(content)
+            val result = sendMessageInternal(content, pendingAttachments)
+            if (result.isFailure && pendingAttachments.isNotEmpty()) {
+                val existing = _pendingUploadAttachments.map { it.uriString }.toSet()
+                pendingAttachments.forEach { attachment ->
+                    if (attachment.uriString !in existing) {
+                        _pendingUploadAttachments.add(attachment)
+                    }
+                }
+            }
         }
     }
     
     /**
      * 发送聊天消息的内部实现
      */
-    private suspend fun sendMessageInternal(content: String): Result<String> {
+    private suspend fun sendMessageInternal(
+        content: String,
+        pendingAttachments: List<PendingUploadAttachment> = emptyList()
+    ): Result<String> {
         if (useBackend) {
             // 检查登录状态和 token 是否过期
             checkLoginStatus()
@@ -2222,10 +2408,30 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             // 清除之前的UI事件
             clearUIEvents()
 
+            val uploadedAttachmentRefs = if (pendingAttachments.isNotEmpty()) {
+                Log.d("AlianViewModel", "开始上传 ${pendingAttachments.size} 个附件")
+                val uploadResult = uploadAttachmentsForBackend(pendingAttachments)
+                if (uploadResult.isFailure) {
+                    val errorMsg = uploadResult.exceptionOrNull()?.message ?: "附件上传失败"
+                    Log.e("AlianViewModel", errorMsg)
+                    Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+                    setError(errorMsg)
+                    _isProcessing.value = false
+                    return Result.failure(Exception(errorMsg))
+                }
+                uploadResult.getOrNull().orEmpty()
+            } else {
+                emptyList()
+            }
+
+            val messageToSend =
+                if (content.isBlank() && uploadedAttachmentRefs.isNotEmpty()) " " else content
+
             // 调用 API，传递事件回调
             val result = alianClient?.sendMessage(
-                content,
+                messageToSend,
                 _messages.toList(),
+                attachments = uploadedAttachmentRefs,
                 onEvent = { event ->
                     // 所有 UI 事件（包括 UIMessageEvent 和 UIMessageChunkEvent）都在 addUIEvent 中统一处理
                     addUIEvent(event)

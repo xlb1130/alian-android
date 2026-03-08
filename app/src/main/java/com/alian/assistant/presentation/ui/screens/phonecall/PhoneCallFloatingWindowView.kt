@@ -194,8 +194,9 @@ class PhoneCallFloatingWindowView(
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
             gravity = Gravity.TOP or Gravity.START
-            x = 100
-            y = 200
+            val savedPosition = viewModel.floatingWindowPosition.value
+            x = if (savedPosition.first == 0) 100 else savedPosition.first
+            y = if (savedPosition.second == 0) 200 else savedPosition.second
         }
 
         // 添加拖动功能
@@ -214,7 +215,7 @@ class PhoneCallFloatingWindowView(
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     isDragging = false
-                    true
+                    false
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val deltaX = event.rawX - initialTouchX
@@ -223,17 +224,20 @@ class PhoneCallFloatingWindowView(
                         isDragging = true
                     }
                     if (isDragging) {
-                        params.x = initialX + deltaX.toInt()
-                        params.y = initialY + deltaY.toInt()
+                        params.x = (initialX + deltaX.toInt()).coerceAtLeast(0)
+                        params.y = (initialY + deltaY.toInt()).coerceAtLeast(0)
                         windowManager.updateViewLayout(composeView, params)
                         // 更新 ViewModel 中的位置
                         viewModel.updateFloatingWindowPosition(params.x, params.y)
+                        true
+                    } else {
+                        false
                     }
-                    true
                 }
                 MotionEvent.ACTION_UP -> {
+                    val consumed = isDragging
                     isDragging = false
-                    true
+                    consumed
                 }
                 else -> false
             }
@@ -436,17 +440,20 @@ private fun FloatingWindowContent(
                             }
                         }
 
-                        // 控制按钮区域
-                        PhoneCallControlBar(
-                            state = state,
-                            onHangUpClick = onClose,
-                            onStartCallClick = {},
-                            colors = colors,
-                            stateColor = viewModel.getStateColor()
-                        )
+                            // 控制按钮区域
+                            PhoneCallControlBar(
+                                state = state,
+                                isMicrophoneEnabled = viewModel.isMicrophoneEnabled.value,
+                                onHangUpClick = onClose,
+                                onStartCallClick = {},
+                                onToggleMicrophone = { viewModel.toggleMicrophone() },
+                                onTextInputClick = {},
+                                colors = colors,
+                                textInputEnabled = false
+                            )
+                        }
                     }
                 }
-            }
         }
     }
 }

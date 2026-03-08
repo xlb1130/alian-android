@@ -174,7 +174,9 @@ class AgentRunner(
         OverlayService.setTTSConfig(
             enabled = ttsEnabled,
             apiKey = apiKey,
-            voice = ttsVoice
+            voice = ttsVoice,
+            offlineEnabled = settings.offlineTtsEnabled,
+            offlineAutoFallbackToCloud = settings.offlineTtsAutoFallbackToCloud
         )
 
         val record = ExecutionRecord(
@@ -196,7 +198,9 @@ class AgentRunner(
             OverlayService.setTTSConfig(
                 enabled = latestSettings.ttsEnabled,
                 apiKey = latestSettings.apiKey,
-                voice = latestSettings.ttsVoice
+                voice = latestSettings.ttsVoice,
+                offlineEnabled = latestSettings.offlineTtsEnabled,
+                offlineAutoFallbackToCloud = latestSettings.offlineTtsAutoFallbackToCloud
             )
 
             try {

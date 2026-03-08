@@ -194,6 +194,27 @@ data class SessionFileData(
 )
 
 /**
+ * 上传文件响应
+ */
+@Serializable
+data class UploadFileResponse(
+    val code: Int,
+    val msg: String,
+    val data: UploadedFileData?
+)
+
+@Serializable
+data class UploadedFileData(
+    val file_id: String,
+    val filename: String? = null,
+    val content_type: String? = null,
+    val size: Long? = null,
+    val upload_date: String? = null,
+    val metadata: Map<String, JsonElement>? = null,
+    val file_url: String? = null
+)
+
+/**
  * 文件签名URL响应（新接口）
  */
 @Serializable
@@ -249,6 +270,15 @@ data class SessionIdData(
 )
 
 /**
+ * 聊天请求附件引用
+ */
+@Serializable
+data class ChatAttachmentRef(
+    val file_id: String,
+    val filename: String? = null
+)
+
+/**
  * 聊天请求
  */
 @Serializable
@@ -256,7 +286,7 @@ data class ChatRequest(
     val message: String,
     val timestamp: Long = System.currentTimeMillis() / 1000,
     val event_id: String? = null,
-    val attachments: List<String> = emptyList()
+    val attachments: List<ChatAttachmentRef> = emptyList()
 )
 
 /**

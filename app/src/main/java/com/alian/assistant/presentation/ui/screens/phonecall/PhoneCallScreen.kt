@@ -8,13 +8,10 @@ import android.os.Vibrator
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -35,7 +32,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -55,7 +51,6 @@ import com.alian.assistant.presentation.viewmodel.PhoneCallState
 import com.alian.assistant.presentation.viewmodel.PhoneCallViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -64,7 +59,7 @@ import kotlinx.coroutines.launch
  * 
  * 支持两种模式：
  * 1. 全屏模式：显示屏幕预览、对话消息、操作状态
- * 2. 浮动窗口模式：仅显示对话消息和控制按钮，用户可自由操作手机
+ * 2. 悬浮窗模式：系统级悬浮窗承载交互，页面内只保留模式占位与切换入口
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,7 +97,7 @@ fun PhoneCallScreen(
     val floatingWindowState by viewModel.floatingWindowState.collectAsState()
     // 获取通话状态
     val state by viewModel.callState.collectAsState()
-    val stateColor = viewModel.getStateColor()
+    val isMicrophoneEnabled by viewModel.isMicrophoneEnabled
 
     // 监听浮动窗口状态变化
     LaunchedEffect(floatingWindowState) {
@@ -124,7 +119,19 @@ fun PhoneCallScreen(
                     )
                     floatingWindowView?.show()
                     // 将浮动窗口视图引用设置到 ViewModel 中
-                    viewModel.setFloatingWindowView(floatingWindowView)
+                    val createdFloatingWindowView = floatingWindowView
+                    viewModel.setFloatingWindowView(createdFloatingWindowView)
+                    if (createdFloatingWindowView != null) {
+                        viewModel.getScreenCaptureManager()?.let { screenCaptureManager ->
+                            PhoneCallOverlayService.getInstance()?.bindFloatingWindowAndScreenCapture(
+                                view = createdFloatingWindowView,
+                                screenCaptureManager = screenCaptureManager,
+                                shouldHideOverlayForCapture = {
+                                    viewModel.floatingWindowState.value is FloatingWindowState.Minimized
+                                }
+                            )
+                        }
+                    }
                 }
             }
             is FloatingWindowState.Disabled -> {
@@ -148,6 +155,7 @@ fun PhoneCallScreen(
             }
 
             val callIsActive = latestCallState is PhoneCallState.Recording ||
+                    latestCallState is PhoneCallState.MicMuted ||
                     latestCallState is PhoneCallState.Processing ||
                     latestCallState is PhoneCallState.Playing ||
                     latestCallState is PhoneCallState.Operating
@@ -172,6 +180,8 @@ fun PhoneCallScreen(
     // 权限检查对话框状态
     var showPermissionDialog by remember { mutableStateOf(false) }
     var permissionCheckResult by remember { mutableStateOf<AgentPermissionCheck.CheckResult?>(null) }
+    var showTextInputDialog by remember { mutableStateOf(false) }
+    var textInputValue by remember { mutableStateOf("") }
     val syncMediaProjectionResult = {
         if (mediaProjectionResultCode != null && mediaProjectionData != null) {
             viewModel.setMediaProjectionResult(mediaProjectionResultCode, mediaProjectionData)
@@ -214,30 +224,6 @@ fun PhoneCallScreen(
             } else {
                 Log.d("PhoneCallScreen", "权限检查未通过: $permissionResult")
             }
-        }
-    }
-
-    // 监听通话状态，通话开始时自动显示浮动窗口
-    LaunchedEffect(state) {
-        Log.d("PhoneCallScreen", "通话状态变化: $state")
-        
-        when (state) {
-            is PhoneCallState.Recording,
-            is PhoneCallState.Processing,
-            is PhoneCallState.Playing,
-            is PhoneCallState.Operating -> {
-                // 通话进行中，显示浮动窗口
-                if (floatingWindowView == null) {
-                    viewModel.enableFloatingMode()
-                }
-            }
-            is PhoneCallState.Idle -> {
-                // 通话结束，隐藏浮动窗口
-                if (floatingWindowView != null) {
-                    viewModel.disableFloatingMode()
-                }
-            }
-            else -> {}
         }
     }
 
@@ -387,6 +373,64 @@ fun PhoneCallScreen(
         )
     }
 
+    if (showTextInputDialog) {
+        AlertDialog(
+            onDismissRequest = { showTextInputDialog = false },
+            containerColor = colors.backgroundCard,
+            title = {
+                Text(
+                    text = stringResource(R.string.phone_call_text_input_title),
+                    color = colors.textPrimary
+                )
+            },
+            text = {
+                OutlinedTextField(
+                    value = textInputValue,
+                    onValueChange = { textInputValue = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.phone_call_text_input_hint),
+                            color = colors.textHint
+                        )
+                    },
+                    maxLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = colors.primary,
+                        unfocusedBorderColor = colors.textHint,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary,
+                        cursorColor = colors.primary
+                    )
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val message = textInputValue.trim()
+                        if (message.isNotBlank()) {
+                            viewModel.handleTextInput(message)
+                            textInputValue = ""
+                            showTextInputDialog = false
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.phone_call_send), color = colors.primary)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showTextInputDialog = false
+                        textInputValue = ""
+                    }
+                ) {
+                    Text(stringResource(R.string.phone_call_cancel), color = colors.textSecondary)
+                }
+            }
+        )
+    }
+
     // 处理返回事件
     BackHandler(enabled = true) {
         Log.d("PhoneCallScreen", "用户按下返回键")
@@ -411,10 +455,8 @@ fun PhoneCallScreen(
             FullScreenPhoneCallUI(
                 viewModel = viewModel,
                 state = state,
-                stateColor = stateColor,
+                isMicrophoneEnabled = isMicrophoneEnabled,
                 colors = colors,
-                context = context,
-                scope = scope,
                 onBackClick = onBackClick,
                 onStartCall = {
                     syncMediaProjectionResult()
@@ -436,19 +478,26 @@ fun PhoneCallScreen(
                         onBackClick()
                     }
                 },
-                onSwitchToFloating = { viewModel.enableFloatingMode() }
+                onSwitchToFloating = { viewModel.enableFloatingMode() },
+                onToggleMicrophone = { viewModel.toggleMicrophone() },
+                onTextInputClick = {
+                    if (state is PhoneCallState.Idle) {
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.phone_call_start_hint),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        showTextInputDialog = true
+                    }
+                }
             )
         }
         else -> {
-            // 浮动窗口模式
-            FloatingWindowPhoneCallUI(
-                viewModel = viewModel,
+            // 浮动窗口模式：页面内仅展示模式状态，避免与系统级悬浮窗双层重叠
+            FloatingModePlaceholderUI(
                 state = state,
-                stateColor = stateColor,
                 colors = colors,
-                floatingWindowState = floatingWindowState,
-                context = context,
-                scope = scope,
                 onBackClick = onBackClick,
                 onStopCall = {
                     viewModel.stopCall()
@@ -471,14 +520,14 @@ fun PhoneCallScreen(
 private fun FullScreenPhoneCallUI(
     viewModel: PhoneCallViewModel,
     state: PhoneCallState,
-    stateColor: Color,
+    isMicrophoneEnabled: Boolean,
     colors: BaoziColors,
-    context: Context,
-    scope: CoroutineScope,
     onBackClick: () -> Unit,
     onStartCall: () -> Unit,
     onStopCall: () -> Unit,
-    onSwitchToFloating: () -> Unit
+    onSwitchToFloating: () -> Unit,
+    onToggleMicrophone: () -> Unit,
+    onTextInputClick: () -> Unit
 ) {
     val currentScreen by viewModel.currentScreen
     val conversationHistory = viewModel.conversationHistory
@@ -492,19 +541,21 @@ private fun FullScreenPhoneCallUI(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             PhoneCallTopBar(
-                state = state,
                 onBackClick = onBackClick,
                 onSwitchModeClick = onSwitchToFloating,
-                modeName = "全屏模式"
+                modeName = stringResource(R.string.phone_call_fullscreen_mode),
+                switchModeText = stringResource(R.string.phone_call_switch_to_floating)
             )
         },
         bottomBar = {
             PhoneCallControlBar(
                 state = state,
+                isMicrophoneEnabled = isMicrophoneEnabled,
                 onHangUpClick = onStopCall,
                 onStartCallClick = onStartCall,
-                colors = colors,
-                stateColor = stateColor
+                onToggleMicrophone = onToggleMicrophone,
+                onTextInputClick = onTextInputClick,
+                colors = colors
             )
         }
     ) { padding ->
@@ -647,208 +698,75 @@ private fun FullScreenPhoneCallUI(
 }
 
 /**
- * 浮动窗口模式 UI
+ * 悬浮窗模式占位页（避免与系统级悬浮窗双层显示）
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FloatingWindowPhoneCallUI(
-    viewModel: PhoneCallViewModel,
+private fun FloatingModePlaceholderUI(
     state: PhoneCallState,
-    stateColor: Color,
     colors: BaoziColors,
-    floatingWindowState: FloatingWindowState,
-    context: Context,
-    scope: CoroutineScope,
     onBackClick: () -> Unit,
     onStopCall: () -> Unit,
     onSwitchToFullScreen: () -> Unit
 ) {
-    val conversationHistory = viewModel.conversationHistory
-    val currentRecognizedText by viewModel.currentRecognizedText
-    val currentOperation by viewModel.currentOperation
-    val isAiOperating by viewModel.isAiOperating
-    val windowOpacity by viewModel.floatingWindowOpacity
-
-    // 浮动窗口透明度动画
-    val opacity by animateFloatAsState(
-        targetValue = windowOpacity,
-        animationSpec = tween(durationMillis = 300),
-        label = "windowOpacity"
-    )
-
-    // 根据状态调整窗口大小
-    val windowWidth = when (floatingWindowState) {
-        is FloatingWindowState.Minimized -> 120.dp
-        is FloatingWindowState.Maximized -> 400.dp
-        else -> 360.dp
-    }
-
-    val windowHeight = when (floatingWindowState) {
-        is FloatingWindowState.Minimized -> 80.dp
-        is FloatingWindowState.Maximized -> 600.dp
-        else -> 540.dp
-    }
-
-    // 浮动窗口容器
-    Box(
-        modifier = Modifier
-            .width(windowWidth)
-            .height(windowHeight)
-            .alpha(opacity)
-            .clip(RoundedCornerShape(16.dp))
-            .background(colors.backgroundCard.copy(alpha = 0.95f))
-            .zIndex(1000f)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // 标题栏
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 最小化按钮
-                IconButton(
-                    onClick = {
-                        when (floatingWindowState) {
-                            is FloatingWindowState.Normal -> viewModel.minimizeFloatingWindow()
-                            is FloatingWindowState.Maximized -> viewModel.minimizeFloatingWindow()
-                            else -> viewModel.showFloatingWindow()
-                        }
-                        performLightHaptic(context)
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = when (floatingWindowState) {
-                            is FloatingWindowState.Minimized -> Icons.Default.OpenInFull
-                            else -> Icons.Default.Minimize
-                        },
-                        contentDescription = stringResource(R.string.phone_call_minimize),
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(18.dp)
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            PhoneCallTopBar(
+                onBackClick = onBackClick,
+                onSwitchModeClick = onSwitchToFullScreen,
+                modeName = stringResource(R.string.phone_call_floating_mode),
+                switchModeText = stringResource(R.string.phone_call_switch_to_fullscreen)
+            )
+        }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(colors.background, colors.backgroundCard)
                     )
-                }
-
-                // 标题
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhoneAndroid,
+                    contentDescription = null,
+                    tint = colors.primary,
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = stringResource(R.string.phone_call_title),
+                    text = stringResource(R.string.phone_call_floating_tip),
                     color = colors.textPrimary,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
                 )
-
-                // 关闭按钮
-                IconButton(
-                    onClick = {
-                        performLightHaptic(context)
-                        onStopCall()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.phone_call_close),
-                        tint = colors.error,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            // 内容区域
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                when (floatingWindowState) {
-                    is FloatingWindowState.Minimized -> {
-                        // 最小化状态：显示状态图标
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = when (state) {
-                                    is PhoneCallState.Idle -> Icons.Default.Phone
-                                    is PhoneCallState.Recording -> Icons.Default.Mic
-                                    is PhoneCallState.Processing -> Icons.Default.Psychology
-                                    is PhoneCallState.Playing -> Icons.Default.VolumeUp
-                                    is PhoneCallState.Operating -> Icons.Default.TouchApp
-                                    is PhoneCallState.Error -> Icons.Default.Error
-                                },
-                                contentDescription = null,
-                                tint = stateColor,
-                                modifier = Modifier.size(32.dp)
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = viewModel.getStateDescription(),
-                                color = colors.textSecondary,
-                                fontSize = 12.sp
-                            )
-                        }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = getStateLabel(state),
+                    color = colors.textSecondary,
+                    fontSize = 13.sp
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = onSwitchToFullScreen) {
+                        Text(stringResource(R.string.phone_call_switch_to_fullscreen))
                     }
-                    else -> {
-                        // 正常/最大化状态：显示对话消息
-                        Column(
-                            modifier = Modifier.fillMaxSize()
+                    if (state !is PhoneCallState.Idle) {
+                        Button(
+                            onClick = onStopCall,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
                         ) {
-                            // 对话消息区域 (70%)
-                            Box(
-                                modifier = Modifier
-                                    .weight(0.7f)
-                                    .fillMaxWidth()
-                            ) {
-                                PhoneCallMessageList(
-                                    conversationHistory = conversationHistory,
-                                    currentRecognizedText = currentRecognizedText,
-                                    colors = colors,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-
-                            // 操作状态栏 (10%)
-                            if (isAiOperating) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF8B5CF6).copy(alpha = 0.2f))
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(14.dp),
-                                            color = Color(0xFF8B5CF6),
-                                            strokeWidth = 2.dp
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = currentOperation,
-                                            color = Color(0xFF8B5CF6),
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-                            }
-
-                            // 控制按钮区域 (20%)
-                            PhoneCallControlBar(
-                                state = state,
-                                onHangUpClick = onStopCall,
-                                onStartCallClick = {},
-                                colors = colors,
-                                stateColor = stateColor
-                            )
+                            Text(stringResource(R.string.phone_call_end), color = Color.White)
                         }
                     }
                 }
@@ -862,10 +780,10 @@ private fun FloatingWindowPhoneCallUI(
  */
 @Composable
 private fun PhoneCallTopBar(
-    state: PhoneCallState,
     onBackClick: () -> Unit,
     onSwitchModeClick: () -> Unit,
-    modeName: String
+    modeName: String,
+    switchModeText: String
 ) {
     val colors = BaoziTheme.colors
     val context = LocalContext.current
@@ -898,13 +816,33 @@ private fun PhoneCallTopBar(
                 )
             }
             Spacer(modifier = Modifier.width(10.dp))
-            // 标题
-            Text(
-                text = stringResource(R.string.phone_call_title),
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                color = colors.textPrimary
-            )
+            Column {
+                Text(
+                    text = stringResource(R.string.phone_call_title),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.textPrimary
+                )
+                Text(
+                    text = modeName,
+                    fontSize = 12.sp,
+                    color = colors.textSecondary
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
+            TextButton(
+                onClick = {
+                    performLightHaptic(context)
+                    onSwitchModeClick()
+                }
+            ) {
+                Text(
+                    text = switchModeText,
+                    color = colors.primary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
@@ -915,10 +853,13 @@ private fun PhoneCallTopBar(
 @Composable
 fun PhoneCallControlBar(
     state: PhoneCallState,
+    isMicrophoneEnabled: Boolean,
     onHangUpClick: () -> Unit,
     onStartCallClick: () -> Unit,
+    onToggleMicrophone: () -> Unit,
+    onTextInputClick: () -> Unit,
     colors: BaoziColors,
-    stateColor: Color
+    textInputEnabled: Boolean = true
 ) {
     val context = LocalContext.current
     val isIdle = state is PhoneCallState.Idle
@@ -932,19 +873,26 @@ fun PhoneCallControlBar(
     ) {
         // 麦克风按钮
         PhoneCallControlButton(
-            icon = Icons.Default.Mic,
-            contentDescription = stringResource(R.string.call_mic),
+            icon = if (isMicrophoneEnabled) Icons.Default.Mic else Icons.Default.MicOff,
+            contentDescription = if (isMicrophoneEnabled) {
+                stringResource(R.string.call_mic)
+            } else {
+                stringResource(R.string.phone_call_mic_muted)
+            },
             iconColor = when (state) {
-                is PhoneCallState.Recording -> Color(0xFF8B5CF6)
+                is PhoneCallState.Recording -> if (isMicrophoneEnabled) Color(0xFF8B5CF6) else colors.textSecondary
                 else -> colors.textSecondary
             },
-            backgroundColor = when (state) {
-                is PhoneCallState.Recording -> Color(0xFF8B5CF6).copy(alpha = 0.2f)
+            backgroundColor = when {
+                isIdle -> colors.backgroundCard
+                !isMicrophoneEnabled -> Color(0xFFEF4444).copy(alpha = 0.2f)
+                state is PhoneCallState.Recording -> Color(0xFF8B5CF6).copy(alpha = 0.2f)
                 else -> colors.backgroundCard
             },
+            enabled = !isIdle,
             onClick = {
                 performLightHaptic(context)
-                // TODO: 切换麦克风开关
+                onToggleMicrophone()
             }
         )
 
@@ -973,9 +921,10 @@ fun PhoneCallControlBar(
             contentDescription = stringResource(R.string.phone_call_title),
             iconColor = colors.textSecondary,
             backgroundColor = colors.backgroundCard,
+            enabled = !isIdle && textInputEnabled,
             onClick = {
                 performLightHaptic(context)
-                // TODO: 显示文本输入对话框
+                onTextInputClick()
             }
         )
     }
@@ -996,7 +945,6 @@ private fun PhoneCallControlButton(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
 
     Box(
         modifier = Modifier
@@ -1114,6 +1062,19 @@ private fun PhoneCallMessageItem(
                 lineHeight = 20.sp
             )
         }
+    }
+}
+
+@Composable
+private fun getStateLabel(state: PhoneCallState): String {
+    return when (state) {
+        is PhoneCallState.Idle -> stringResource(R.string.phone_call_start_hint)
+        is PhoneCallState.Recording -> "正在监听语音"
+        is PhoneCallState.MicMuted -> stringResource(R.string.phone_call_mic_muted)
+        is PhoneCallState.Processing -> "正在处理请求"
+        is PhoneCallState.Playing -> "AI 正在回复"
+        is PhoneCallState.Operating -> "正在执行操作"
+        is PhoneCallState.Error -> stringResource(R.string.phone_call_error)
     }
 }
 

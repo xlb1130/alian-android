@@ -24,12 +24,16 @@ fun SpeechProviderSettingsScreen(
     models: Map<SpeechProvider, SpeechModels>,
     offlineAsrEnabled: Boolean,
     offlineAsrAutoFallbackToCloud: Boolean,
+    offlineTtsEnabled: Boolean,
+    offlineTtsAutoFallbackToCloud: Boolean,
     onBack: () -> Unit,
     onSelectProvider: (SpeechProvider) -> Unit,
     onUpdateCredentials: (SpeechProvider, SpeechProviderCredentials) -> Unit,
     onUpdateModels: (SpeechProvider, SpeechModels) -> Unit,
     onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
-    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit
+    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit,
+    onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
     var isPageVisible by remember { mutableStateOf(false) }
@@ -63,11 +67,15 @@ fun SpeechProviderSettingsScreen(
             models = models,
             offlineAsrEnabled = offlineAsrEnabled,
             offlineAsrAutoFallbackToCloud = offlineAsrAutoFallbackToCloud,
+            offlineTtsEnabled = offlineTtsEnabled,
+            offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud,
             onSelectProvider = onSelectProvider,
             onUpdateCredentials = onUpdateCredentials,
             onUpdateModels = onUpdateModels,
             onUpdateOfflineAsrEnabled = onUpdateOfflineAsrEnabled,
-            onUpdateOfflineAsrAutoFallbackToCloud = onUpdateOfflineAsrAutoFallbackToCloud
+            onUpdateOfflineAsrAutoFallbackToCloud = onUpdateOfflineAsrAutoFallbackToCloud,
+            onUpdateOfflineTtsEnabled = onUpdateOfflineTtsEnabled,
+            onUpdateOfflineTtsAutoFallbackToCloud = onUpdateOfflineTtsAutoFallbackToCloud
         )
     }
 }
