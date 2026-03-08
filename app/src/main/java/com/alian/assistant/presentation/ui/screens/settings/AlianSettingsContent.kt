@@ -250,105 +250,135 @@ fun AlianSettingsContent(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 音色选择
-        Box(modifier = Modifier.staggeredFadeIn(2)) {
-            val hasAvatar = !voiceAvatarUrl.isNullOrEmpty()
-            val isPlaying = currentPlayingUrl == currentVoice?.auditionUrl
-            
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .background(
-                        color = colors.backgroundCard,
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                    .clickable { onNavigateToVoiceSelection() }
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+        // 音色选择（离线 TTS 模式下隐藏）
+        if (!settings.offlineTtsEnabled) {
+            Box(modifier = Modifier.staggeredFadeIn(2)) {
+                val hasAvatar = !voiceAvatarUrl.isNullOrEmpty()
+                val isPlaying = currentPlayingUrl == currentVoice?.auditionUrl
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .background(
+                            color = colors.backgroundCard,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .clickable { onNavigateToVoiceSelection() }
+                        .padding(16.dp)
                 ) {
-                    // 左侧图标或头像
-                    if (hasAvatar && currentVoice != null) {
-                        AsyncImage(
-                            model = currentVoice.avatarUrl,
-                            contentDescription = currentVoice.name,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        IconContainer(
-                            icon = Icons.Default.MusicNote,
-                            tint = colors.primary
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.width(12.dp))
-                    
-                    // 中间标题和副标题
-                    Column(
-                        modifier = Modifier.weight(1f)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 左侧图标或头像
+                        if (hasAvatar && currentVoice != null) {
+                            AsyncImage(
+                                model = currentVoice.avatarUrl,
+                                contentDescription = currentVoice.name,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            IconContainer(
+                                icon = Icons.Default.MusicNote,
+                                tint = colors.primary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // 中间标题和副标题
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.alian_voice_select),
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = currentVoice?.name ?: settings.ttsVoice,
+                                fontSize = 14.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+
+                        // 右侧试听按钮
+                        if (!currentVoice?.auditionUrl.isNullOrEmpty()) {
+                            val playInteractionSource = remember { MutableInteractionSource() }
+                            val playIsPressed by playInteractionSource.collectIsPressedAsState()
+
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isPlaying) colors.primary
+                                        else if (playIsPressed) colors.primary.copy(alpha = 0.2f)
+                                        else colors.primary.copy(alpha = 0.1f)
+                                    )
+                                    .scale(if (playIsPressed) 0.95f else 1f)
+                                    .clickable(
+                                        interactionSource = playInteractionSource,
+                                        indication = null,
+                                        onClick = {
+                                            currentVoice?.auditionUrl?.let { playAudio(it) }
+                                        }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isPlaying) {
+                                    // 播放中显示停止图标
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = stringResource(R.string.alian_stop),
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                } else {
+                                    // 未播放显示音量图标
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                        contentDescription = stringResource(R.string.alian_audition),
+                                        tint = colors.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            Box(modifier = Modifier.staggeredFadeIn(2)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .background(
+                            color = colors.backgroundCard,
+                            shape = RoundedCornerShape(16.dp)
+                        )
+                        .padding(16.dp)
+                ) {
+                    Column {
                         Text(
-                            text = stringResource(R.string.alian_voice_select),
+                            text = "离线 TTS 已启用",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
                             color = colors.textPrimary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = currentVoice?.name ?: settings.ttsVoice,
-                            fontSize = 14.sp,
+                            text = "当前模式下音色配置已隐藏，使用本地模型默认音色。",
+                            fontSize = 13.sp,
                             color = colors.textSecondary
                         )
-                    }
-                    
-                    // 右侧试听按钮
-                    if (!currentVoice?.auditionUrl.isNullOrEmpty()) {
-                        val playInteractionSource = remember { MutableInteractionSource() }
-                        val playIsPressed by playInteractionSource.collectIsPressedAsState()
-                        
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (isPlaying) colors.primary
-                                    else if (playIsPressed) colors.primary.copy(alpha = 0.2f)
-                                    else colors.primary.copy(alpha = 0.1f)
-                                )
-                                .scale(if (playIsPressed) 0.95f else 1f)
-                                .clickable(
-                                    interactionSource = playInteractionSource,
-                                    indication = null,
-                                    onClick = {
-                                        currentVoice?.auditionUrl?.let { playAudio(it) }
-                                    }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isPlaying) {
-                                // 播放中显示停止图标
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = stringResource(R.string.alian_stop),
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            } else {
-                                // 未播放显示音量图标
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.VolumeUp,
-                                    contentDescription = stringResource(R.string.alian_audition),
-                                    tint = colors.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
                     }
                 }
             }

@@ -41,6 +41,7 @@ import kotlinx.coroutines.withContext
 sealed class PhoneCallState {
     object Idle : PhoneCallState()           // 空闲（未开始）
     object Recording : PhoneCallState()      // 录音中
+    object MicMuted : PhoneCallState()       // 麦克风已关闭（通话保持中）
     object Processing : PhoneCallState()     // 处理中（发送请求）
     object Playing : PhoneCallState()        // 播放中
     data class Operating(val description: String) : PhoneCallState()  // 操作中
@@ -107,6 +108,10 @@ class PhoneCallViewModel(private val context: Context) {
     // 浮动窗口透明度
     private val _floatingWindowOpacity = mutableStateOf(0.95f)
     val floatingWindowOpacity: State<Float> = _floatingWindowOpacity
+
+    // 麦克风是否启用（通话进行中可动态开关）
+    private val _isMicrophoneEnabled = mutableStateOf(true)
+    val isMicrophoneEnabled: State<Boolean> = _isMicrophoneEnabled
 
     // 音频管理器（复用 VoiceCall 的音频管理器）
     private var audioManager: IAudioManager? = null
@@ -364,6 +369,7 @@ class PhoneCallViewModel(private val context: Context) {
 
         // 重置处理标志
         isProcessing = false
+        _isMicrophoneEnabled.value = true
 
         // 清空之前的对话历史
         _conversationHistory.clear()
@@ -429,6 +435,7 @@ class PhoneCallViewModel(private val context: Context) {
         _currentPlayingMessage.value = ""
         _currentOperation.value = ""
         _isAiOperating.value = false
+        _isMicrophoneEnabled.value = true
 
         // 禁用浮动窗口并停止前台服务
         _floatingWindowState.value = FloatingWindowState.Disabled
@@ -443,6 +450,14 @@ class PhoneCallViewModel(private val context: Context) {
      */
     private fun startRecording() {
         Log.d(TAG, "开始录音")
+
+        // 麦克风关闭时不拉起录音，保持通话但暂停监听
+        if (!_isMicrophoneEnabled.value) {
+            _callState.value = PhoneCallState.MicMuted
+            _currentRecognizedText.value = ""
+            audioManager?.stopRecording()
+            return
+        }
 
         // 先设置状态为 Recording
         _callState.value = PhoneCallState.Recording
@@ -652,6 +667,11 @@ class PhoneCallViewModel(private val context: Context) {
                 // 清空播放消息
                 _currentPlayingMessage.value = ""
 
+                if (!_isMicrophoneEnabled.value) {
+                    _callState.value = PhoneCallState.MicMuted
+                    return@playText
+                }
+
                 // 检查是否还在播放
                 if (audioManager?.isCurrentlyPlaying() == false) {
                     _callState.value = PhoneCallState.Recording
@@ -685,16 +705,30 @@ class PhoneCallViewModel(private val context: Context) {
     fun handleTextInput(text: String) {
         Log.d(TAG, "处理文本输入: $text")
 
+        val normalizedText = text.trim()
+        if (normalizedText.isBlank()) {
+            return
+        }
+
+        if (_callState.value is PhoneCallState.Idle) {
+            _callState.value = PhoneCallState.Error("请先开始通话")
+            return
+        }
+
         // 检查是否正在处理，防止重复请求
         if (isProcessing) {
             Log.w(TAG, "正在处理上一条消息，忽略此次输入")
             return
         }
 
+        // 文本输入优先级更高，先暂停当前录音，避免语音/文本并发进入处理链
+        audioManager?.stopRecording()
+        _currentRecognizedText.value = ""
+
         // 添加用户消息到历史
         val userMessage = PhoneCallMessage(
             id = generateMessageId(),
-            content = text,
+            content = normalizedText,
             isUser = true
         )
         _conversationHistory.add(userMessage)
@@ -705,12 +739,41 @@ class PhoneCallViewModel(private val context: Context) {
         // 发送到处理（使用 viewModelScope）
         currentJob = viewModelScope.launch {
             try {
-                processUserMessage(text)
+                processUserMessage(normalizedText)
             } finally {
                 // 处理完成后重置标志
                 isProcessing = false
             }
         }
+    }
+
+    /**
+     * 切换麦克风状态
+     */
+    fun toggleMicrophone() {
+        if (_callState.value is PhoneCallState.Idle) {
+            return
+        }
+
+        val enableMic = !_isMicrophoneEnabled.value
+        _isMicrophoneEnabled.value = enableMic
+
+        if (!enableMic) {
+            audioManager?.stopRecording()
+            _currentRecognizedText.value = ""
+            if (_callState.value is PhoneCallState.Recording) {
+                _callState.value = PhoneCallState.MicMuted
+            }
+            Log.d(TAG, "麦克风已关闭")
+            return
+        }
+
+        Log.d(TAG, "麦克风已开启")
+        val state = _callState.value
+        if (state is PhoneCallState.Playing || state is PhoneCallState.Processing || state is PhoneCallState.Operating) {
+            return
+        }
+        startRecording()
     }
 
     /**
@@ -852,6 +915,7 @@ class PhoneCallViewModel(private val context: Context) {
         return when (_callState.value) {
             is PhoneCallState.Idle -> "空闲"
             is PhoneCallState.Recording -> "正在录音..."
+            is PhoneCallState.MicMuted -> "麦克风已关闭"
             is PhoneCallState.Processing -> "正在思考..."
             is PhoneCallState.Playing -> "正在播放..."
             is PhoneCallState.Operating -> "正在操作..."
@@ -866,6 +930,7 @@ class PhoneCallViewModel(private val context: Context) {
         return when (_callState.value) {
             is PhoneCallState.Idle -> Color.Gray
             is PhoneCallState.Recording -> Color(0xFF8B5CF6)  // 紫色
+            is PhoneCallState.MicMuted -> Color(0xFF9CA3AF)  // 灰色
             is PhoneCallState.Processing -> Color(0xFFFFA726)  // 橙色
             is PhoneCallState.Playing -> Color(0xFF2196F3)  // 蓝色
             is PhoneCallState.Operating -> Color(0xFF10B981)  // 绿色

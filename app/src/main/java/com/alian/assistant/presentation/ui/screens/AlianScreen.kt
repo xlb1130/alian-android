@@ -44,6 +44,8 @@ fun AlianScreen(
     ttsInterruptEnabled: Boolean = false,
     enableAEC: Boolean = false,
     enableStreaming: Boolean = false,
+    offlineTtsEnabled: Boolean = false,
+    offlineTtsAutoFallbackToCloud: Boolean = true,
     volume: Int = 50,
     onVoiceInput: ((String) -> Unit)? = null,
     voiceRecognitionManager: VoiceRecognitionManager? = null,
@@ -105,9 +107,15 @@ fun AlianScreen(
     }
 
     // 更新 TTS 配置
-    LaunchedEffect(ttsEnabled, ttsRealtime, ttsVoice, apiKey) {
+    LaunchedEffect(ttsEnabled, ttsRealtime, ttsVoice, apiKey, offlineTtsEnabled, offlineTtsAutoFallbackToCloud) {
         Log.d("AlianScreen", "LaunchedEffect触发: TTS配置更新")
-        viewModel.updateTTSConfig(ttsEnabled, ttsRealtime, ttsVoice)
+        viewModel.updateTTSConfig(
+            enabled = ttsEnabled,
+            realtime = ttsRealtime,
+            voice = ttsVoice,
+            offlineEnabled = offlineTtsEnabled,
+            offlineAutoFallbackToCloud = offlineTtsAutoFallbackToCloud
+        )
     }
 
     // 根据登录状态显示不同界面
@@ -197,6 +205,8 @@ fun AlianScreen(
                 ttsInterruptEnabled = ttsInterruptEnabled,
                 enableAEC = enableAEC,
                 enableStreaming = enableStreaming,
+                offlineTtsEnabled = offlineTtsEnabled,
+                offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud,
                 volume = volume,
                 voiceRecognitionManager = voiceRecognitionManager,
                 streamingVoiceRecognitionManager = streamingVoiceRecognitionManager,

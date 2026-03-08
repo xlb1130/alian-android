@@ -136,28 +136,39 @@ class PhoneCallOverlayService : Service() {
      * 绑定浮动窗口视图，并设置截图保护回调
      *
      * 截图保护机制（参考 MobileAgentImprove）：
-     * - 截图前：隐藏悬浮窗，避免遮挡屏幕内容
-     * - 截图后：恢复悬浮窗显示
+     * - 仅在最小化状态下，截图前隐藏悬浮窗，避免遮挡屏幕内容
+     * - 若本次截图前隐藏过，则截图后恢复悬浮窗显示
      *
      * @param view 浮动窗口视图
      * @param screenCaptureManager 屏幕捕获管理器
+     * @param shouldHideOverlayForCapture 是否需要在本次截图前隐藏悬浮窗
      */
     fun bindFloatingWindowAndScreenCapture(
         view: PhoneCallFloatingWindowView,
-        screenCaptureManager: ScreenCaptureManager
+        screenCaptureManager: ScreenCaptureManager,
+        shouldHideOverlayForCapture: () -> Boolean
     ) {
         floatingWindowView = view
+        var hiddenForCapture = false
 
         // 设置截图保护回调：截图前隐藏悬浮窗
         screenCaptureManager.onBeforeCapture = {
-            Log.d(TAG, "截图保护：隐藏悬浮窗")
-            floatingWindowView?.setVisible(false)
+            if (shouldHideOverlayForCapture()) {
+                Log.d(TAG, "截图保护：隐藏悬浮窗（最小化模式）")
+                floatingWindowView?.setVisible(false)
+                hiddenForCapture = true
+            } else {
+                hiddenForCapture = false
+            }
         }
 
         // 设置截图保护回调：截图后恢复悬浮窗
         screenCaptureManager.onAfterCapture = {
-            Log.d(TAG, "截图保护：恢复悬浮窗")
-            floatingWindowView?.setVisible(true)
+            if (hiddenForCapture) {
+                Log.d(TAG, "截图保护：恢复悬浮窗")
+                floatingWindowView?.setVisible(true)
+                hiddenForCapture = false
+            }
         }
 
         Log.d(TAG, "已绑定浮动窗口和截图保护回调")

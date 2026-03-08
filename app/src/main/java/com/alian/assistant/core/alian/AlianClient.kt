@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.alian.assistant.core.alian.backend.AuthManager
 import com.alian.assistant.core.alian.backend.BackendChatClient
+import com.alian.assistant.core.alian.backend.ChatAttachmentRef
 import com.alian.assistant.core.alian.backend.SessionData
 import com.alian.assistant.core.alian.backend.SessionDetailData
 import com.alian.assistant.core.alian.backend.SessionMessage
@@ -154,10 +155,11 @@ class AlianClient(
     suspend fun sendMessage(
         userMessage: String,
         conversationHistory: List<ChatMessage> = emptyList(),
+        attachments: List<ChatAttachmentRef> = emptyList(),
         onEvent: ((UIEvent) -> Unit)? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         if (useBackend) {
-            sendMessageWithBackend(userMessage, onEvent)
+            sendMessageWithBackend(userMessage, attachments, onEvent)
         } else {
             sendMessageWithOpenAI(userMessage, conversationHistory)
         }
@@ -168,6 +170,7 @@ class AlianClient(
      */
     private suspend fun sendMessageWithBackend(
         userMessage: String,
+        attachments: List<ChatAttachmentRef> = emptyList(),
         onEvent: ((UIEvent) -> Unit)? = null
     ): Result<String> = withContext(Dispatchers.IO) {
         Log.d("AlianClient", "sendMessageWithBackend开始")
@@ -201,6 +204,7 @@ class AlianClient(
             val result = backendClient!!.sendMessage(
                 sessionId = currentSessionId!!,
                 message = userMessage,
+                attachments = attachments,
                 onEvent = onEvent
             )
 

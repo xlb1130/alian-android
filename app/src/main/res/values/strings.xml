@@ -444,9 +444,17 @@
     <string name="phone_call_start">开始通话</string>
     <string name="phone_call_screen_preview">屏幕预览</string>
     <string name="phone_call_fullscreen_mode">全屏模式</string>
+    <string name="phone_call_floating_mode">悬浮窗模式</string>
     <string name="phone_call_minimize">最小化</string>
     <string name="phone_call_expand">展开</string>
     <string name="phone_call_close">关闭</string>
+    <string name="phone_call_switch_to_floating">切到悬浮窗</string>
+    <string name="phone_call_switch_to_fullscreen">返回全屏</string>
+    <string name="phone_call_floating_tip">已进入系统悬浮窗模式</string>
+    <string name="phone_call_text_input_title">输入指令</string>
+    <string name="phone_call_text_input_hint">输入你希望 AI 执行或回答的内容</string>
+    <string name="phone_call_send">发送</string>
+    <string name="phone_call_mic_muted">麦克风已关闭</string>
     <string name="phone_call_permission_title">需要权限</string>
     <string name="phone_call_permission_hint">请在设置页面授予屏幕录制权限，然后返回重试。</string>
     <string name="phone_call_go_settings">去设置</string>

@@ -377,12 +377,85 @@ fun ChatMessageBubble(
                             }
                     ) {
                         if (message.isUser) {
-                            Text(
-                                text = message.content,
-                                fontSize = 15.sp,
-                                color = Color.White,
-                                modifier = Modifier.padding(12.dp)
-                            )
+                            Column {
+                                if (message.content.isNotBlank()) {
+                                    Text(
+                                        text = message.content,
+                                        fontSize = 15.sp,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                                if (message.attachments.isNotEmpty()) {
+                                    Column(
+                                        modifier = Modifier.padding(
+                                            start = 12.dp,
+                                            end = 12.dp,
+                                            top = if (message.content.isNotBlank()) 0.dp else 12.dp,
+                                            bottom = 12.dp
+                                        ),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        message.attachments.forEach { attachment ->
+                                            val fileName = attachment.filename
+                                                ?: attachment.name
+                                                ?: stringResource(R.string.chat_unknown_file)
+                                            val originalUrl = attachment.file_url ?: attachment.url ?: attachment.path ?: ""
+                                            val url = if (originalUrl.startsWith("/api/v1")) {
+                                                backendBaseUrl + "/" + originalUrl.substring(8)
+                                            } else if (originalUrl.startsWith("/") && backendBaseUrl.isNotEmpty()) {
+                                                backendBaseUrl + originalUrl
+                                            } else {
+                                                originalUrl
+                                            }
+                                            val isRemoteUrl = url.startsWith("http://") || url.startsWith("https://")
+                                            val isLocalUri = url.startsWith("content://") || url.startsWith("file://")
+                                            val isImage = fileName.lowercase().let { name ->
+                                                listOf(".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp").any { name.endsWith(it) }
+                                            }
+                                            val isVideo = fileName.lowercase().let { name ->
+                                                listOf(".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm", ".m4v", ".3gp").any { name.endsWith(it) }
+                                            }
+                                            val iconVector = when {
+                                                isImage -> Icons.Default.Image
+                                                isVideo -> Icons.Default.Videocam
+                                                else -> Icons.Default.Visibility
+                                            }
+                                            val clickContext = LocalContext.current
+
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        if (isRemoteUrl || isLocalUri || !attachment.file_id.isNullOrBlank()) {
+                                                            onLinkClick?.invoke(url, fileName, attachment.file_id)
+                                                        } else {
+                                                            Toast.makeText(
+                                                                clickContext,
+                                                                "附件链接无效，缺少可访问 URL",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
+                                                    },
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = iconVector,
+                                                    contentDescription = stringResource(R.string.chat_preview),
+                                                    modifier = Modifier.size(14.dp),
+                                                    tint = Color.White
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = fileName,
+                                                    fontSize = 13.sp,
+                                                    color = Color.White.copy(alpha = 0.95f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         } else {
                             Column {
                                 Markdown(
@@ -461,6 +534,7 @@ fun ChatMessageBubble(
                                                 originalUrl
                                             }
                                             val isValidUrl = url.startsWith("http://") || url.startsWith("https://")
+                                            val isLocalUri = url.startsWith("content://") || url.startsWith("file://")
                                             Log.d("ChatMessageBubble", "附件按钮: fileName=$fileName, originalUrl=$originalUrl, url=$url")
                                             
                                             // 检查是否为图片附件
@@ -487,6 +561,8 @@ fun ChatMessageBubble(
                                                     .clickable {
                                                         if (isValidUrl || !attachment.file_id.isNullOrBlank()) {
                                                             Log.d("ChatMessageBubble", "附件按钮被点击: url=$url, fileName=$fileName, fileId=${attachment.file_id}")
+                                                            onLinkClick(url, fileName, attachment.file_id)
+                                                        } else if (isLocalUri) {
                                                             onLinkClick(url, fileName, attachment.file_id)
                                                         } else {
                                                             Toast.makeText(

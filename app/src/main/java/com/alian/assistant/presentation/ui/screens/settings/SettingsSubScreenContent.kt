@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
@@ -242,7 +243,9 @@ fun TTSSettingsContent(
     onUpdateTTSRealtime: (Boolean) -> Unit,
     onUpdateTTSInterruptEnabled: (Boolean) -> Unit,
     onUpdateEnableAEC: (Boolean) -> Unit,
-    onUpdateEnableStreaming: (Boolean) -> Unit
+    onUpdateEnableStreaming: (Boolean) -> Unit,
+    onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
 
@@ -274,8 +277,42 @@ fun TTSSettingsContent(
                 )
             }
 
-            // TTS 实时语音打断开关
             Box(modifier = Modifier.staggeredFadeIn(2)) {
+                SettingsCardWithSwitch(
+                    icon = Icons.Default.Memory,
+                    title = "离线 TTS（sherpa-onnx）",
+                    subtitle = if (settings.offlineTtsEnabled) {
+                        "已启用，优先使用本地模型合成"
+                    } else {
+                        "已关闭，使用在线 TTS"
+                    },
+                    checked = settings.offlineTtsEnabled,
+                    onCheckedChange = { enabled ->
+                        onUpdateOfflineTtsEnabled(enabled)
+                    }
+                )
+            }
+
+            if (settings.offlineTtsEnabled) {
+                Box(modifier = Modifier.staggeredFadeIn(3)) {
+                    SettingsCardWithSwitch(
+                        icon = Icons.Default.CloudSync,
+                        title = "离线失败自动回退在线",
+                        subtitle = if (settings.offlineTtsAutoFallbackToCloud) {
+                            "已开启，离线不可用时自动回退在线"
+                        } else {
+                            "已关闭，离线失败将直接报错"
+                        },
+                        checked = settings.offlineTtsAutoFallbackToCloud,
+                        onCheckedChange = { enabled ->
+                            onUpdateOfflineTtsAutoFallbackToCloud(enabled)
+                        }
+                    )
+                }
+            }
+
+            // TTS 实时语音打断开关
+            Box(modifier = Modifier.staggeredFadeIn(4)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Warning,
                     title = stringResource(R.string.tts_interrupt),
@@ -288,7 +325,7 @@ fun TTSSettingsContent(
             }
 
             // AEC（回声消除）开关
-            Box(modifier = Modifier.staggeredFadeIn(3)) {
+            Box(modifier = Modifier.staggeredFadeIn(5)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Build,
                     title = stringResource(R.string.tts_aec),
@@ -301,7 +338,7 @@ fun TTSSettingsContent(
             }
 
             // 流式 LLM + 流式 TTS 开关
-            Box(modifier = Modifier.staggeredFadeIn(4)) {
+            Box(modifier = Modifier.staggeredFadeIn(6)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Speed,
                     title = stringResource(R.string.tts_streaming),

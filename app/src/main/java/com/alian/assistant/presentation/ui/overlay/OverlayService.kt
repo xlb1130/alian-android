@@ -31,7 +31,7 @@ import androidx.core.content.ContextCompat
 import com.alian.assistant.MainActivity
 import com.alian.assistant.R
 import com.alian.assistant.data.SettingsManager
-import com.alian.assistant.infrastructure.ai.tts.CosyVoiceTTSClient
+import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,6 +70,8 @@ class OverlayService : Service() {
         // TTS 相关 - 这些值从设置中读取，作为默认值
         private var ttsApiKey = ""
         private var ttsVoice = "longyingmu_v3"
+        private var offlineTtsEnabled = false
+        private var offlineTtsAutoFallbackToCloud = true
 
         fun show(context: Context, text: String, onStop: (() -> Unit)? = null) {
             // 检查悬浮窗权限
@@ -127,9 +129,17 @@ class OverlayService : Service() {
         }
 
         /** 设置 TTS 配置 */
-        fun setTTSConfig(enabled: Boolean, apiKey: String = "", voice: String = "longyingmu_v3") {
+        fun setTTSConfig(
+            enabled: Boolean,
+            apiKey: String = "",
+            voice: String = "longyingmu_v3",
+            offlineEnabled: Boolean = false,
+            offlineAutoFallbackToCloud: Boolean = true
+        ) {
             ttsApiKey = apiKey
             ttsVoice = voice
+            offlineTtsEnabled = offlineEnabled
+            offlineTtsAutoFallbackToCloud = offlineAutoFallbackToCloud
             instance?.overlayView?.post {
                 instance?.setTTSEnabled(enabled)
                 instance?.updateTTSClient()
@@ -344,7 +354,7 @@ class OverlayService : Service() {
     private var dragParams: WindowManager.LayoutParams? = null
 
     // TTS 客户端（实例变量，每个服务实例有自己的 TTS 客户端）
-    private var ttsClient: CosyVoiceTTSClient? = null
+    private var ttsClient: HybridTtsClient? = null
 
     // TTS 播放协程作用域
     private val ttsScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -387,6 +397,8 @@ class OverlayService : Service() {
         ttsEnabled = settings.ttsEnabled
         ttsApiKey = settings.apiKey
         ttsVoice = settings.ttsVoice
+        offlineTtsEnabled = settings.offlineTtsEnabled
+        offlineTtsAutoFallbackToCloud = settings.offlineTtsAutoFallbackToCloud
 
         // 必须第一时间调用 startForeground，否则会崩溃
         startForegroundNotification()
@@ -837,12 +849,20 @@ class OverlayService : Service() {
 
     /** 更新 TTS 客户端 */
     private fun updateTTSClient() {
-        if (ttsEnabled && ttsApiKey.isNotEmpty()) {
-            ttsClient = CosyVoiceTTSClient(
+        ttsClient?.release()
+        ttsClient = null
+        if (ttsEnabled && (offlineTtsEnabled || ttsApiKey.isNotEmpty())) {
+            ttsClient = HybridTtsClient(
+                appContext = this,
                 apiKey = ttsApiKey,
-                voice = ttsVoice
+                voice = ttsVoice,
+                offlineTtsEnabled = offlineTtsEnabled,
+                offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud
             )
-            Log.d(TAG, "TTS客户端已初始化: voice=$ttsVoice")
+            Log.d(
+                TAG,
+                "TTS客户端已初始化: voice=$ttsVoice, offlineTtsEnabled=$offlineTtsEnabled"
+            )
         } else {
             ttsClient = null
             Log.d(TAG, "TTS客户端已禁用")

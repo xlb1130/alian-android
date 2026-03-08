@@ -11,7 +11,7 @@ import com.alian.assistant.common.utils.SpeechTextGuard
 import com.alian.assistant.common.utils.VoiceTerminalMetrics
 import com.alian.assistant.data.SettingsManager
 import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
-import com.alian.assistant.infrastructure.ai.tts.CosyVoiceTTSClient
+import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -60,7 +60,7 @@ class AecVoiceCallAudioManager(
     private var offlineAsrRecognizer: SherpaOfflineSpeechRecognizer? = null
 
     // 语音合成客户端
-    private var cosyVoiceTTSClient: CosyVoiceTTSClient? = null
+    private var cosyVoiceTTSClient: HybridTtsClient? = null
 
     // 当前录音任务
     private var recordingJob: Job? = null
@@ -109,11 +109,15 @@ class AecVoiceCallAudioManager(
         get() = settingsManager.settings.value.offlineAsrEnabled
     private val offlineAsrAutoFallbackToCloud: Boolean
         get() = settingsManager.settings.value.offlineAsrAutoFallbackToCloud
+    private val offlineTtsEnabled: Boolean
+        get() = settingsManager.settings.value.offlineTtsEnabled
+    private val offlineTtsAutoFallbackToCloud: Boolean
+        get() = settingsManager.settings.value.offlineTtsAutoFallbackToCloud
 
     init {
         Log.d(
             TAG,
-            "AecVoiceCallAudioManager 初始化, offlineAsrEnabled=$offlineAsrEnabled, offlineAsrAutoFallbackToCloud=$offlineAsrAutoFallbackToCloud"
+            "AecVoiceCallAudioManager 初始化, offlineAsrEnabled=$offlineAsrEnabled, offlineAsrAutoFallbackToCloud=$offlineAsrAutoFallbackToCloud, offlineTtsEnabled=$offlineTtsEnabled"
         )
         initializeClients()
     }
@@ -183,13 +187,14 @@ class AecVoiceCallAudioManager(
         }
 
         // 初始化语音合成客户端
-        cosyVoiceTTSClient = CosyVoiceTTSClient(
+        cosyVoiceTTSClient = HybridTtsClient(
+            appContext = context,
             apiKey = apiKey,
-            wsUrl = "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
-            model = "cosyvoice-v3-flash",
             voice = ttsVoice,
             rate = ttsSpeed,
-            volume = volume
+            volume = volume,
+            offlineTtsEnabled = offlineTtsEnabled,
+            offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud
         )
 
         // 设置音频数据回调，将播放的音频数据提供给 AecAudioProcessor 作为参考信号

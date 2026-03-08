@@ -60,11 +60,15 @@ fun SpeechProviderSettingsContent(
     models: Map<SpeechProvider, SpeechModels>,
     offlineAsrEnabled: Boolean,
     offlineAsrAutoFallbackToCloud: Boolean,
+    offlineTtsEnabled: Boolean,
+    offlineTtsAutoFallbackToCloud: Boolean,
     onSelectProvider: (SpeechProvider) -> Unit,
     onUpdateCredentials: (SpeechProvider, SpeechProviderCredentials) -> Unit,
     onUpdateModels: (SpeechProvider, SpeechModels) -> Unit,
     onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
-    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit
+    onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit,
+    onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
     val context = LocalContext.current
@@ -107,6 +111,15 @@ fun SpeechProviderSettingsContent(
             )
         }
 
+        item {
+            OfflineTtsSettingsCard(
+                offlineTtsEnabled = offlineTtsEnabled,
+                offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud,
+                onUpdateOfflineTtsEnabled = onUpdateOfflineTtsEnabled,
+                onUpdateOfflineTtsAutoFallbackToCloud = onUpdateOfflineTtsAutoFallbackToCloud
+            )
+        }
+
         // 服务商选择
         item {
             Text(
@@ -139,7 +152,8 @@ fun SpeechProviderSettingsContent(
                 },
                 onUpdateModels = { newModels ->
                     onUpdateModels(config.provider, newModels)
-                }
+                },
+                offlineTtsEnabled = offlineTtsEnabled
             )
         }
 
@@ -172,7 +186,7 @@ private fun OfflineAsrSettingsCard(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "离线 ASR（实验性）",
+            text = "离线 ASR",
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             color = colors.textPrimary
@@ -236,6 +250,92 @@ private fun OfflineAsrSettingsCard(
 }
 
 @Composable
+private fun OfflineTtsSettingsCard(
+    offlineTtsEnabled: Boolean,
+    offlineTtsAutoFallbackToCloud: Boolean,
+    onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
+) {
+    val colors = BaoziTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .border(
+                width = 1.dp,
+                color = colors.textHint.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(16.dp)
+            )
+            .background(colors.backgroundCard)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "离线 TTS（sherpa-onnx，实验性）",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.textPrimary
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "本地离线语音合成",
+                    fontSize = 13.sp,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = if (offlineTtsEnabled) {
+                        "启用后优先使用本地模型，音色配置将隐藏"
+                    } else {
+                        "关闭后使用当前服务商在线 TTS"
+                    },
+                    fontSize = 11.sp,
+                    color = colors.textHint
+                )
+            }
+            Switch(
+                checked = offlineTtsEnabled,
+                onCheckedChange = onUpdateOfflineTtsEnabled
+            )
+        }
+
+        if (offlineTtsEnabled) {
+            HorizontalDivider(color = colors.textHint.copy(alpha = 0.2f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "离线失败自动回退在线合成",
+                        fontSize = 13.sp,
+                        color = colors.textPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "关闭后若离线模型不可用，将直接报错",
+                        fontSize = 11.sp,
+                        color = colors.textHint
+                    )
+                }
+                Switch(
+                    checked = offlineTtsAutoFallbackToCloud,
+                    onCheckedChange = onUpdateOfflineTtsAutoFallbackToCloud
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProviderCard(
     config: SpeechProviderConfig,
     isSelected: Boolean,
@@ -245,7 +345,8 @@ private fun ProviderCard(
     onSelect: () -> Unit,
     onToggleExpand: () -> Unit,
     onUpdateCredentials: (SpeechProviderCredentials) -> Unit,
-    onUpdateModels: (SpeechModels) -> Unit
+    onUpdateModels: (SpeechModels) -> Unit,
+    offlineTtsEnabled: Boolean
 ) {
     val colors = BaoziTheme.colors
     val context = LocalContext.current
@@ -418,13 +519,22 @@ private fun ProviderCard(
                 )
 
                 // TTS 模型选择
-                Spacer(modifier = Modifier.height(12.dp))
-                ModelSelectField(
-                    label = "TTS 模型",
-                    selectedModel = models.ttsModel.ifEmpty { config.ttsDefaultModel },
-                    models = config.ttsModels,
-                    onModelSelected = { onUpdateModels(models.copy(ttsModel = it)) }
-                )
+                if (!offlineTtsEnabled) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ModelSelectField(
+                        label = "TTS 模型",
+                        selectedModel = models.ttsModel.ifEmpty { config.ttsDefaultModel },
+                        models = config.ttsModels,
+                        onModelSelected = { onUpdateModels(models.copy(ttsModel = it)) }
+                    )
+                } else {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "离线 TTS 已启用，当前服务商的 TTS 模型配置已隐藏",
+                        fontSize = 11.sp,
+                        color = colors.textHint
+                    )
+                }
             }
         }
     }

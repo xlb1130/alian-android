@@ -168,6 +168,8 @@ fun SettingsScreen(
     onUpdateTTSInterruptEnabled: (Boolean) -> Unit,
     onUpdateEnableAEC: (Boolean) -> Unit,
     onUpdateEnableStreaming: (Boolean) -> Unit,
+    onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit,
     onUpdateVolume: (Int) -> Unit,
     onUpdateBackendUrl: (String) -> Unit,
     onUpdateVoiceCallSystemPrompt: (String) -> Unit,
@@ -344,7 +346,9 @@ fun SettingsScreen(
                                     onUpdateTTSRealtime = onUpdateTTSRealtime,
                                     onUpdateTTSInterruptEnabled = onUpdateTTSInterruptEnabled,
                                     onUpdateEnableAEC = onUpdateEnableAEC,
-                                    onUpdateEnableStreaming = onUpdateEnableStreaming
+                                    onUpdateEnableStreaming = onUpdateEnableStreaming,
+                                    onUpdateOfflineTtsEnabled = onUpdateOfflineTtsEnabled,
+                                    onUpdateOfflineTtsAutoFallbackToCloud = onUpdateOfflineTtsAutoFallbackToCloud
                                 )
                             }
 
