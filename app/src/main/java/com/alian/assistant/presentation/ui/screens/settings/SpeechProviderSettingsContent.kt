@@ -498,14 +498,25 @@ private fun ProviderCard(
                     )
                 }
 
-                if (config.requiresCluster) {
+                if (config.requiresAsrResourceId) {
                     Spacer(modifier = Modifier.height(12.dp))
                     CredentialField(
-                        label = "Cluster",
-                        value = credentials.cluster,
+                        label = "ASR Resource ID",
+                        value = credentials.asrResourceId,
                         isPassword = false,
-                        onValueChange = { onUpdateCredentials(credentials.copy(cluster = it)) },
-                        placeholder = "如: volcano_tts"
+                        onValueChange = { onUpdateCredentials(credentials.copy(asrResourceId = it)) },
+                        placeholder = "如: volc.seedasr.auc"
+                    )
+                }
+
+                if (config.requiresTtsResourceId) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    CredentialField(
+                        label = "TTS Resource ID",
+                        value = credentials.ttsResourceId,
+                        isPassword = false,
+                        onValueChange = { onUpdateCredentials(credentials.copy(ttsResourceId = it)) },
+                        placeholder = "如: seed-tts-2.0"
                     )
                 }
 

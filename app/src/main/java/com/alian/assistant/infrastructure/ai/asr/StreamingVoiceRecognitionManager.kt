@@ -2,6 +2,11 @@ package com.alian.assistant.infrastructure.ai.asr
 
 import android.content.Context
 import android.util.Log
+import com.alian.assistant.data.SettingsManager
+import com.alian.assistant.data.model.SpeechProvider
+import com.alian.assistant.data.model.SpeechProviderConfig
+import com.alian.assistant.infrastructure.ai.asr.bailian.BailianAsrEngine
+import com.alian.assistant.infrastructure.ai.asr.volcano.VolcanoAsrEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -10,8 +15,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * 基于流式 ASR 引擎的语音识别管理器
- * 支持在线 ASR（DashScope）和本地离线 ASR（Sherpa）自动切换。
+ * 基于统一 ASR 引擎的语音识别管理器
+ * 支持在线服务商（百炼/火山）和本地离线 ASR（Sherpa）自动切换。
  */
 class StreamingVoiceRecognitionManager(
     private val context: Context,
@@ -22,8 +27,9 @@ class StreamingVoiceRecognitionManager(
 ) {
     private val tag = "StreamingVoiceRecognitionManager"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val settingsManager = SettingsManager(context)
 
-    private var cloudAsrEngine: DashscopeStreamAsrEngine? = null
+    private var cloudAsrEngine: AsrEngine? = null
     private var sherpaRecognizer: SherpaOfflineSpeechRecognizer? = null
 
     private var isListening = false
@@ -132,7 +138,8 @@ class StreamingVoiceRecognitionManager(
         try {
             pendingStartJob?.cancel()
             pendingStartJob = null
-            cloudAsrEngine?.stop()
+            cloudAsrEngine?.release()
+            cloudAsrEngine = null
             sherpaRecognizer?.destroy()
             scope.cancel()
             isListening = false
@@ -152,7 +159,7 @@ class StreamingVoiceRecognitionManager(
             if (!initialized) {
                 Log.w(tag, "离线 ASR 初始化失败")
                 pendingStartJob = null
-                if (offlineAsrAutoFallbackToCloud && apiKey.isNotBlank()) {
+                if (offlineAsrAutoFallbackToCloud && canUseCloudAsr()) {
                     startCloud()
                 } else {
                     isListening = false
@@ -184,7 +191,7 @@ class StreamingVoiceRecognitionManager(
                         pendingStartJob = null
                         if (
                             offlineAsrAutoFallbackToCloud &&
-                            apiKey.isNotBlank() &&
+                            canUseCloudAsr() &&
                             message != "没有录音权限"
                         ) {
                             startCloud()
@@ -208,15 +215,22 @@ class StreamingVoiceRecognitionManager(
     }
 
     private fun startCloud() {
-        if (apiKey.isBlank()) {
+        val runtimeConfig = resolveCloudConfig()
+
+        if (runtimeConfig == null) {
             isListening = false
             activeEngine = ActiveEngine.NONE
-            onErrorCallback?.invoke("在线识别不可用（API Key 为空），且离线识别未成功")
+            onErrorCallback?.invoke("在线识别配置不完整，请检查语音服务商凭证")
             return
         }
 
         try {
-            val listener = object : StreamingAsrEngine.Listener {
+            val listener = object : AsrListener {
+                override fun onPartial(text: String) {
+                    Log.d(tag, "在线 ASR 部分结果: $text")
+                    onPartialResultCallback?.invoke(text)
+                }
+
                 override fun onFinal(text: String) {
                     Log.d(tag, "在线 ASR 最终结果: $text")
                     isListening = false
@@ -225,17 +239,12 @@ class StreamingVoiceRecognitionManager(
                     onResultCallback?.invoke(text)
                 }
 
-                override fun onError(message: String) {
-                    Log.e(tag, "在线 ASR 错误: $message")
+                override fun onError(error: String) {
+                    Log.e(tag, "在线 ASR 错误: $error")
                     isListening = false
                     activeEngine = ActiveEngine.NONE
                     pendingStartJob = null
-                    onErrorCallback?.invoke(message)
-                }
-
-                override fun onPartial(text: String) {
-                    Log.d(tag, "在线 ASR 部分结果: $text")
-                    onPartialResultCallback?.invoke(text)
+                    onErrorCallback?.invoke(error)
                 }
 
                 override fun onStopped() {
@@ -243,13 +252,25 @@ class StreamingVoiceRecognitionManager(
                 }
             }
 
-            cloudAsrEngine = DashscopeStreamAsrEngine(
-                apiKey = apiKey,
-                model = model,
-                context = context,
-                scope = scope,
-                listener = listener
-            )
+            cloudAsrEngine?.release()
+            cloudAsrEngine = when (runtimeConfig.provider) {
+                SpeechProvider.VOLCANO -> VolcanoAsrEngine(
+                    config = runtimeConfig.config,
+                    context = context,
+                    scope = scope,
+                    listener = listener,
+                    externalPcmMode = false
+                )
+
+                SpeechProvider.BAILIAN -> BailianAsrEngine(
+                    config = runtimeConfig.config,
+                    context = context,
+                    scope = scope,
+                    listener = listener,
+                    externalPcmMode = false
+                )
+            }
+
             cloudAsrEngine?.start()
             activeEngine = ActiveEngine.CLOUD
             isListening = cloudAsrEngine?.isRunning == true
@@ -268,5 +289,56 @@ class StreamingVoiceRecognitionManager(
             onErrorCallback?.invoke("启动在线语音识别失败: ${e.message}")
         }
     }
-}
 
+    private data class RuntimeCloudConfig(
+        val provider: SpeechProvider,
+        val config: AsrConfig
+    )
+
+    private fun resolveCloudConfig(): RuntimeCloudConfig? {
+        val settings = settingsManager.settings.value
+        val provider = settings.speechProvider
+        val providerConfig = SpeechProviderConfig.get(provider)
+        val credentials = settingsManager.getSpeechCredentials(provider)
+        val speechModels = settingsManager.getSpeechModels(provider)
+
+        val resolvedApiKey = credentials.apiKey.ifBlank { apiKey }
+        val resolvedModel = speechModels.asrModel.ifEmpty {
+            if (model.isNotBlank()) model else providerConfig.asrDefaultModel
+        }
+        val resolvedResourceId = if (provider == SpeechProvider.VOLCANO) {
+            if (resolvedModel.startsWith("volc.", ignoreCase = true)) resolvedModel else ""
+        } else {
+            credentials.asrResourceId
+        }
+
+        val asrConfig = AsrConfig(
+            apiKey = resolvedApiKey,
+            model = resolvedModel,
+            language = "zh",
+            appId = credentials.appId,
+            cluster = credentials.cluster,
+            resourceId = resolvedResourceId
+        )
+
+        return when (provider) {
+            SpeechProvider.BAILIAN -> {
+                if (asrConfig.apiKey.isBlank()) null else RuntimeCloudConfig(provider, asrConfig)
+            }
+
+            SpeechProvider.VOLCANO -> {
+                if (
+                    asrConfig.apiKey.isBlank() ||
+                    asrConfig.appId.isBlank() ||
+                    asrConfig.resourceId.isBlank()
+                ) {
+                    null
+                } else {
+                    RuntimeCloudConfig(provider, asrConfig)
+                }
+            }
+        }
+    }
+
+    private fun canUseCloudAsr(): Boolean = resolveCloudConfig() != null
+}

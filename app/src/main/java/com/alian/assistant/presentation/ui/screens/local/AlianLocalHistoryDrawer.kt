@@ -90,21 +90,19 @@ fun AlianLocalHistoryDrawer(
 ) {
         val colors = BaoziTheme.colors
 
-    // 渐变背景 - 增强区分度，使用主题颜色
+    // 渐变背景与聊天历史抽屉保持一致，提升顶部列表项边界可见性
     val gradientBrush = Brush.verticalGradient(
         colors = if (colors.isDark) {
-            // 深色模式：抽屉背景更深，与卡片形成明显对比
             listOf(
                 colors.backgroundDrawer,
-                colors.background.copy(alpha = 0.9f),
+                colors.background,
                 colors.background.copy(alpha = 0.95f)
             )
         } else {
-            // 浅色模式：抽屉背景更浅，与卡片形成明显对比
             listOf(
-                colors.surfaceVariant,
+                colors.backgroundDrawer,
                 colors.background.copy(alpha = 0.98f),
-                colors.background
+                colors.background.copy(alpha = 0.96f)
             )
         }
     )

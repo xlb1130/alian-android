@@ -1359,6 +1359,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     VoiceSelectionScreen(
                                         currentVoice = settings.ttsVoice,
+                                        currentProvider = settings.speechProvider,
                                         onBack = {
                                             settingsInitialSubScreen = SettingsSubScreen.ALIAN
                                             currentScreen = Screen.Settings

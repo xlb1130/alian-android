@@ -851,7 +851,7 @@ class OverlayService : Service() {
     private fun updateTTSClient() {
         ttsClient?.release()
         ttsClient = null
-        if (ttsEnabled && (offlineTtsEnabled || ttsApiKey.isNotEmpty())) {
+        if (ttsEnabled) {
             ttsClient = HybridTtsClient(
                 appContext = this,
                 apiKey = ttsApiKey,

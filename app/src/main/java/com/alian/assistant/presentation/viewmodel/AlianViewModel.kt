@@ -366,7 +366,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     private fun updateTTSClient() {
         ttsClient?.release()
         ttsClient = null
-        if (ttsEnabled && (offlineTtsEnabled || apiKey.isNotBlank())) {
+        if (ttsEnabled) {
             ttsClient = HybridTtsClient(
                 appContext = context,
                 apiKey = apiKey,
@@ -1656,7 +1656,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         val messageTimestamps = mutableMapOf<String, Long>()
         // 用于收集每个消息的附件
         val messageAttachments = mutableMapOf<String, MutableList<Attachment>>()
-        // plan_finished 先于 assistant 消息到达时，暂存附件并在下一条 assistant 消息写入时合并
+        // plan_finished 附件先暂存，优先挂到下一条 assistant；若没有下一条再兜底挂到最后一条 assistant
         val pendingAssistantAttachments = mutableListOf<Attachment>()
 
         fun mergeAttachments(
@@ -1684,13 +1684,12 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             _unifiedChatTimeline.add(MessageItem(message))
         }
 
-        fun attachOrQueuePlanFinishedAttachments(attachments: List<Attachment>) {
-            if (attachments.isEmpty()) return
-
+        fun flushPendingAttachmentsToLastAssistant(reason: String) {
+            if (pendingAssistantAttachments.isEmpty()) return
             val lastAssistantIndex = _messages.indexOfLast { !it.isUser }
             if (lastAssistantIndex >= 0) {
                 val lastAssistant = _messages[lastAssistantIndex]
-                val merged = mergeAttachments(lastAssistant.attachments, attachments)
+                val merged = mergeAttachments(lastAssistant.attachments, pendingAssistantAttachments)
                 val updated = lastAssistant.copy(attachments = merged)
                 _messages[lastAssistantIndex] = updated
 
@@ -1700,11 +1699,20 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 if (timelineIndex >= 0) {
                     _unifiedChatTimeline[timelineIndex] = MessageItem(updated)
                 }
-                Log.d("AlianViewModel", "plan_finished 附件已挂载到最后一条 assistant: ${attachments.size} 个")
-            } else {
-                pendingAssistantAttachments.addAll(attachments)
-                Log.d("AlianViewModel", "plan_finished 附件暂存，等待 assistant 消息: ${attachments.size} 个")
+                Log.d(
+                    "AlianViewModel",
+                    "plan_finished 暂存附件兜底挂载到最后一条 assistant: ${pendingAssistantAttachments.size} 个, reason=$reason"
+                )
+                pendingAssistantAttachments.clear()
             }
+        }
+
+        fun queuePlanFinishedAttachments(attachments: List<Attachment>) {
+            if (attachments.isEmpty()) return
+            val merged = mergeAttachments(pendingAssistantAttachments, attachments)
+            pendingAssistantAttachments.clear()
+            pendingAssistantAttachments.addAll(merged)
+            Log.d("AlianViewModel", "plan_finished 附件暂存，等待下一条 assistant 消息: ${attachments.size} 个")
         }
 
         var processedEventCount = 0
@@ -1718,6 +1726,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
 
                         if (messageData.role == "user" || messageData.role == "assistant") {
                             if (messageData.role == "user") {
+                                flushPendingAttachmentsToLastAssistant("before user message event")
                                 activePlanBubbleEventId = null
                                 activePlanBubbleTimestamp = null
                                 activePlanBoundaryUserMessageId = messageData.message_id
@@ -2020,6 +2029,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     try {
                         val dataString = event.data.toJsonString()
                         val userData = json.decodeFromString<UserMessageData>(dataString)
+                        flushPendingAttachmentsToLastAssistant("before user_message event")
                         activePlanBubbleEventId = null
                         activePlanBubbleTimestamp = null
                         activePlanBoundaryUserMessageId = userData.message_id
@@ -2171,7 +2181,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                                 steps = uiSteps
                             )
                         )
-                        attachOrQueuePlanFinishedAttachments(planData.attachments ?: emptyList())
+                        queuePlanFinishedAttachments(planData.attachments ?: emptyList())
                     } catch (e: Exception) {
                         Log.e("AlianViewModel", "解析计划完成事件失败", e)
                     }
@@ -2265,6 +2275,9 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 ))
             }
         }
+
+        // 没有“下一条 assistant”可消费时，兜底挂到最后一条 assistant
+        flushPendingAttachmentsToLastAssistant("after session events processed")
 
         // 处理深度思考章节的剩余缓冲区内容
         _deepThinkingSections.forEach { section ->

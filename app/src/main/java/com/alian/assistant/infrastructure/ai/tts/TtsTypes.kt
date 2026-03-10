@@ -15,7 +15,8 @@ data class TtsConfig(
     val sampleRate: Int = 16000,
     // 火山引擎特有
     val appId: String = "",
-    val cluster: String = ""
+    val cluster: String = "",
+    val resourceId: String = ""
 )
 
 /**

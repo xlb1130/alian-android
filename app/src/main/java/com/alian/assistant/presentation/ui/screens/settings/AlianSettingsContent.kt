@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import com.alian.assistant.R
 import com.alian.assistant.data.AppSettings
 import com.alian.assistant.data.VoicePreset
+import com.alian.assistant.infrastructure.ai.provider.VoicePresetManager
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.common.utils.AvatarCacheManager
 import java.io.IOException
@@ -67,7 +68,11 @@ fun AlianSettingsContent(
     val coroutineScope = rememberCoroutineScope()
     
     // 获取当前语音音色的头像URL（用户没配置头像时使用）
-    val currentVoice = VoicePreset.findByVoiceParam(settings.ttsVoice)
+    val voicePresetManager = remember { VoicePresetManager.getInstance() }
+    val currentVoice = remember(settings.speechProvider, settings.ttsVoice) {
+        voicePresetManager.findByVoiceParam(settings.speechProvider, settings.ttsVoice)
+            ?: VoicePreset.findByVoiceParam(settings.ttsVoice)
+    }
     val voiceAvatarUrl = currentVoice?.avatarUrl
 
     // 音频播放状态

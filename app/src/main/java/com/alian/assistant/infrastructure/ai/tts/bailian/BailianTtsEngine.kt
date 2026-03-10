@@ -94,6 +94,7 @@ class BailianTtsEngine(
         private const val SAMPLE_RATE = 16000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        private const val PCM_BYTES_PER_FRAME = 2L
     }
 
     override val provider: SpeechProvider = SpeechProvider.BAILIAN
@@ -113,6 +114,8 @@ class BailianTtsEngine(
     private var currentWebSocket: WebSocket? = null
     private var currentAudioTrack: AudioTrack? = null
     private var isPlaying = false
+    @Volatile
+    private var singleFramesWritten: Long = 0L
 
     // 音频数据回调
     private var onAudioDataCallback: ((ByteArray) -> Unit)? = null
@@ -125,6 +128,8 @@ class BailianTtsEngine(
     private var streamingAudioTrack: AudioTrack? = null
     private var isStreaming = false
     private var streamingTaskId: String = ""
+    @Volatile
+    private var streamingFramesWritten: Long = 0L
 
     // 协议状态
     private enum class ProtocolState {
@@ -149,7 +154,11 @@ class BailianTtsEngine(
     @Volatile
     private var isOldSessionClosed = true
 
-    override fun isCurrentlyPlaying(): Boolean = isPlaying
+    override fun isCurrentlyPlaying(): Boolean {
+        val singlePlaying = hasPendingAudio(currentAudioTrack, singleFramesWritten)
+        val streamPlaying = isStreaming && hasPendingAudio(streamingAudioTrack, streamingFramesWritten)
+        return singlePlaying || streamPlaying
+    }
 
     override fun setOnAudioDataCallback(callback: ((ByteArray) -> Unit)?) {
         onAudioDataCallback = callback
@@ -196,6 +205,7 @@ class BailianTtsEngine(
                 .build()
 
             currentAudioTrack?.play()
+            singleFramesWritten = 0L
             isPlaying = true
             onPlaybackStateCallback?.invoke(TtsPlaybackState.Playing)
 
@@ -336,7 +346,10 @@ class BailianTtsEngine(
         currentAudioTrack?.let { audioTrack ->
             try {
                 if (audioTrack.state == AudioTrack.STATE_INITIALIZED) {
-                    audioTrack.write(audioData, 0, audioData.size)
+                    val bytesWritten = audioTrack.write(audioData, 0, audioData.size)
+                    val writtenFrames =
+                        if (bytesWritten > 0) bytesWritten.toLong() / PCM_BYTES_PER_FRAME else 0L
+                    singleFramesWritten += writtenFrames
                 } else {
                     Log.w(TAG, "AudioTrack 状态异常")
                 }
@@ -399,6 +412,7 @@ class BailianTtsEngine(
                 .build()
 
             streamingAudioTrack?.play()
+            streamingFramesWritten = 0L
 
             val sessionId = newSessionId
             val request = Request.Builder()
@@ -547,24 +561,30 @@ class BailianTtsEngine(
             "task-started" -> {
                 if (streamingState == StreamingState.WAITING_TASK_STARTED) {
                     streamingState = StreamingState.READY
+                    onPlaybackStateCallback?.invoke(TtsPlaybackState.Playing)
                 }
             }
             "task-finished" -> {
                 streamingState = StreamingState.COMPLETED
+                onPlaybackStateCallback?.invoke(TtsPlaybackState.Completed)
             }
             "task-failed" -> {
                 streamingState = StreamingState.ERROR
+                onPlaybackStateCallback?.invoke(TtsPlaybackState.Error(response.header.error_message ?: "任务失败"))
             }
         }
     }
 
     private fun handleStreamingBinaryMessage(audioData: ByteArray) {
-        if (!isStreaming || streamingState != StreamingState.READY) return
+        if (!isStreaming || streamingState == StreamingState.IDLE || streamingState == StreamingState.ERROR) return
 
         streamingAudioTrack?.let { audioTrack ->
             try {
                 if (audioTrack.state == AudioTrack.STATE_INITIALIZED) {
-                    audioTrack.write(audioData, 0, audioData.size)
+                    val bytesWritten = audioTrack.write(audioData, 0, audioData.size)
+                    val writtenFrames =
+                        if (bytesWritten > 0) bytesWritten.toLong() / PCM_BYTES_PER_FRAME else 0L
+                    streamingFramesWritten += writtenFrames
                 } else {
                     Log.w(TAG, "AudioTrack 状态异常")
                 }
@@ -605,6 +625,7 @@ class BailianTtsEngine(
             }
             streamingAudioTrack = null
         }
+        streamingFramesWritten = 0L
 
         streamingWebSocket?.let { ws ->
             try {
@@ -639,6 +660,7 @@ class BailianTtsEngine(
             }
             currentAudioTrack = null
         }
+        singleFramesWritten = 0L
 
         currentWebSocket?.let { ws ->
             try {
@@ -648,6 +670,16 @@ class BailianTtsEngine(
             }
             currentWebSocket = null
         }
+    }
+
+    private fun hasPendingAudio(track: AudioTrack?, totalWrittenFrames: Long): Boolean {
+        val audioTrack = track ?: return false
+        if (totalWrittenFrames <= 0L) return false
+        if (audioTrack.state != AudioTrack.STATE_INITIALIZED) return false
+        if (audioTrack.playState != AudioTrack.PLAYSTATE_PLAYING) return false
+
+        val playedFrames = audioTrack.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+        return totalWrittenFrames - playedFrames > 0L
     }
 }
 

@@ -121,13 +121,24 @@ class SpeechProviderManager(
         val credentials = settingsManager.getSpeechCredentials(provider)
         val models = settingsManager.settings.value.speechModels[provider] ?: SpeechModels()
         val providerConfig = SpeechProviderConfig.get(provider)
+        val resolvedModel = models.asrModel.ifEmpty { providerConfig.asrDefaultModel }
+        val resolvedResourceId = when (provider) {
+            // 火山模式下，模型即 Resource ID，忽略历史凭证字段，避免旧值污染
+            SpeechProvider.VOLCANO -> if (resolvedModel.startsWith("volc.", ignoreCase = true)) {
+                resolvedModel
+            } else {
+                ""
+            }
+            SpeechProvider.BAILIAN -> credentials.asrResourceId
+        }
 
         return AsrConfig(
             apiKey = credentials.apiKey,
-            model = models.asrModel.ifEmpty { providerConfig.asrDefaultModel },
+            model = resolvedModel,
             language = "zh",
             appId = credentials.appId,
-            cluster = credentials.cluster
+            cluster = credentials.cluster,
+            resourceId = resolvedResourceId
         )
     }
 
@@ -139,15 +150,26 @@ class SpeechProviderManager(
         val settings = settingsManager.settings.value
         val models = settings.speechModels[provider] ?: SpeechModels()
         val providerConfig = SpeechProviderConfig.get(provider)
+        val resolvedModel = models.ttsModel.ifEmpty { providerConfig.ttsDefaultModel }
+        val resolvedResourceId = when (provider) {
+            // 火山模式下，模型即 Resource ID，忽略历史凭证字段，避免旧值污染
+            SpeechProvider.VOLCANO -> if (resolvedModel.startsWith("seed-tts-", ignoreCase = true)) {
+                resolvedModel
+            } else {
+                ""
+            }
+            SpeechProvider.BAILIAN -> credentials.ttsResourceId
+        }
 
         return TtsConfig(
             apiKey = credentials.apiKey,
-            model = models.ttsModel.ifEmpty { providerConfig.ttsDefaultModel },
+            model = resolvedModel,
             voice = settings.ttsVoice,
             speed = settings.ttsSpeed,
             volume = settings.volume,
             appId = credentials.appId,
-            cluster = credentials.cluster
+            cluster = credentials.cluster,
+            resourceId = resolvedResourceId
         )
     }
 
@@ -177,6 +199,20 @@ class SpeechProviderManager(
      */
     fun requiresCluster(provider: SpeechProvider): Boolean {
         return SpeechProviderConfig.get(provider).requiresCluster
+    }
+
+    /**
+     * 检查服务商是否需要 ASR Resource ID
+     */
+    fun requiresAsrResourceId(provider: SpeechProvider): Boolean {
+        return SpeechProviderConfig.get(provider).requiresAsrResourceId
+    }
+
+    /**
+     * 检查服务商是否需要 TTS Resource ID
+     */
+    fun requiresTtsResourceId(provider: SpeechProvider): Boolean {
+        return SpeechProviderConfig.get(provider).requiresTtsResourceId
     }
 
     companion object {

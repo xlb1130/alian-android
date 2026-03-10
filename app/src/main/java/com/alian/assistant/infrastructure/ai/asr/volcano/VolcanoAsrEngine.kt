@@ -3,6 +3,7 @@ package com.alian.assistant.infrastructure.ai.asr.volcano
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioFormat
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.alian.assistant.data.model.SpeechProvider
@@ -14,13 +15,13 @@ import com.alian.assistant.infrastructure.ai.asr.AudioCaptureManager
 import com.alian.assistant.infrastructure.ai.asr.ExternalPcmConsumer
 import com.alian.assistant.infrastructure.ai.asr.StreamingAsrEngine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -28,17 +29,23 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
+import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.Base64
+import java.nio.charset.StandardCharsets
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.GZIPInputStream
 
 /**
- * 火山引擎 ASR 引擎
- * 
- * 基于火山引擎流式语音识别 API 实现
- * WebSocket 端点: wss://openspeech.bytedance.com/api/v2/asr
+ * 火山引擎 ASR（v3）
+ *
+ * 参考文档：
+ * - wss://openspeech.bytedance.com/api/v3/sauc/bigmodel(_nostream/_async)
+ * - Header 鉴权: X-Api-App-Key / X-Api-Access-Key / X-Api-Resource-Id / X-Api-Request-Id
  */
 class VolcanoAsrEngine(
     private val config: AsrConfig,
@@ -50,28 +57,57 @@ class VolcanoAsrEngine(
 
     companion object {
         private const val TAG = "VolcanoAsrEngine"
-        private const val WS_URL = "wss://openspeech.bytedance.com/api/v2/asr"
+
+        private const val WS_URL_BIGMODEL = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel"
+        private const val WS_URL_BIGMODEL_NOSTREAM = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream"
+        private const val WS_URL_BIGMODEL_ASYNC = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
+
         private const val SAMPLE_RATE = 16000
         private const val FINAL_RESULT_TIMEOUT_MS = 6000L
+
+        private const val MESSAGE_TYPE_FULL_CLIENT_REQUEST = 0x1
+        private const val MESSAGE_TYPE_AUDIO_ONLY_REQUEST = 0x2
+        private const val MESSAGE_TYPE_FULL_SERVER_RESPONSE = 0x9
+        private const val MESSAGE_TYPE_ERROR = 0xF
+
+        private const val FLAG_NO_SEQUENCE = 0x0
+        private const val FLAG_POS_SEQUENCE = 0x1
+        private const val FLAG_NEG_SEQUENCE = 0x3
+
+        private const val SERIALIZATION_RAW = 0x0
+        private const val SERIALIZATION_JSON = 0x1
+
+        private const val COMPRESSION_NONE = 0x0
+        private const val COMPRESSION_GZIP = 0x1
     }
 
     override val provider: SpeechProvider = SpeechProvider.VOLCANO
 
     private val running = AtomicBoolean(false)
-    private var audioJob: Job? = null
-    private var webSocketJob: Job? = null
+    private val finalDelivered = AtomicBoolean(false)
 
     private var webSocket: WebSocket? = null
-    private var currentText: StringBuilder = StringBuilder()
-    private var finalResult: String = ""
+    private var webSocketJob: Job? = null
+    private var audioJob: Job? = null
+
+    @Volatile
+    private var wsReady = false
+
+    private val prebuffer = ArrayDeque<ByteArray>()
+    private val prebufferLock = Any()
+
+    @Volatile
+    private var audioSequence = 1
+
+    @Volatile
+    private var lastRecognizedText: String = ""
+
+    private var finalResultDeferred: CompletableDeferred<String?>? = null
+    @Volatile
+    private var sessionModelName: String = "bigmodel"
 
     override val isRunning: Boolean
         get() = running.get()
-
-    private val prebuffer = mutableListOf<ByteArray>()
-    private val prebufferLock = Any()
-    @Volatile
-    private var wsReady = false
 
     override fun start() {
         if (running.get()) return
@@ -88,32 +124,69 @@ class VolcanoAsrEngine(
         }
 
         if (config.apiKey.isBlank() || config.appId.isBlank()) {
-            listener.onError("API Key 或 App ID 为空")
+            listener.onError("火山引擎 ASR 凭证不完整：需要 App ID + Access Token")
             return
         }
 
         running.set(true)
-        currentText.clear()
-        finalResult = ""
         wsReady = false
+        audioSequence = 1
+        lastRecognizedText = ""
+        finalDelivered.set(false)
+        finalResultDeferred = null
 
         webSocketJob?.cancel()
         webSocketJob = scope.launch(Dispatchers.IO) {
             try {
                 connectWebSocket()
-
                 if (!externalPcmMode) {
                     startCaptureAndSend()
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to start Volcano ASR", t)
-                listener.onError(t.message ?: "语音识别错误")
-                running.set(false)
+                if (running.get()) {
+                    running.set(false)
+                    listener.onError(t.message ?: "语音识别错误")
+                }
             }
         }
     }
 
-    private suspend fun connectWebSocket() = withContext(Dispatchers.IO) {
+    private fun connectWebSocket() {
+        val modelLower = config.model.lowercase()
+        val (wsUrl, modelName) = when {
+            modelLower == "bigmodel_nostream" -> WS_URL_BIGMODEL_NOSTREAM to "bigmodel_nostream"
+            modelLower == "bigmodel_async" -> WS_URL_BIGMODEL_ASYNC to "bigmodel_async"
+            else -> WS_URL_BIGMODEL to "bigmodel"
+        }
+        sessionModelName = modelName
+
+        val requestId = UUID.randomUUID().toString()
+        val resourceId = config.resourceId.ifBlank {
+            if (config.model.startsWith("volc.", ignoreCase = true)) {
+                config.model
+            } else {
+                ""
+            }
+        }
+        if (resourceId.isBlank()) {
+            throw IllegalArgumentException("火山引擎 ASR Resource ID 为空，请选择有效 ASR 模型")
+        }
+        Log.d(
+            TAG,
+            "ASR connect wsUrl=$wsUrl, model=$sessionModelName, resourceId=$resourceId, requestId=$requestId"
+        )
+
+        val request = Request.Builder()
+            .url(wsUrl)
+            .addHeader("X-Api-App-Key", config.appId)
+            .addHeader("X-Api-Access-Key", config.apiKey)
+            .addHeader("X-Api-Resource-Id", resourceId)
+            .addHeader("X-Api-Request-Id", requestId)
+            .addHeader("X-Api-Connect-Id", requestId)
+            .addHeader("X-Api-Sequence", "-1")
+            .build()
+
         val client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS)
@@ -121,48 +194,70 @@ class VolcanoAsrEngine(
             .pingInterval(30, TimeUnit.SECONDS)
             .build()
 
-        // 构建火山引擎认证参数
-        val authParams = buildAuthParams()
-
-        val request = Request.Builder()
-            .url("$WS_URL?$authParams")
-            .build()
-
         val wsListener = object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket 连接已建立")
-                wsReady = true
-                flushPrebuffer()
-            }
-
-            override fun onMessage(ws: WebSocket, text: String) {
-                handleServerMessage(text)
-            }
-
-            override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                // 火山引擎可能使用二进制消息
-                handleBinaryMessage(bytes.toByteArray())
-            }
-
-            override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket 正在关闭: code=$code, reason=$reason")
-            }
-
-            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket 已关闭: code=$code, reason=$reason")
-                wsReady = false
-                if (running.get()) {
+                Log.d(TAG, "Volcano ASR websocket opened, requestId=$requestId")
+                try {
+                    sendFullClientRequest(ws)
+                    wsReady = true
+                    flushPrebuffer()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "send full request failed", t)
+                    listener.onError("初始化 ASR 会话失败: ${t.message}")
                     running.set(false)
-                    listener.onError("连接已关闭: $reason")
+                    closeWebSocket()
                 }
             }
 
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket 连接失败", t)
+            override fun onMessage(ws: WebSocket, bytes: ByteString) {
+                handleBinaryMessage(bytes.toByteArray())
+            }
+
+            override fun onMessage(ws: WebSocket, text: String) {
+                Log.w(TAG, "unexpected text message: ${text.take(200)}")
+                try {
+                    val obj = JSONObject(text)
+                    val message = obj.optString("message", text)
+                    if (message.isNotBlank()) {
+                        listener.onError("ASR 服务错误: $message")
+                    }
+                } catch (_: Throwable) {
+                    listener.onError("ASR 服务错误: $text")
+                }
+            }
+
+            override fun onClosing(ws: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "websocket closing: code=$code reason=$reason")
+            }
+
+            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "websocket closed: code=$code reason=$reason")
                 wsReady = false
-                if (running.get()) {
+            }
+
+            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                val code = response?.code
+                val logId = response?.header("X-Tt-Logid").orEmpty()
+                val responseText = runCatching { response?.body?.string().orEmpty() }
+                    .getOrNull()
+                    ?.take(500)
+                if (responseText.isNullOrBlank()) {
+                    Log.e(TAG, "websocket failure, code=$code, logId=$logId", t)
+                } else {
+                    Log.e(TAG, "websocket failure, code=$code, logId=$logId, response=$responseText", t)
+                }
+                wsReady = false
+                if (running.get() && !finalDelivered.get()) {
                     running.set(false)
-                    listener.onError("连接失败: ${t.message}")
+                    val detail = buildString {
+                        append("连接失败")
+                        if (code != null) append("($code)")
+                        if (logId.isNotBlank()) append(" [logid=$logId]")
+                        if (!responseText.isNullOrBlank()) append(": $responseText")
+                        else if (!t.message.isNullOrBlank()) append(": ${t.message}")
+                    }
+                    listener.onError(detail)
+                    finalResultDeferred?.complete(null)
                 }
             }
         }
@@ -170,112 +265,221 @@ class VolcanoAsrEngine(
         webSocket = client.newWebSocket(request, wsListener)
     }
 
-    /**
-     * 构建火山引擎认证参数
-     * 火山引擎使用 URL 参数进行认证
-     */
-    private fun buildAuthParams(): String {
-        // 火山引擎 ASR API 认证参数
-        // 参考文档: https://www.volcengine.com/docs/6561/79820
-        val appId = config.appId
-        val token = config.apiKey
-        
-        return "app_id=$appId&token=$token&cluster=${config.cluster.ifEmpty { "volc_asr" }}"
-    }
-
-    private fun handleServerMessage(text: String) {
-        Log.d(TAG, "收到服务端消息: $text")
-        try {
-            // 解析火山引擎 ASR 响应
-            // 响应格式为 JSON
-            val response = org.json.JSONObject(text)
-            
-            val result = response.optJSONObject("result")
-            if (result != null) {
-                val text = result.optString("text", "")
-                val isFinal = result.optBoolean("is_final", false)
-
-                if (isFinal) {
-                    finalResult = text
-                    currentText.append(text)
-                    listener.onFinal(currentText.toString().trim())
-                } else {
-                    listener.onPartial(text)
+    private fun sendFullClientRequest(ws: WebSocket) {
+        val requestJson = JSONObject().apply {
+            put("user", JSONObject().apply {
+                put("uid", "beanbun-android")
+                put("platform", "android")
+            })
+            put("audio", JSONObject().apply {
+                put("format", "pcm")
+                put("codec", "raw")
+                put("rate", SAMPLE_RATE)
+                put("bits", 16)
+                put("channel", 1)
+                if (config.language.isNotBlank()) {
+                    put("language", config.language)
                 }
+            })
+            put("request", JSONObject().apply {
+                put("model_name", sessionModelName)
+                put("enable_itn", true)
+                put("enable_punc", true)
+                put("enable_ddc", false)
+                put("show_utterances", true)
+            })
+        }
+
+        val payload = requestJson.toString().toByteArray(StandardCharsets.UTF_8)
+        val frame = buildAsrFrame(
+            messageType = MESSAGE_TYPE_FULL_CLIENT_REQUEST,
+            specificFlags = FLAG_NO_SEQUENCE,
+            serialization = SERIALIZATION_JSON,
+            compression = COMPRESSION_NONE,
+            sequence = null,
+            payload = payload
+        )
+
+        ws.send(frame.toByteString())
+    }
+
+    private fun handleBinaryMessage(frame: ByteArray) {
+        if (frame.size < 8) {
+            Log.w(TAG, "invalid frame too short: ${frame.size}")
+            return
+        }
+
+        val header = frame[0].toInt() and 0xFF
+        val version = (header ushr 4) and 0x0F
+        val headerSize = (header and 0x0F) * 4
+        if (version != 1 || frame.size < headerSize + 4) {
+            Log.w(TAG, "invalid frame header version=$version headerSize=$headerSize size=${frame.size}")
+            return
+        }
+
+        val byte1 = frame[1].toInt() and 0xFF
+        val messageType = (byte1 ushr 4) and 0x0F
+        val messageFlags = byte1 and 0x0F
+
+        val byte2 = frame[2].toInt() and 0xFF
+        val serialization = (byte2 ushr 4) and 0x0F
+        val compression = byte2 and 0x0F
+
+        var offset = headerSize
+
+        when (messageType) {
+            MESSAGE_TYPE_FULL_SERVER_RESPONSE -> {
+                var sequence: Int? = null
+                if (messageFlags == FLAG_POS_SEQUENCE || messageFlags == FLAG_NEG_SEQUENCE) {
+                    if (frame.size < offset + 4) return
+                    sequence = readInt32BE(frame, offset)
+                    offset += 4
+                }
+
+                if (frame.size < offset + 4) return
+                val payloadSize = readInt32BE(frame, offset)
+                offset += 4
+                if (payloadSize < 0 || frame.size < offset + payloadSize) {
+                    Log.w(TAG, "invalid payload size: $payloadSize")
+                    return
+                }
+
+                val rawPayload = frame.copyOfRange(offset, offset + payloadSize)
+                val payload = try {
+                    when (compression) {
+                        COMPRESSION_GZIP -> ungzip(rawPayload)
+                        else -> rawPayload
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "decompress payload failed", t)
+                    return
+                }
+
+                if (serialization != SERIALIZATION_JSON) {
+                    Log.w(TAG, "unexpected serialization=$serialization")
+                    return
+                }
+
+                val payloadText = payload.toString(StandardCharsets.UTF_8)
+                val isFinal = messageFlags == 0x2 || messageFlags == FLAG_NEG_SEQUENCE || (sequence ?: 1) < 0
+                handleServerJson(payloadText, isFinal)
             }
 
-            // 检查错误
-            val errorCode = response.optInt("code", 0)
-            if (errorCode != 0) {
-                val errorMsg = response.optString("message", "未知错误")
-                listener.onError("识别错误: $errorMsg (code: $errorCode)")
-                running.set(false)
+            MESSAGE_TYPE_ERROR -> {
+                if (frame.size < offset + 8) return
+                val errorCode = readInt32BE(frame, offset)
+                offset += 4
+                val payloadSize = readInt32BE(frame, offset)
+                offset += 4
+                if (payloadSize < 0 || frame.size < offset + payloadSize) {
+                    listener.onError("ASR 协议错误: invalid error payload")
+                    return
+                }
+                val payload = frame.copyOfRange(offset, offset + payloadSize)
+                val message = payload.toString(StandardCharsets.UTF_8)
+                listener.onError("ASR 服务错误($errorCode): $message")
+                finalResultDeferred?.complete(null)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "解析服务端消息失败", e)
+
+            else -> {
+                Log.d(TAG, "ignore messageType=$messageType flags=$messageFlags")
+            }
         }
     }
 
-    private fun handleBinaryMessage(data: ByteArray) {
-        // 火山引擎可能使用二进制协议
-        Log.d(TAG, "收到二进制消息，大小: ${data.size}")
-    }
-
-    /**
-     * 发送音频数据到火山引擎
-     */
-    private fun sendAudioData(pcm: ByteArray) {
-        if (!wsReady || webSocket == null) return
-
+    private fun handleServerJson(payloadText: String, isFinalFrame: Boolean) {
         try {
-            // 火山引擎 ASR 使用特定的二进制协议格式
-            // 格式: header (11 bytes) + payload
-            val header = buildFrameHeader(pcm.size, sequenceNumber = 0, payloadType = 1)
-            val frame = ByteBuffer.allocate(header.size + pcm.size)
-                .order(ByteOrder.LITTLE_ENDIAN)
-                .put(header)
-                .put(pcm)
-                .array()
+            val response = JSONObject(payloadText)
+            val statusCode = when {
+                response.has("status_code") -> response.optInt("status_code")
+                response.has("code") -> response.optInt("code")
+                else -> 20000000
+            }
 
-            webSocket?.send(frame.toByteString())
-        } catch (e: Exception) {
-            Log.e(TAG, "发送音频数据失败", e)
+            if (statusCode != 0 && statusCode != 20000000) {
+                val message = response.optString("message", "未知错误")
+                listener.onError("ASR 错误($statusCode): $message")
+                finalResultDeferred?.complete(null)
+                return
+            }
+
+            val resultObj = response.optJSONObject("result")
+            val text = resultObj?.optString("text", "")?.trim().orEmpty()
+            if (text.isNotEmpty()) {
+                lastRecognizedText = text
+            }
+
+            if (isFinalFrame) {
+                if (finalDelivered.compareAndSet(false, true)) {
+                    listener.onFinal(lastRecognizedText)
+                }
+                finalResultDeferred?.complete(lastRecognizedText)
+            } else if (text.isNotEmpty()) {
+                listener.onPartial(text)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "parse response json failed: $payloadText", t)
         }
     }
 
-    /**
-     * 构建火山引擎音频帧头
-     */
-    private fun buildFrameHeader(payloadSize: Int, sequenceNumber: Int, payloadType: Int): ByteArray {
-        // 火山引擎音频帧格式
-        // 参考文档: https://www.volcengine.com/docs/6561/79820
-        val buffer = ByteBuffer.allocate(11)
-            .order(ByteOrder.LITTLE_ENDIAN)
-        
-        // Protocol version (1 byte)
-        buffer.put(0x01)
-        // Header size (2 bytes)
-        buffer.putShort(11)
-        // Payload type (1 byte): 1 = audio
-        buffer.put(payloadType.toByte())
-        // Payload size (4 bytes)
-        buffer.putInt(payloadSize)
-        // Sequence number (4 bytes)
-        buffer.putInt(sequenceNumber)
+    private fun sendAudioFrame(pcm: ByteArray, isFinal: Boolean) {
+        if (!wsReady) return
+        val ws = webSocket ?: return
 
-        return buffer.array()
+        val seq = if (isFinal) -audioSequence else audioSequence
+        audioSequence += 1
+
+        val frame = buildAsrFrame(
+            messageType = MESSAGE_TYPE_AUDIO_ONLY_REQUEST,
+            specificFlags = if (isFinal) FLAG_NEG_SEQUENCE else FLAG_POS_SEQUENCE,
+            serialization = SERIALIZATION_RAW,
+            compression = COMPRESSION_NONE,
+            sequence = seq,
+            payload = pcm
+        )
+
+        ws.send(frame.toByteString())
+    }
+
+    private fun buildAsrFrame(
+        messageType: Int,
+        specificFlags: Int,
+        serialization: Int,
+        compression: Int,
+        sequence: Int?,
+        payload: ByteArray
+    ): ByteArray {
+        val baseHeader = byteArrayOf(
+            ((1 shl 4) or 1).toByte(),
+            ((messageType shl 4) or (specificFlags and 0x0F)).toByte(),
+            ((serialization shl 4) or (compression and 0x0F)).toByte(),
+            0x00
+        )
+
+        val total = baseHeader.size + (if (sequence != null) 4 else 0) + 4 + payload.size
+        return ByteBuffer.allocate(total)
+            .order(ByteOrder.BIG_ENDIAN)
+            .put(baseHeader)
+            .apply {
+                if (sequence != null) {
+                    putInt(sequence)
+                }
+                putInt(payload.size)
+                put(payload)
+            }
+            .array()
     }
 
     private fun flushPrebuffer() {
-        val flushed: List<ByteArray>
+        val toFlush = mutableListOf<ByteArray>()
         synchronized(prebufferLock) {
-            flushed = prebuffer.toList()
-            prebuffer.clear()
+            while (prebuffer.isNotEmpty()) {
+                toFlush.add(prebuffer.removeFirst())
+            }
         }
-        flushed.forEach { sendAudioData(it) }
+        toFlush.forEach { sendAudioFrame(it, isFinal = false) }
     }
 
-    // ========== ExternalPcmConsumer ==========
     override fun appendPcm(pcm: ByteArray, sampleRate: Int, channels: Int) {
         if (!running.get()) return
         if (sampleRate != SAMPLE_RATE || channels != 1) return
@@ -287,29 +491,19 @@ class VolcanoAsrEngine(
         }
 
         if (!wsReady) {
-            synchronized(prebufferLock) { prebuffer.add(pcm.copyOf()) }
-        } else {
-            flushPrebuffer()
-            sendAudioData(pcm)
+            synchronized(prebufferLock) {
+                prebuffer.addLast(pcm.copyOf())
+            }
+            return
         }
+
+        flushPrebuffer()
+        sendAudioFrame(pcm, isFinal = false)
     }
 
     override fun commit() {
-        // 火山引擎 ASR 使用 VAD 自动判断结束
-        // 发送结束帧
-        if (wsReady && webSocket != null) {
-            try {
-                val endFrame = buildEndFrame()
-                webSocket?.send(endFrame.toByteString())
-            } catch (e: Exception) {
-                Log.e(TAG, "发送结束帧失败", e)
-            }
-        }
-    }
-
-    private fun buildEndFrame(): ByteArray {
-        // 构建结束帧
-        return buildFrameHeader(0, sequenceNumber = -1, payloadType = 0)
+        if (!running.get()) return
+        sendAudioFrame(ByteArray(0), isFinal = true)
     }
 
     override fun stop() {
@@ -317,25 +511,35 @@ class VolcanoAsrEngine(
         running.set(false)
 
         scope.launch(Dispatchers.IO) {
+            val resultDeferred = CompletableDeferred<String?>()
+            finalResultDeferred = resultDeferred
+
             try {
                 listener.onStopped()
 
-                audioJob?.cancel()
-                audioJob?.join()
+                try {
+                    audioJob?.cancel()
+                    audioJob?.join()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "cancel audio job failed", t)
+                }
                 audioJob = null
 
-                commit()
-
-                // 等待最终结果
-                delay(500)
-
-                if (finalResult.isEmpty() && currentText.isNotEmpty()) {
-                    listener.onFinal(currentText.toString().trim())
+                if (wsReady) {
+                    commit()
                 }
 
+                val finalText = withTimeoutOrNull(FINAL_RESULT_TIMEOUT_MS) {
+                    resultDeferred.await()
+                } ?: lastRecognizedText
+
+                if (finalDelivered.compareAndSet(false, true)) {
+                    listener.onFinal(finalText)
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "stop cleanup failed", t)
             } finally {
+                finalResultDeferred = null
                 closeWebSocket()
             }
         }
@@ -349,9 +553,9 @@ class VolcanoAsrEngine(
     private fun closeWebSocket() {
         wsReady = false
         try {
-            webSocket?.close(1000, "正常关闭")
-        } catch (e: Exception) {
-            Log.w(TAG, "关闭 WebSocket 失败", e)
+            webSocket?.close(1000, "normal")
+        } catch (t: Throwable) {
+            Log.w(TAG, "close websocket failed", t)
         }
         webSocket = null
     }
@@ -362,8 +566,8 @@ class VolcanoAsrEngine(
             val audioManager = AudioCaptureManager(
                 context = context,
                 sampleRate = SAMPLE_RATE,
-                channelConfig = android.media.AudioFormat.CHANNEL_IN_MONO,
-                audioFormat = android.media.AudioFormat.ENCODING_PCM_16BIT,
+                channelConfig = AudioFormat.CHANNEL_IN_MONO,
+                audioFormat = AudioFormat.ENCODING_PCM_16BIT,
                 chunkMillis = 100
             )
 
@@ -381,10 +585,9 @@ class VolcanoAsrEngine(
                     if (!running.get()) return@collect
 
                     try {
-                        val amplitude = calculateNormalizedAmplitude(audioChunk)
-                        listener.onAmplitude(amplitude)
+                        listener.onAmplitude(calculateNormalizedAmplitude(audioChunk))
                     } catch (t: Throwable) {
-                        Log.w(TAG, "计算振幅失败", t)
+                        Log.w(TAG, "notify amplitude failed", t)
                     }
 
                     if (!vadResult.isSpeech) {
@@ -399,17 +602,38 @@ class VolcanoAsrEngine(
                     }
 
                     if (!wsReady) {
-                        synchronized(prebufferLock) { prebuffer.add(audioChunk.copyOf()) }
+                        synchronized(prebufferLock) {
+                            prebuffer.addLast(audioChunk.copyOf())
+                        }
                     } else {
                         flushPrebuffer()
-                        sendAudioData(audioChunk)
+                        sendAudioFrame(audioChunk, isFinal = false)
                     }
                 }
             } catch (t: Throwable) {
                 if (t !is CancellationException) {
-                    Log.e(TAG, "音频采集失败", t)
+                    Log.e(TAG, "capture failed", t)
                     listener.onError("音频采集失败: ${t.message}")
                 }
+            }
+        }
+    }
+
+    private fun readInt32BE(bytes: ByteArray, offset: Int): Int {
+        return ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.BIG_ENDIAN).int
+    }
+
+    private fun ungzip(data: ByteArray): ByteArray {
+        ByteArrayInputStream(data).use { bis ->
+            GZIPInputStream(bis).use { gis ->
+                val out = ByteArrayOutputStream()
+                val buffer = ByteArray(4096)
+                while (true) {
+                    val read = gis.read(buffer)
+                    if (read <= 0) break
+                    out.write(buffer, 0, read)
+                }
+                return out.toByteArray()
             }
         }
     }
@@ -442,12 +666,17 @@ class VolcanoAsrEngineFactory(
 ) : AsrEngineFactory {
     override val provider: SpeechProvider = SpeechProvider.VOLCANO
 
-    override fun create(config: AsrConfig, listener: AsrListener): AsrEngine {
+    override fun create(
+        config: AsrConfig,
+        listener: AsrListener,
+        externalPcmMode: Boolean
+    ): AsrEngine {
         return VolcanoAsrEngine(
             config = config,
             context = context,
             scope = scope,
-            listener = listener
+            listener = listener,
+            externalPcmMode = externalPcmMode
         )
     }
 }
