@@ -704,12 +704,17 @@ class BailianAsrEngineFactory(
 ) : AsrEngineFactory {
     override val provider: SpeechProvider = SpeechProvider.BAILIAN
 
-    override fun create(config: AsrConfig, listener: AsrListener): AsrEngine {
+    override fun create(
+        config: AsrConfig,
+        listener: AsrListener,
+        externalPcmMode: Boolean
+    ): AsrEngine {
         return BailianAsrEngine(
             config = config,
             context = context,
             scope = scope,
-            listener = listener
+            listener = listener,
+            externalPcmMode = externalPcmMode
         )
     }
 }

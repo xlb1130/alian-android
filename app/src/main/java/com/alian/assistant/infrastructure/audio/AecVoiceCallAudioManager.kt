@@ -6,11 +6,18 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.util.Log
-import com.alibaba.fastjson.JSON
 import com.alian.assistant.common.utils.SpeechTextGuard
 import com.alian.assistant.common.utils.VoiceTerminalMetrics
 import com.alian.assistant.data.SettingsManager
+import com.alian.assistant.data.model.SpeechProvider
+import com.alian.assistant.data.model.SpeechProviderConfig
+import com.alian.assistant.infrastructure.ai.asr.AsrConfig
+import com.alian.assistant.infrastructure.ai.asr.AsrEngine
+import com.alian.assistant.infrastructure.ai.asr.AsrListener
+import com.alian.assistant.infrastructure.ai.asr.ExternalPcmConsumer
 import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
+import com.alian.assistant.infrastructure.ai.asr.bailian.BailianAsrEngine
+import com.alian.assistant.infrastructure.ai.asr.volcano.VolcanoAsrEngine
 import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +32,7 @@ import kotlinx.coroutines.launch
  * 
  * 功能：
  * 1. 使用 AecAudioProcessor 进行回声消除
- * 2. 使用 AecQwenSpeechClient 进行语音识别
+ * 2. 使用统一 ASR 引擎（百炼/火山）进行语音识别
  * 3. 实现真正的语音打断功能
  */
 class AecVoiceCallAudioManager(
@@ -45,6 +52,10 @@ class AecVoiceCallAudioManager(
     companion object {
         private const val TAG = "AecVoiceCallAudioManager"
         private const val SILENCE_DURATION_MS = Long.MAX_VALUE  // 静音持续时间
+        private const val CLOUD_UTTERANCE_SILENCE_MS = 1500L    // 云识别单句静音收尾阈值
+        private const val STREAM_SETTLE_TIMEOUT_MS = 5000L      // 流式会话收敛超时
+        private const val STREAM_AUDIO_DRAIN_TIMEOUT_MS = 3000L // AudioTrack 缓冲排空超时
+        private const val STREAM_ONLY_GRACE_MS = 1500L          // 仅剩流式状态的容忍时间
     }
 
     // 音频管理器
@@ -53,8 +64,9 @@ class AecVoiceCallAudioManager(
     // AEC 音频处理器
     private var aecAudioProcessor: AecAudioProcessor? = null
 
-    // 语音识别客户端（支持 AEC）
-    private var aecQwenSpeechClient: AecQwenSpeechClient? = null
+    // 在线语音识别引擎（支持 AEC 外部 PCM 推流）
+    private var cloudAsrEngine: AsrEngine? = null
+    private var cloudPcmConsumer: ExternalPcmConsumer? = null
 
     // 离线语音识别客户端
     private var offlineAsrRecognizer: SherpaOfflineSpeechRecognizer? = null
@@ -82,6 +94,8 @@ class AecVoiceCallAudioManager(
 
     // 最后一次检测到音频的时间
     private var lastAudioTime: Long = 0
+    // 当前轮次是否已检测到有效说话内容（用于云识别单句自动收尾）
+    private var hasSpeechInCurrentTurn: Boolean = false
 
     // 播放中断回调（语音打断时调用）
     private var onPlaybackInterrupted: (() -> Unit)? = null
@@ -148,16 +162,6 @@ class AecVoiceCallAudioManager(
      * 初始化客户端
      */
     private fun initializeClients() {
-        // 初始化语音识别客户端（支持 AEC）
-        aecQwenSpeechClient = AecQwenSpeechClient(
-            apiKey = apiKey,
-            url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
-            model = "fun-asr-realtime-2025-09-15",
-            sampleRate = 16000,
-            audioFormat = "pcm",
-            vadEnabled = true
-        )
-
         // 初始化 AEC 音频处理器
         aecAudioProcessor = AecAudioProcessor(
             sampleRate = 16000,
@@ -169,7 +173,11 @@ class AecVoiceCallAudioManager(
         // 设置 AEC 处理后的音频回调
         aecAudioProcessor?.setOnProcessedAudio { processedAudio ->
             when (activeAsrEngine) {
-                ActiveAsrEngine.CLOUD -> aecQwenSpeechClient?.addAudioData(processedAudio)
+                ActiveAsrEngine.CLOUD -> cloudPcmConsumer?.appendPcm(
+                    processedAudio,
+                    sampleRate = 16000,
+                    channels = 1
+                )
                 ActiveAsrEngine.OFFLINE -> offlineAsrRecognizer?.addAudioData(processedAudio)
                 ActiveAsrEngine.NONE -> Unit
             }
@@ -221,8 +229,13 @@ class AecVoiceCallAudioManager(
         )
 
         if (isRecording) {
-            Log.w(TAG, "已经在录音中，忽略此次请求")
-            return
+            if (activeAsrEngine != ActiveAsrEngine.NONE || recognitionActive) {
+                Log.w(TAG, "已经在录音中，忽略此次请求")
+                return
+            }
+            // 防止状态漂移：isRecording=true 但引擎已停，允许本次重新启动
+            Log.w(TAG, "检测到录音状态漂移，重置后重新启动录音")
+            isRecording = false
         }
 
         // 检查录音权限
@@ -285,6 +298,7 @@ class AecVoiceCallAudioManager(
                 isStopping = false
                 shouldAutoResumeRecording = false
                 lastAudioTime = System.currentTimeMillis()
+                hasSpeechInCurrentTurn = false
                 activeAsrEngine = ActiveAsrEngine.OFFLINE
                 requestAudioFocus()
 
@@ -394,10 +408,8 @@ class AecVoiceCallAudioManager(
         onError: (String) -> Unit,
         onSilenceTimeout: () -> Unit
     ) {
-        // 初始化 SDK（只在客户端未初始化时才初始化）
         recordingJob = managerScope.launch {
             Log.d(TAG, "startRecording: 开始协程执行")
-            // 标准模式下，严格确保资源已释放；Persistent 模式下跳过等待 AudioRecord 完全释放
             if (!usePersistentAec) {
                 Log.d(TAG, "startRecording: 调用 ensureResourcesReleased()（标准模式）")
                 ensureResourcesReleased()
@@ -406,54 +418,41 @@ class AecVoiceCallAudioManager(
                 Log.d(TAG, "startRecording: Persistent AEC 模式，跳过 ensureResourcesReleased() 的录音释放等待")
             }
 
-            // 检查客户端是否已初始化
-            if (aecQwenSpeechClient == null || aecAudioProcessor == null) {
+            if (aecAudioProcessor == null) {
                 Log.d(TAG, "客户端未初始化，开始初始化")
                 initializeClients()
                 Log.d(TAG, "客户端初始化完成")
             }
 
-            val initResult = aecQwenSpeechClient?.initialize(context)
-            if (initResult?.isFailure == true) {
-                Log.e(TAG, "语音识别客户端初始化失败")
-                onError("语音识别客户端初始化失败")
+            val runtime = resolveOnlineAsrRuntime()
+            if (runtime == null) {
+                Log.e(TAG, "在线 ASR 配置不完整")
+                onError("在线 ASR 配置不完整，请检查语音服务商凭证")
                 return@launch
             }
 
-            isRecording = true
-            isStopping = false
-            shouldAutoResumeRecording = false
-            lastAudioTime = System.currentTimeMillis()
-            activeAsrEngine = ActiveAsrEngine.NONE
+                isRecording = true
+                isStopping = false
+                shouldAutoResumeRecording = false
+                lastAudioTime = System.currentTimeMillis()
+                hasSpeechInCurrentTurn = false
+                activeAsrEngine = ActiveAsrEngine.NONE
 
-            // 请求音频焦点
-            requestAudioFocus()
+                requestAudioFocus()
 
-            // 设置回调
-            aecQwenSpeechClient?.setCallbacks(
-                onPartialResult = { text ->
-                    Log.d(TAG, "部分识别结果: $text")
-
-                    // 检测到音频活动，重置静音计时器
-                    lastAudioTime = System.currentTimeMillis()
-
-                    // 尝试从 JSON 中提取纯文本
-                    val contentText = try {
-                        val json = JSON.parseObject(text)
-                        json.getString("text") ?: text
-                    } catch (e: Exception) {
-                        Log.w(TAG, "解析部分识别结果 JSON 失败，使用原始结果", e)
-                        text
+                val asrListener = object : AsrListener {
+                    override fun onPartial(text: String) {
+                        Log.d(TAG, "部分识别结果: $text")
+                        if (text.isNotBlank()) {
+                            hasSpeechInCurrentTurn = true
+                            lastAudioTime = System.currentTimeMillis()
+                        }
+                        onPartialResult(text)
                     }
 
-                    // 实时语音打断已经在 AecAudioProcessor 中实现，这里不需要再检测
-                    onPartialResult(contentText)
-                },
-                onFinalResult = { text ->
+                override fun onFinal(text: String) {
                     val thread = Thread.currentThread()
                     Log.d(TAG, "最终识别结果: $text, isStopping=$isStopping, thread=${thread.name}, isMain=${thread.name == "main"}")
-
-                    // 标记为正在停止，防止重复调用
                     isStopping = true
 
                     val guardedText = SpeechTextGuard.sanitizeFinalText(text)
@@ -468,19 +467,16 @@ class AecVoiceCallAudioManager(
                         VoiceTerminalMetrics.recordAsrFinalAccepted(
                             scene = metricsScene,
                             source = "cloud",
-                            textLength = guardedText.length
-                        )
+                                textLength = guardedText.length
+                            )
                     }
 
-                    Log.d(TAG, "调用外部 onFinalResult 回调: text=$text")
                     try {
                         onFinalResult(guardedText)
-                        Log.d(TAG, "外部 onFinalResult 回调调用完成")
                     } catch (e: Exception) {
                         Log.e(TAG, "调用外部 onFinalResult 回调失败", e)
                     }
 
-                    // 根据模式停止：标准模式停止录音 + AEC；Persistent 模式仅停止识别会话
                     Log.d(TAG, "准备停止录音/识别, usePersistentAec=$usePersistentAec")
                     CoroutineScope(Dispatchers.IO).launch {
                         if (usePersistentAec) {
@@ -490,11 +486,10 @@ class AecVoiceCallAudioManager(
                         }
                         Log.d(TAG, "录音/识别已停止, usePersistentAec=$usePersistentAec")
                     }
-                },
-                onError = { error ->
-                    Log.e(TAG, "录音错误: ${error.message}")
+                }
 
-                    // 标记为正在停止
+                override fun onError(error: String) {
+                    Log.e(TAG, "录音错误: $error")
                     isStopping = true
 
                     if (usePersistentAec) {
@@ -503,11 +498,14 @@ class AecVoiceCallAudioManager(
                         stopRecording()
                     }
 
-                    onError(error.message ?: "录音错误")
+                    onError(error)
                 }
-            )
+            }
 
-            // 启动/启用 AEC
+            cloudAsrEngine?.release()
+            cloudAsrEngine = createOnlineAsrEngine(runtime, asrListener)
+            cloudPcmConsumer = cloudAsrEngine as? ExternalPcmConsumer
+
             if (usePersistentAec) {
                 Log.d(TAG, "Persistent AEC 模式：ensureAecStarted + enableOutput")
                 ensureAecStarted()
@@ -519,15 +517,13 @@ class AecVoiceCallAudioManager(
                 aecAudioProcessor?.startRecording()
                 Log.d(TAG, "AEC 音频处理器已启动")
             }
-            
-            // 等待一小段时间，确保 AudioRecord 已经开始录音
+
             delay(100)
 
-            // 再启动语音识别
             Log.d(TAG, "启动语音识别")
-            val startResult = aecQwenSpeechClient?.startRecognition()
-            if (startResult?.isFailure == true) {
-                Log.e(TAG, "启动语音识别失败: ${startResult.exceptionOrNull()?.message}")
+            cloudAsrEngine?.start()
+            if (cloudAsrEngine?.isRunning != true) {
+                Log.e(TAG, "启动语音识别失败: ASR 引擎未运行")
                 onError("启动语音识别失败")
                 stopRecording()
                 return@launch
@@ -535,7 +531,6 @@ class AecVoiceCallAudioManager(
             Log.d(TAG, "语音识别已启动")
             activeAsrEngine = ActiveAsrEngine.CLOUD
 
-            // 启动静音检测
             startSilenceDetection(onSilenceTimeout)
             Log.d(TAG, "静音检测已启动")
         }
@@ -564,7 +559,8 @@ class AecVoiceCallAudioManager(
         aecAudioProcessor?.disableOutput()
 
         // 停止语音识别
-        aecQwenSpeechClient?.stopRecognition()
+        cloudAsrEngine?.stop()
+        cloudPcmConsumer = null
 
         Log.d(TAG, "Persistent AEC 模式：已停止识别 Session，底层 AEC 仍在运行")
     }
@@ -581,6 +577,21 @@ class AecVoiceCallAudioManager(
 
                 val currentTime = System.currentTimeMillis()
                 val silenceDuration = currentTime - lastAudioTime
+
+                // 云识别场景：检测到用户已说话后，静音一段时间自动结束本句并提交 final
+                if (
+                    activeAsrEngine == ActiveAsrEngine.CLOUD &&
+                    hasSpeechInCurrentTurn &&
+                    silenceDuration > CLOUD_UTTERANCE_SILENCE_MS
+                ) {
+                    Log.d(
+                        TAG,
+                        "云识别检测到单句结束（静音 ${silenceDuration}ms），自动结束当前识别会话"
+                    )
+                    isStopping = true
+                    stopRecording()
+                    break
+                }
 
                 // 如果静音时间超过阈值，自动停止录音并挂机
                 if (silenceDuration > SILENCE_DURATION_MS) {
@@ -611,6 +622,7 @@ class AecVoiceCallAudioManager(
             val shouldCancel = isStopping
             isRecording = false
             recognitionActive = false
+            hasSpeechInCurrentTurn = false
             silenceTimer?.cancel()
             silenceTimer = null
             activeAsrEngine = ActiveAsrEngine.NONE
@@ -647,6 +659,7 @@ class AecVoiceCallAudioManager(
         // 标准模式：保持原有行为，完全停止录音和 AEC
         isRecording = false
         isStopping = true
+        hasSpeechInCurrentTurn = false
 
         // 停止静音检测
         silenceTimer?.cancel()
@@ -656,7 +669,8 @@ class AecVoiceCallAudioManager(
         aecAudioProcessor?.stopRecording()
 
         // 停止语音识别（异步，不等待）
-        aecQwenSpeechClient?.stopRecognition()
+        cloudAsrEngine?.stop()
+        cloudPcmConsumer = null
         activeAsrEngine = ActiveAsrEngine.NONE
 
         // 等待一小段时间，确保 AudioRecord 已被释放
@@ -761,89 +775,117 @@ class AecVoiceCallAudioManager(
             // 收集完整的文本
             val fullText = StringBuilder()
             var chunkCount = 0
+            var streamError: String? = null
 
             // 使用协程并发处理：一边 collect 文本块，一边发送给 TTS
             val collectJob = managerScope.launch {
                 try {
                     textFlow.collect { chunk ->
+                        if (streamError != null) return@collect
+
                         chunkCount++
                         Log.d(TAG, "收到文本块 #$chunkCount: ${chunk.take(50)}...")
                         fullText.append(chunk)
 
                         // 发送文本块到流式 TTS
                         val sendResult = cosyVoiceTTSClient?.sendStreamingChunk(chunk)
-                        if (sendResult?.isFailure == true) {
-                            Log.e(TAG, "发送文本块到流式 TTS 失败")
-                            onError("发送文本块失败")
+                            ?: Result.failure(IllegalStateException("TTS 客户端未初始化"))
+                        if (sendResult.isFailure) {
+                            streamError = sendResult.exceptionOrNull()?.message ?: "发送文本块失败"
+                            Log.e(TAG, "发送文本块到流式 TTS 失败: $streamError")
                             return@collect
                         }
                     }
                     Log.d(TAG, "textFlow.collect 完成，共收到 $chunkCount 个文本块")
 
+                    if (streamError != null) return@launch
+
                     // 所有文本块已发送，结束流式会话
                     Log.d(TAG, "所有文本块已发送，结束流式会话")
                     val finishResult = cosyVoiceTTSClient?.finishStreamingSession()
-                    if (finishResult?.isFailure == true) {
-                        Log.e(TAG, "结束流式 TTS 会话失败")
-                        onError("结束流式 TTS 会话失败")
+                        ?: Result.failure(IllegalStateException("TTS 客户端未初始化"))
+                    if (finishResult.isFailure) {
+                        streamError = finishResult.exceptionOrNull()?.message ?: "结束流式 TTS 会话失败"
+                        Log.e(TAG, "结束流式 TTS 会话失败: $streamError")
                         return@launch
                     }
                     Log.d(TAG, "finish-task 已发送")
                 } catch (e: Exception) {
                     Log.e(TAG, "collect 文本块异常", e)
-                    onError(e.message ?: "collect 文本块异常")
+                    if (streamError == null) {
+                        streamError = e.message ?: "collect 文本块异常"
+                    }
                 }
             }
 
             // 等待 collect 完成（文本块发送完成）
             collectJob.join()
 
-            Log.d(TAG, "等待音频数据播放完成...")
+            if (streamError != null) {
+                Log.e(TAG, "流式 TTS 会话提前失败: $streamError")
+                aecAudioProcessor?.notifyPlaybackStopped()
+                isPlaying = false
+                onError(streamError ?: "流式 TTS 播放失败")
+                cosyVoiceTTSClient?.stopStreamingSession()
+                return
+            }
 
-            // 等待播放完成，超时时间为 30 秒
-            var waitCount = 0
-            val maxWaitCount = 300  // 30 秒
-            while (cosyVoiceTTSClient?.isStreamingActive() == true && waitCount < maxWaitCount) {
+            Log.d(TAG, "等待流式会话收敛与音频播放完成...")
+
+            // 某些机型/网络下，服务端状态位会晚于音频结束；避免因为状态位滞后卡住下一轮录音
+            var settleWaitMs = 0L
+            var streamOnlyMs = 0L
+            while (settleWaitMs < STREAM_SETTLE_TIMEOUT_MS) {
+                val streamActive = cosyVoiceTTSClient?.isStreamingActive() == true
+                val audioPlaying = cosyVoiceTTSClient?.isAudioTrackStillPlaying() == true
+
+                if (!streamActive && !audioPlaying) {
+                    break
+                }
+
+                if (streamActive && !audioPlaying) {
+                    streamOnlyMs += 100L
+                    if (streamOnlyMs >= STREAM_ONLY_GRACE_MS) {
+                        Log.w(TAG, "音频已结束但流式状态未关闭，提前收敛会话")
+                        break
+                    }
+                } else {
+                    streamOnlyMs = 0L
+                }
+
                 delay(100)
-                waitCount++
-                if (waitCount % 50 == 0) {
-                    Log.d(TAG, "等待音频数据... waitCount=$waitCount/${maxWaitCount}")
+                settleWaitMs += 100L
+                if (settleWaitMs % 1000L == 0L) {
+                    Log.d(TAG, "等待流式收敛... ${settleWaitMs}ms/${STREAM_SETTLE_TIMEOUT_MS}ms")
                 }
             }
-
-            if (waitCount >= maxWaitCount) {
-                Log.w(TAG, "等待音频数据超时")
-            } else {
-                Log.d(TAG, "音频数据播放完成")
+            if (settleWaitMs >= STREAM_SETTLE_TIMEOUT_MS) {
+                Log.w(TAG, "等待流式收敛超时，继续后续流程")
             }
 
-            // 额外等待 AudioTrack 播放完缓冲区的数据
-            Log.d(TAG, "流式会话已完成，等待 AudioTrack 播放完缓冲区...")
-            var audioWaitCount = 0
-            val maxAudioWaitCount = 100  // 10 秒
-            while (cosyVoiceTTSClient?.isAudioTrackStillPlaying() == true && audioWaitCount < maxAudioWaitCount) {
+            // 再短暂等待 AudioTrack 缓冲区排空，避免截断尾音
+            var audioDrainMs = 0L
+            while (
+                cosyVoiceTTSClient?.isAudioTrackStillPlaying() == true &&
+                audioDrainMs < STREAM_AUDIO_DRAIN_TIMEOUT_MS
+            ) {
                 delay(100)
-                audioWaitCount++
-                if (audioWaitCount % 50 == 0) {
-                    Log.d(TAG, "等待 AudioTrack 播放... audioWaitCount=$audioWaitCount/${maxAudioWaitCount}")
-                }
+                audioDrainMs += 100L
             }
-
-            if (audioWaitCount >= maxAudioWaitCount) {
-                Log.w(TAG, "等待 AudioTrack 播放超时")
+            if (audioDrainMs >= STREAM_AUDIO_DRAIN_TIMEOUT_MS) {
+                Log.w(TAG, "等待 AudioTrack 排空超时，继续后续流程")
             } else {
                 Log.d(TAG, "AudioTrack 播放完成")
             }
 
             Log.d(TAG, "流式 TTS 播放完成")
+            // 正常完成后主动收尾流式会话，确保状态位归零
+            cosyVoiceTTSClient?.stopStreamingSession()
             // 通知 AEC 处理器 TTS 播放已停止
             aecAudioProcessor?.notifyPlaybackStopped()
             // 先更新状态，再调用完成回调，避免状态不一致
             isPlaying = false
             onFinished(fullText.toString())
-
-            // 正常完成后停止流式会话
-           // cosyVoiceTTSClient?.stopStreamingSession()
 
         } catch (e: Exception) {
             Log.e(TAG, "流式 TTS 播放异常", e)
@@ -924,14 +966,15 @@ class AecVoiceCallAudioManager(
         abandonAudioFocus()
 
         // 释放客户端
-        aecQwenSpeechClient?.release()
+        cloudAsrEngine?.release()
         offlineAsrRecognizer?.cancelListening()
         offlineAsrRecognizer?.destroy()
         aecAudioProcessor?.release()
-        cosyVoiceTTSClient?.cancelPlayback()
+        cosyVoiceTTSClient?.release()
 
         // 清空引用
-        aecQwenSpeechClient = null
+        cloudAsrEngine = null
+        cloudPcmConsumer = null
         offlineAsrRecognizer = null
         aecAudioProcessor = null
         cosyVoiceTTSClient = null
@@ -1027,6 +1070,70 @@ class AecVoiceCallAudioManager(
             context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
     }
 
+    private data class OnlineAsrRuntime(
+        val provider: SpeechProvider,
+        val config: AsrConfig
+    )
+
+    private fun resolveOnlineAsrRuntime(): OnlineAsrRuntime? {
+        val settings = settingsManager.settings.value
+        val provider = settings.speechProvider
+        val providerConfig = SpeechProviderConfig.get(provider)
+        val credentials = settingsManager.getSpeechCredentials(provider)
+        val speechModels = settingsManager.getSpeechModels(provider)
+
+        val resolvedApiKey = credentials.apiKey.ifBlank { apiKey }
+        val resolvedModel = speechModels.asrModel.ifEmpty { providerConfig.asrDefaultModel }
+        val resolvedResourceId = if (provider == SpeechProvider.VOLCANO) {
+            if (resolvedModel.startsWith("volc.", ignoreCase = true)) resolvedModel else ""
+        } else {
+            credentials.asrResourceId
+        }
+
+        val config = AsrConfig(
+            apiKey = resolvedApiKey,
+            model = resolvedModel,
+            language = "zh",
+            appId = credentials.appId,
+            cluster = credentials.cluster,
+            resourceId = resolvedResourceId
+        )
+
+        return when (provider) {
+            SpeechProvider.BAILIAN -> {
+                if (config.apiKey.isBlank()) null else OnlineAsrRuntime(provider, config)
+            }
+
+            SpeechProvider.VOLCANO -> {
+                if (config.apiKey.isBlank() || config.appId.isBlank() || config.resourceId.isBlank()) {
+                    null
+                } else {
+                    OnlineAsrRuntime(provider, config)
+                }
+            }
+        }
+    }
+
+    private fun createOnlineAsrEngine(runtime: OnlineAsrRuntime, listener: AsrListener): AsrEngine {
+        return when (runtime.provider) {
+            SpeechProvider.BAILIAN -> BailianAsrEngine(
+                config = runtime.config,
+                context = context,
+                scope = managerScope,
+                listener = listener,
+                externalPcmMode = true
+            )
+
+            SpeechProvider.VOLCANO -> VolcanoAsrEngine(
+                config = runtime.config,
+                context = context,
+                scope = managerScope,
+                listener = listener,
+                externalPcmMode = true
+            )
+        }
+    }
+
     /**
      * 确保资源已完全释放
      * 在重新初始化前调用，避免资源冲突
@@ -1057,10 +1164,11 @@ class AecVoiceCallAudioManager(
     private fun checkResourcesReleased(): Boolean {
         val recordingState = aecAudioProcessor?.isCurrentlyRecording() != true
         val offlineState = offlineAsrRecognizer?.isCurrentlyListening() != true
-        val clientState = !isRecording && !recognitionActive && activeAsrEngine == ActiveAsrEngine.NONE
+        val cloudState = cloudAsrEngine?.isRunning != true
+        val clientState = !isRecording && !recognitionActive && activeAsrEngine == ActiveAsrEngine.NONE && cloudState
         Log.d(
             TAG,
-            "checkResourcesReleased: recordingState=$recordingState, offlineState=$offlineState, clientState=$clientState"
+            "checkResourcesReleased: recordingState=$recordingState, offlineState=$offlineState, cloudState=$cloudState, clientState=$clientState"
         )
         return recordingState && offlineState && clientState
     }
@@ -1082,6 +1190,6 @@ class AecVoiceCallAudioManager(
     }
 
     private fun shouldFallbackToCloud(): Boolean {
-        return offlineAsrAutoFallbackToCloud && apiKey.isNotBlank()
+        return offlineAsrAutoFallbackToCloud && resolveOnlineAsrRuntime() != null
     }
 }

@@ -20,7 +20,9 @@ data class SpeechProviderCredentials(
     val apiKey: String = "",
     // 火山引擎特有
     val appId: String = "",
-    val cluster: String = ""
+    val cluster: String = "",
+    val asrResourceId: String = "",
+    val ttsResourceId: String = ""
 )
 
 /**
@@ -42,18 +44,26 @@ data class SpeechProviderConfig(
     val ttsDefaultModel: String,
     val ttsModels: List<String>,
     val requiresAppId: Boolean = false,  // 火山引擎需要
-    val requiresCluster: Boolean = false // 火山引擎 TTS 需要
+    val requiresCluster: Boolean = false, // 保留旧字段兼容
+    val requiresAsrResourceId: Boolean = false,
+    val requiresTtsResourceId: Boolean = false
 ) {
     companion object {
         val VOLCANO = SpeechProviderConfig(
             provider = SpeechProvider.VOLCANO,
             displayName = "火山引擎",
-            asrDefaultModel = "bigmodel",
-            asrModels = listOf("bigmodel", "smallmodel"),
-            ttsDefaultModel = "volcano_tts",
-            ttsModels = listOf("volcano_tts"),
+            asrDefaultModel = "volc.seedasr.sauc.duration",
+            asrModels = listOf(
+                "volc.seedasr.sauc.duration",
+                "volc.seedasr.sauc.concurrent"
+            ),
+            ttsDefaultModel = "seed-tts-2.0",
+            ttsModels = listOf("seed-tts-2.0"),
             requiresAppId = true,
-            requiresCluster = true
+            requiresCluster = false,
+            // 火山这里模型即 Resource ID，不需要额外配置字段
+            requiresAsrResourceId = false,
+            requiresTtsResourceId = false
         )
 
         val BAILIAN = SpeechProviderConfig(

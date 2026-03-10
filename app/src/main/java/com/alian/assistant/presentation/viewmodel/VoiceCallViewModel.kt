@@ -14,8 +14,11 @@ import com.alian.assistant.infrastructure.audio.VoiceCallAudioManager
 import com.alian.assistant.presentation.ui.screens.voicecall.MCPVoiceCallClient
 import com.alibaba.fastjson.JSON
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,10 +81,13 @@ class VoiceCallViewModel(private val context: Context) {
     private var currentJob: Job? = null
 
     // 协程作用域（用于管理所有协程）
-    private val viewModelScope = CoroutineScope(Dispatchers.Main)
+    private val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // 是否正在处理消息（防止重复请求）
     private var isProcessing = false
+
+    // 通话是否处于激活状态（用于拦截挂断后的异步重入）
+    private var callActive = false
 
     // API 配置
     var apiKey: String = ""
@@ -150,14 +156,22 @@ class VoiceCallViewModel(private val context: Context) {
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
                 volume = volume,
-                metricsScene = "voice_call"
+                metricsScene = "voice_call",
+                usePersistentAec = ttsInterruptEnabled
             )
             // 设置播放中断回调
             aecManager.setOnPlaybackInterrupted {
-                Log.d(TAG, "播放被中断(语音打断),更新状态并开始录音")
-                _currentPlayingMessage.value = ""
-                _callState.value = VoiceCallState.Recording
-                startRecording()
+                viewModelScope.launch {
+                    if (!callActive || audioManager == null) {
+                        Log.d(TAG, "通话未激活，忽略播放中断回调")
+                        return@launch
+                    }
+                    Log.d(TAG, "播放被中断(语音打断),更新状态并开始录音")
+                    isProcessing = false
+                    _currentPlayingMessage.value = ""
+                    _callState.value = VoiceCallState.Recording
+                    startRecording()
+                }
             }
             aecManager
         } else {
@@ -180,6 +194,8 @@ class VoiceCallViewModel(private val context: Context) {
             systemPrompt = systemPrompt
         )
 
+        callActive = true
+
         // 开始录音
         startRecording()
     }
@@ -189,17 +205,21 @@ class VoiceCallViewModel(private val context: Context) {
      */
     fun stopCall() {
         Log.d(TAG, "结束通话")
-        
-        // 取消所有协程
+
+        callActive = false
+
+        // 取消所有协程（包括延迟重启录音任务）
         currentJob?.cancel()
         currentJob = null
+        viewModelScope.coroutineContext.cancelChildren()
 
         // 重置处理标志
         isProcessing = false
 
-        // 停止音频
-        audioManager?.stopAll()
+        // 释放音频（包含 stopAll + 内部作用域清理）
+        audioManager?.release()
         audioManager = null
+        voiceCallClient = null
 
         // 清空状态
         _callState.value = VoiceCallState.Idle
@@ -213,6 +233,11 @@ class VoiceCallViewModel(private val context: Context) {
      * 开始录音
      */
     private fun startRecording() {
+        if (!callActive || audioManager == null) {
+            Log.d(TAG, "通话未激活，跳过 startRecording")
+            return
+        }
+
         Log.d(TAG, "开始录音")
         
         // 先设置状态为 Recording
@@ -224,12 +249,20 @@ class VoiceCallViewModel(private val context: Context) {
 
         // 调用音频管理器开始录音
         audioManager?.startRecording(
-            onPartialResult = { text ->
+            onPartialResult = partial@{ text ->
+                if (!callActive || audioManager == null) {
+                    Log.d(TAG, "通话未激活，忽略部分识别结果")
+                    return@partial
+                }
                 // 实时显示识别结果（过滤 AI 回复）
                 val filteredText = filterOutAIResponse(text)
                 _currentRecognizedText.value = filteredText
             },
-            onFinalResult = { text ->
+            onFinalResult = final@{ text ->
+                if (!callActive || audioManager == null) {
+                    Log.d(TAG, "通话未激活，忽略最终识别结果")
+                    return@final
+                }
                 Log.d(TAG, "VoiceCallViewModel.onFinalResult 被调用: text='$text', isBlank=${text.isBlank()}")
                 // 识别完成，发送到 API
                 if (text.isNotBlank()) {
@@ -238,10 +271,14 @@ class VoiceCallViewModel(private val context: Context) {
                 } else {
                     // 如果没有识别到内容，继续录音
                     Log.d(TAG, "未识别到语音内容，继续录音")
-                    startRecording()
+                    restartRecordingWithDelay(0, "blank_asr_final")
                 }
             },
-            onError = { error ->
+            onError = errorCb@{ error ->
+                if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
+                    Log.d(TAG, "通话未激活，忽略录音错误: $error")
+                    return@errorCb
+                }
                 Log.e(TAG, "录音错误: $error")
                 _callState.value = VoiceCallState.Error(error)
             },
@@ -418,6 +455,9 @@ class VoiceCallViewModel(private val context: Context) {
                 delay(2000)
                 startRecording()
             }
+        } catch (e: CancellationException) {
+            Log.d(TAG, "处理用户消息任务已取消")
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "处理用户消息失败", e)
             _callState.value = VoiceCallState.Error(e.message ?: "处理失败")
@@ -458,7 +498,11 @@ class VoiceCallViewModel(private val context: Context) {
             Log.d(TAG, "调用 audioManager.playTextStream...")
             audioManager?.playTextStream(
                 textFlow = textFlow,
-                onFinished = { fullText ->
+                onFinished = streamFinished@{ fullText ->
+                    if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
+                        Log.d(TAG, "通话未激活，忽略流式播放完成回调")
+                        return@streamFinished
+                    }
                     Log.d(TAG, "流式播放完成，完整文本: $fullText")
 
                     // 添加助手消息到历史
@@ -477,33 +521,33 @@ class VoiceCallViewModel(private val context: Context) {
                     // 清空播放消息
                     _currentPlayingMessage.value = ""
 
-                    // 开始录音
-                    CoroutineScope(Dispatchers.IO).launch {
-                        delay(100)
-                        _callState.value = VoiceCallState.Recording
-                        startRecording()
-                    }
+                    // 流式场景下，尽早释放处理锁，避免“播放已结束但用户说话仍被判定为处理中”
+                    isProcessing = false
+
+                    restartRecordingWithDelay(100, "stream_finished")
                 },
-                onError = { error ->
+                onError = streamError@{ error ->
+                    if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
+                        Log.d(TAG, "通话未激活，忽略流式播放错误: $error")
+                        return@streamError
+                    }
                     Log.e(TAG, "流式播放错误: $error")
                     _callState.value = VoiceCallState.Error(error)
                     _currentPlayingMessage.value = ""
+                    isProcessing = false
 
-                    // 等待 2 秒后重新开始录音
-                    CoroutineScope(Dispatchers.IO).launch {
-                        delay(2000)
-                        startRecording()
-                    }
+                    restartRecordingWithDelay(2000, "stream_playback_error")
                 }
             )
 
+        } catch (e: CancellationException) {
+            Log.d(TAG, "处理用户消息（流式）任务已取消")
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "处理用户消息（流式）失败", e)
             _callState.value = VoiceCallState.Error(e.message ?: "处理失败")
 
-            // 等待 2 秒后重新开始录音
-            delay(2000)
-            startRecording()
+            restartRecordingWithDelay(2000, "stream_process_exception")
         }
     }
 
@@ -518,7 +562,11 @@ class VoiceCallViewModel(private val context: Context) {
 
         audioManager?.playText(
             text = text,
-            onFinished = {
+            onFinished = playFinished@{
+                if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
+                    Log.d(TAG, "通话未激活，忽略播放完成回调")
+                    return@playFinished
+                }
                 Log.d(TAG, "播放完成")
 
                 // 先清空播放消息
@@ -527,33 +575,38 @@ class VoiceCallViewModel(private val context: Context) {
                 // 检查是否还在播放(可能已经被语音打断)
                 if (audioManager?.isCurrentlyPlaying() == false) {
                     Log.d(TAG, "播放已被停止(可能是语音打断),立即开始录音")
-                    _callState.value = VoiceCallState.Recording
-                    startRecording()
+                    restartRecordingWithDelay(0, "playback_interrupted_or_stopped")
                 } else {
-                    // 正常完成播放,等待一小段时间后开始录音
-                    CoroutineScope(Dispatchers.IO).launch {
-                        delay(100)
-
-                        // 先更新状态为 Recording，确保状态转换正确
-                        _callState.value = VoiceCallState.Recording
-
-                        // 然后开始录音
-                        startRecording()
-                    }
+                    // 正常完成播放，等待一小段时间后开始录音
+                    restartRecordingWithDelay(100, "playback_finished")
                 }
             },
-            onError = { error ->
+            onError = playError@{ error ->
+                if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
+                    Log.d(TAG, "通话未激活，忽略播放错误: $error")
+                    return@playError
+                }
                 Log.e(TAG, "播放错误: $error")
                 _callState.value = VoiceCallState.Error(error)
                 _currentPlayingMessage.value = ""
 
-                // 等待 2 秒后重新开始录音
-                CoroutineScope(Dispatchers.IO).launch {
-                    delay(2000)
-                    startRecording()
-                }
+                restartRecordingWithDelay(2000, "playback_error")
             }
         )
+    }
+
+    private fun restartRecordingWithDelay(delayMs: Long, reason: String) {
+        viewModelScope.launch {
+            if (delayMs > 0) {
+                delay(delayMs)
+            }
+            if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
+                Log.d(TAG, "通话未激活，跳过重启录音: reason=$reason")
+                return@launch
+            }
+            _callState.value = VoiceCallState.Recording
+            startRecording()
+        }
     }
 
     /**

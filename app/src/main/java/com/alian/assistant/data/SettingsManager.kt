@@ -387,7 +387,12 @@ class SettingsManager(context: Context) {
         val credentials = mutableMapOf<SpeechProvider, SpeechProviderCredentials>()
         for (provider in SpeechProvider.entries) {
             val cred = loadSpeechCredentials(provider)
-            if (cred.apiKey.isNotEmpty() || cred.appId.isNotEmpty()) {
+            if (
+                cred.apiKey.isNotEmpty() ||
+                cred.appId.isNotEmpty() ||
+                cred.asrResourceId.isNotEmpty() ||
+                cred.ttsResourceId.isNotEmpty()
+            ) {
                 credentials[provider] = cred
             }
         }
@@ -812,8 +817,30 @@ class SettingsManager(context: Context) {
      * 切换 ASR/TTS 服务商
      */
     fun selectSpeechProvider(provider: SpeechProvider) {
-        prefs.edit().putString("speech_provider", provider.name).apply()
-        _settings.value = _settings.value.copy(speechProvider = provider)
+        val oldProvider = _settings.value.speechProvider
+        val switched = oldProvider != provider
+        val nextVoice = if (switched) {
+            getDefaultVoiceForProvider(provider)
+        } else {
+            _settings.value.ttsVoice
+        }
+
+        prefs.edit()
+            .putString("speech_provider", provider.name)
+            .putString("tts_voice", nextVoice)
+            .apply()
+
+        _settings.value = _settings.value.copy(
+            speechProvider = provider,
+            ttsVoice = nextVoice
+        )
+    }
+
+    private fun getDefaultVoiceForProvider(provider: SpeechProvider): String {
+        return when (provider) {
+            SpeechProvider.BAILIAN -> "longyingmu_v3"
+            SpeechProvider.VOLCANO -> "zh_female_shuangkuaisisi_uranus_bigtts"
+        }
     }
 
     /**
@@ -831,6 +858,8 @@ class SettingsManager(context: Context) {
             .putString("speech_${provider.name}_api_key", credentials.apiKey)
             .putString("speech_${provider.name}_app_id", credentials.appId)
             .putString("speech_${provider.name}_cluster", credentials.cluster)
+            .putString("speech_${provider.name}_asr_resource_id", credentials.asrResourceId)
+            .putString("speech_${provider.name}_tts_resource_id", credentials.ttsResourceId)
             .apply()
 
         _settings.value = _settings.value.copy(speechCredentials = newCredentials)
@@ -847,10 +876,72 @@ class SettingsManager(context: Context) {
      * 从存储加载服务商凭证
      */
     private fun loadSpeechCredentials(provider: SpeechProvider): SpeechProviderCredentials {
+        val secureApiKey = (securePrefs.getString("speech_${provider.name}_api_key", "") ?: "").trim()
+        val secureAppId = securePrefs.getString("speech_${provider.name}_app_id", "") ?: ""
+        val secureCluster = securePrefs.getString("speech_${provider.name}_cluster", "") ?: ""
+        val secureAsrResourceId = securePrefs.getString("speech_${provider.name}_asr_resource_id", "") ?: ""
+        val secureTtsResourceId = securePrefs.getString("speech_${provider.name}_tts_resource_id", "") ?: ""
+
+        if (
+            secureAppId.isNotEmpty() ||
+            secureCluster.isNotEmpty() ||
+            secureApiKey.isNotEmpty() ||
+            secureAsrResourceId.isNotEmpty() ||
+            secureTtsResourceId.isNotEmpty()
+        ) {
+            return SpeechProviderCredentials(
+                apiKey = secureApiKey,
+                appId = secureAppId,
+                cluster = secureCluster,
+                asrResourceId = secureAsrResourceId,
+                ttsResourceId = secureTtsResourceId
+            )
+        }
+
+        // 兼容旧版本：如果历史数据存于普通 prefs，则迁移到加密存储
+        val legacyApiKey = (prefs.getString("speech_${provider.name}_api_key", "") ?: "").trim()
+        val legacyAppId = prefs.getString("speech_${provider.name}_app_id", "") ?: ""
+        val legacyCluster = prefs.getString("speech_${provider.name}_cluster", "") ?: ""
+        val legacyAsrResourceId = prefs.getString("speech_${provider.name}_asr_resource_id", "") ?: ""
+        val legacyTtsResourceId = prefs.getString("speech_${provider.name}_tts_resource_id", "") ?: ""
+        if (
+            legacyApiKey.isNotEmpty() ||
+            legacyAppId.isNotEmpty() ||
+            legacyCluster.isNotEmpty() ||
+            legacyAsrResourceId.isNotEmpty() ||
+            legacyTtsResourceId.isNotEmpty()
+        ) {
+            securePrefs.edit()
+                .putString("speech_${provider.name}_api_key", legacyApiKey)
+                .putString("speech_${provider.name}_app_id", legacyAppId)
+                .putString("speech_${provider.name}_cluster", legacyCluster)
+                .putString("speech_${provider.name}_asr_resource_id", legacyAsrResourceId)
+                .putString("speech_${provider.name}_tts_resource_id", legacyTtsResourceId)
+                .apply()
+
+            prefs.edit()
+                .remove("speech_${provider.name}_api_key")
+                .remove("speech_${provider.name}_app_id")
+                .remove("speech_${provider.name}_cluster")
+                .remove("speech_${provider.name}_asr_resource_id")
+                .remove("speech_${provider.name}_tts_resource_id")
+                .apply()
+
+            return SpeechProviderCredentials(
+                apiKey = legacyApiKey,
+                appId = legacyAppId,
+                cluster = legacyCluster,
+                asrResourceId = legacyAsrResourceId,
+                ttsResourceId = legacyTtsResourceId
+            )
+        }
+
         return SpeechProviderCredentials(
-            apiKey = (securePrefs.getString("speech_${provider.name}_api_key", "") ?: "").trim(),
-            appId = prefs.getString("speech_${provider.name}_app_id", "") ?: "",
-            cluster = prefs.getString("speech_${provider.name}_cluster", "") ?: ""
+            apiKey = "",
+            appId = "",
+            cluster = "",
+            asrResourceId = "",
+            ttsResourceId = ""
         )
     }
 
@@ -878,9 +969,27 @@ class SettingsManager(context: Context) {
      * 从存储加载服务商模型选择
      */
     private fun loadSpeechModels(provider: SpeechProvider): SpeechModels {
+        val asrModelKey = "speech_${provider.name}_asr_model"
+        val ttsModelKey = "speech_${provider.name}_tts_model"
+
+        val asrModelRaw = prefs.getString(asrModelKey, "") ?: ""
+        val normalizedAsrModel = if (
+            provider == SpeechProvider.VOLCANO &&
+            asrModelRaw == "volc.seedasr.auc"
+        ) {
+            // 兼容旧配置：AUC 是录音文件识别资源，不适用于流式通话 ASR
+            "volc.seedasr.sauc.duration"
+        } else {
+            asrModelRaw
+        }
+
+        if (normalizedAsrModel != asrModelRaw) {
+            prefs.edit().putString(asrModelKey, normalizedAsrModel).apply()
+        }
+
         return SpeechModels(
-            asrModel = prefs.getString("speech_${provider.name}_asr_model", "") ?: "",
-            ttsModel = prefs.getString("speech_${provider.name}_tts_model", "") ?: ""
+            asrModel = normalizedAsrModel,
+            ttsModel = prefs.getString(ttsModelKey, "") ?: ""
         )
     }
 }

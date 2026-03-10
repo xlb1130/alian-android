@@ -12,7 +12,8 @@ data class AsrConfig(
     val sampleRate: Int = 16000,
     // 火山引擎特有
     val appId: String = "",
-    val cluster: String = ""
+    val cluster: String = "",
+    val resourceId: String = ""
 )
 
 /**
@@ -43,5 +44,9 @@ interface AsrListener {
  */
 interface AsrEngineFactory {
     val provider: SpeechProvider
-    fun create(config: AsrConfig, listener: AsrListener): AsrEngine
+    fun create(
+        config: AsrConfig,
+        listener: AsrListener,
+        externalPcmMode: Boolean = false
+    ): AsrEngine
 }
