@@ -17,6 +17,7 @@ import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
 import com.alian.assistant.infrastructure.ai.asr.bailian.BailianAsrEngine
 import com.alian.assistant.infrastructure.ai.asr.volcano.VolcanoAsrEngine
 import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
+import com.alian.assistant.infrastructure.ai.tts.OfflineTtsPlaybackInterruptedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +43,8 @@ class VoiceCallAudioManager(
     companion object {
         private const val TAG = "VoiceCallAudioManager"
         private const val SILENCE_DURATION_MS = Long.MAX_VALUE  // 静音持续时间（毫秒），禁用静音超时检测
-        private const val CLOUD_UTTERANCE_SILENCE_MS = 1500L    // 云识别单句静音收尾阈值
+        private const val CLOUD_UTTERANCE_SILENCE_MS = 1000L    // 云识别单句静音收尾阈值
+        private const val CLOUD_SPEECH_AMPLITUDE_THRESHOLD = 0.02f // 云识别静音判停的振幅阈值
     }
 
     // 音频管理器
@@ -74,6 +76,8 @@ class VoiceCallAudioManager(
     private var lastAudioTime: Long = 0
     // 当前轮次是否已检测到有效说话内容（用于云识别单句自动收尾）
     private var hasSpeechInCurrentTurn: Boolean = false
+    // 云识别当前轮次最近一次 partial 文本（用于去重，避免重复 partial 刷新静音计时）
+    private var lastCloudPartialText: String = ""
 
     // 统一的协程作用域，用于管理所有协程
     private val managerJob = SupervisorJob()
@@ -322,22 +326,39 @@ class VoiceCallAudioManager(
                 isStopping = false
                 lastAudioTime = System.currentTimeMillis()
                 hasSpeechInCurrentTurn = false
+                lastCloudPartialText = ""
                 activeAsrEngine = ActiveAsrEngine.NONE
 
                 requestAudioFocus()
 
                 val asrListener = object : AsrListener {
                     override fun onPartial(text: String) {
-                        Log.d(TAG, "部分识别结果: $text")
+                        val normalized = text.trim()
+                        val isDuplicate = normalized.isNotEmpty() && normalized == lastCloudPartialText
+                        if (!isDuplicate) {
+                            Log.d(TAG, "部分识别结果: $text")
+                        }
                         if (isPlaying) {
                             Log.d(TAG, "正在播放 TTS，忽略语音识别结果")
                             return
                         }
-                        if (text.isNotBlank()) {
+                        if (normalized.isNotEmpty()) {
+                            hasSpeechInCurrentTurn = true
+                            if (!isDuplicate) {
+                                lastAudioTime = System.currentTimeMillis()
+                                lastCloudPartialText = normalized
+                            }
+                        }
+                        if (!isDuplicate) {
+                            onPartialResult(text)
+                        }   
+                    }
+
+                    override fun onAmplitude(amplitude: Float) {
+                        if (amplitude >= CLOUD_SPEECH_AMPLITUDE_THRESHOLD) {
                             hasSpeechInCurrentTurn = true
                             lastAudioTime = System.currentTimeMillis()
                         }
-                        onPartialResult(text)
                     }
 
                     override fun onFinal(text: String) {
@@ -371,6 +392,7 @@ class VoiceCallAudioManager(
                     override fun onError(error: String) {
                         Log.e(TAG, "录音错误: $error")
                         isStopping = true
+                        lastCloudPartialText = ""
                         stopRecording()
                         onError(error)
                     }
@@ -466,6 +488,7 @@ class VoiceCallAudioManager(
         // 标记为不在录音
         isRecording = false
         hasSpeechInCurrentTurn = false
+        lastCloudPartialText = ""
 
         // 停止静音检测
         silenceTimer?.cancel()
@@ -555,14 +578,26 @@ class VoiceCallAudioManager(
                     onFinished()
                 } else {
                     val error = result?.exceptionOrNull()
-                    Log.e(TAG, "TTS 播放失败: ${error?.message}")
-                    isPlaying = false
-                    onError(error?.message ?: "播放失败")
+                    if (isPlaybackInterruptedError(error)) {
+                        Log.d(TAG, "TTS 播放被打断，按正常中断处理")
+                        isPlaying = false
+                        onFinished()
+                    } else {
+                        Log.e(TAG, "TTS 播放失败: ${error?.message}")
+                        isPlaying = false
+                        onError(error?.message ?: "播放失败")
+                    }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "TTS 播放异常", e)
-                isPlaying = false
-                onError(e.message ?: "播放异常")
+                if (isPlaybackInterruptedError(e)) {
+                    Log.d(TAG, "TTS 播放被打断，按正常中断处理")
+                    isPlaying = false
+                    onFinished()
+                } else {
+                    Log.e(TAG, "TTS 播放异常", e)
+                    isPlaying = false
+                    onError(e.message ?: "播放异常")
+                }
             }
         }
     }
@@ -853,5 +888,23 @@ class VoiceCallAudioManager(
             activeAsrEngine == ActiveAsrEngine.NONE &&
             onlineAsrEngine?.isRunning != true &&
             offlineAsrRecognizer?.isCurrentlyListening() != true
+    }
+
+    private fun isPlaybackInterruptedError(error: Throwable?): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is OfflineTtsPlaybackInterruptedException || current is CancellationException) {
+                return true
+            }
+            current = current.cause
+        }
+        val message = error?.message ?: return false
+        val normalized = message.lowercase()
+        return normalized.contains("interrupt") ||
+            normalized.contains("interrupted") ||
+            normalized.contains("cancel") ||
+            normalized.contains("canceled") ||
+            normalized.contains("中断") ||
+            normalized.contains("取消")
     }
 }

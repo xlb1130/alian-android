@@ -39,7 +39,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,7 +46,6 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -684,9 +682,14 @@ fun AlianChatScreen(
                                     // 保持 showMarkdownWebView 为 true，重新加载
                                 }
                             } else {
-                                // 其他链接，可以使用浏览器打开
-                                Log.d("AlianChatScreen", "点击链接: $url")
-                                // TODO: 使用浏览器打开链接
+                                // 其他链接，交由系统浏览器处理
+                                try {
+                                    val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    context.startActivity(browserIntent)
+                                } catch (e: Exception) {
+                                    Log.e("AlianChatScreen", "打开外链失败: $url", e)
+                                    Toast.makeText(context, "无法打开该链接", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     )
@@ -768,32 +771,6 @@ fun AlianChatScreen(
                 }
             }
 
-            // 登出确认对话框
-            if (showLogoutDialog) {
-                AlertDialog(
-                    onDismissRequest = { showLogoutDialog = false },
-                    containerColor = colors.backgroundCard,
-                    title = {
-                        Text(stringResource(R.string.login_logout_confirm_title), color = colors.textPrimary)
-                    },
-                    text = {
-                        Text(stringResource(R.string.login_logout_confirm_desc), color = colors.textSecondary)
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            onLogout()
-                            showLogoutDialog = false
-                        }) {
-                            Text(stringResource(R.string.login_logout), color = colors.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showLogoutDialog = false }) {
-                            Text(stringResource(R.string.btn_cancel), color = colors.textSecondary)
-                        }
-                    }
-                )
-            }
         }
     }
 }

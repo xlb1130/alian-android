@@ -11,14 +11,3 @@ package com.alian.assistant.infrastructure.ai.asr
 interface ExternalPcmConsumer {
     fun appendPcm(pcm: ByteArray, sampleRate: Int, channels: Int)
 }
-
-/**
- * 统一的“批量 PCM 识别”接口。
- *
- * 适用于各供应商的非流式（文件）引擎：
- * - 现有 File 引擎只需实现该接口，并在实现中直接调用其自身的 protected recognize(pcm)。
- * - 便于通用的 Push-PCM 适配器在 stop() 时一次性提交聚合的 PCM。
- */
-interface PcmBatchRecognizer {
-    suspend fun recognizeFromPcm(pcm: ByteArray)
-}

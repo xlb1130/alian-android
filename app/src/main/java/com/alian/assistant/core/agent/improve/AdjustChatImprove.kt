@@ -214,12 +214,3 @@ class AdjustChatImprove {
         )
     }
 }
-
-/**
- * 聊天理解结果（用于内部使用）
- */
-data class AdjustChatResult(
-    val chatResult: ChatResult,
-    val rawResponse: String,
-    val parseSuccess: Boolean
-)

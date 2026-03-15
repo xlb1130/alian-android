@@ -1224,6 +1224,9 @@ class MainActivity : ComponentActivity() {
                                 onUpdateOfflineTtsEnabled = {
                                     onOfflineTtsEnabledChanged(it)
                                 },
+                                onUpdateOfflineTtsUseAndroidNative = {
+                                    onOfflineTtsUseAndroidNativeChanged(it)
+                                },
                                 onUpdateOfflineTtsAutoFallbackToCloud = {
                                     settingsManager.updateOfflineTtsAutoFallbackToCloud(it)
                                 },
@@ -1393,6 +1396,7 @@ class MainActivity : ComponentActivity() {
                                 offlineAsrEnabled = settings.offlineAsrEnabled,
                                 offlineAsrAutoFallbackToCloud = settings.offlineAsrAutoFallbackToCloud,
                                 offlineTtsEnabled = settings.offlineTtsEnabled,
+                                offlineTtsUseAndroidNative = settings.offlineTtsUseAndroidNative,
                                 offlineTtsAutoFallbackToCloud = settings.offlineTtsAutoFallbackToCloud,
                                 onBack = { currentScreen = Screen.Settings },
                                 onSelectProvider = { provider ->
@@ -1412,6 +1416,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onUpdateOfflineTtsEnabled = {
                                     onOfflineTtsEnabledChanged(it)
+                                },
+                                onUpdateOfflineTtsUseAndroidNative = {
+                                    onOfflineTtsUseAndroidNativeChanged(it)
                                 },
                                 onUpdateOfflineTtsAutoFallbackToCloud = {
                                     settingsManager.updateOfflineTtsAutoFallbackToCloud(it)
@@ -1437,7 +1444,29 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = Screen.FlowTemplate
                                     },
                                     onExecute = { instruction ->
-                                        // TODO: 执行流程模板
+                                        val executeInstruction = instruction.trim()
+                                        if (executeInstruction.isBlank()) {
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "模板内容为空，无法执行",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            runAgent(
+                                                instruction = executeInstruction,
+                                                apiKey = settings.apiKey,
+                                                baseUrl = settings.baseUrl,
+                                                model = settings.model,
+                                                maxSteps = settings.maxSteps,
+                                                isGUIAgent = settings.currentProvider.isGUIAgent,
+                                                providerId = settings.currentProviderId,
+                                                ttsEnabled = settings.ttsEnabled,
+                                                ttsVoice = settings.ttsVoice
+                                            )
+                                            selectedFlowTemplateId = null
+                                            forceShowLocal = true
+                                            currentScreen = Screen.Alian
+                                        }
                                     }
                                 )
                             }
@@ -1711,11 +1740,44 @@ class MainActivity : ComponentActivity() {
         settingsManager.updateOfflineTtsEnabled(enabled)
         if (!enabled) return
 
+        if (settingsManager.settings.value.offlineTtsUseAndroidNative) {
+            Toast.makeText(
+                this,
+                "已启用安卓原生离线 TTS，请确保系统已下载离线语音数据",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
         val status = OfflineTtsReadiness.check(this)
         val toastText = if (status.ready) {
             "离线 TTS 资源已就绪"
         } else {
             "离线 TTS 资源未就绪：${status.message}"
+        }
+        Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun onOfflineTtsUseAndroidNativeChanged(enabled: Boolean) {
+        settingsManager.updateOfflineTtsUseAndroidNative(enabled)
+        if (!settingsManager.settings.value.offlineTtsEnabled) {
+            return
+        }
+
+        if (enabled) {
+            Toast.makeText(
+                this,
+                "已切换到安卓原生离线 TTS，请确保系统已下载离线语音数据",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val status = OfflineTtsReadiness.check(this)
+        val toastText = if (status.ready) {
+            "已切换为 sherpa 离线 TTS，资源已就绪"
+        } else {
+            "已切换为 sherpa 离线 TTS，但资源未就绪：${status.message}"
         }
         Toast.makeText(this, toastText, Toast.LENGTH_SHORT).show()
     }

@@ -97,7 +97,7 @@ class VolcanoAsrEngine(
     private val prebufferLock = Any()
 
     @Volatile
-    private var audioSequence = 1
+    private var audioSequence = 2
 
     @Volatile
     private var lastRecognizedText: String = ""
@@ -105,6 +105,9 @@ class VolcanoAsrEngine(
     private var finalResultDeferred: CompletableDeferred<String?>? = null
     @Volatile
     private var sessionModelName: String = "bigmodel"
+    @Volatile
+    private var sessionResourceId: String = ""
+    private val fallbackRetried = AtomicBoolean(false)
 
     override val isRunning: Boolean
         get() = running.get()
@@ -130,10 +133,12 @@ class VolcanoAsrEngine(
 
         running.set(true)
         wsReady = false
-        audioSequence = 1
+        audioSequence = 2
         lastRecognizedText = ""
         finalDelivered.set(false)
         finalResultDeferred = null
+        sessionResourceId = ""
+        fallbackRetried.set(false)
 
         webSocketJob?.cancel()
         webSocketJob = scope.launch(Dispatchers.IO) {
@@ -152,7 +157,7 @@ class VolcanoAsrEngine(
         }
     }
 
-    private fun connectWebSocket() {
+    private fun connectWebSocket(resourceIdOverride: String? = null) {
         val modelLower = config.model.lowercase()
         val (wsUrl, modelName) = when {
             modelLower == "bigmodel_nostream" -> WS_URL_BIGMODEL_NOSTREAM to "bigmodel_nostream"
@@ -162,16 +167,14 @@ class VolcanoAsrEngine(
         sessionModelName = modelName
 
         val requestId = UUID.randomUUID().toString()
-        val resourceId = config.resourceId.ifBlank {
-            if (config.model.startsWith("volc.", ignoreCase = true)) {
-                config.model
-            } else {
-                ""
-            }
+        val resourceIdRaw = resourceIdOverride ?: config.resourceId.ifBlank {
+            if (config.model.startsWith("volc.", ignoreCase = true)) config.model else ""
         }
+        val resourceId = normalizeResourceId(resourceIdRaw)
         if (resourceId.isBlank()) {
             throw IllegalArgumentException("火山引擎 ASR Resource ID 为空，请选择有效 ASR 模型")
         }
+        sessionResourceId = resourceId
         Log.d(
             TAG,
             "ASR connect wsUrl=$wsUrl, model=$sessionModelName, resourceId=$resourceId, requestId=$requestId"
@@ -184,7 +187,6 @@ class VolcanoAsrEngine(
             .addHeader("X-Api-Resource-Id", resourceId)
             .addHeader("X-Api-Request-Id", requestId)
             .addHeader("X-Api-Connect-Id", requestId)
-            .addHeader("X-Api-Sequence", "-1")
             .build()
 
         val client = OkHttpClient.Builder()
@@ -199,6 +201,8 @@ class VolcanoAsrEngine(
                 Log.d(TAG, "Volcano ASR websocket opened, requestId=$requestId")
                 try {
                     sendFullClientRequest(ws)
+                    // 按官方 v1 协议，初始化请求为序号 1；后续音频帧从 2 开始递增
+                    audioSequence = 2
                     wsReady = true
                     flushPrebuffer()
                 } catch (t: Throwable) {
@@ -247,6 +251,9 @@ class VolcanoAsrEngine(
                     Log.e(TAG, "websocket failure, code=$code, logId=$logId, response=$responseText", t)
                 }
                 wsReady = false
+                if (running.get() && retryWithDurationIfAllowed(code, responseText)) {
+                    return
+                }
                 if (running.get() && !finalDelivered.get()) {
                     running.set(false)
                     val detail = buildString {
@@ -255,6 +262,9 @@ class VolcanoAsrEngine(
                         if (logId.isNotBlank()) append(" [logid=$logId]")
                         if (!responseText.isNullOrBlank()) append(": $responseText")
                         else if (!t.message.isNullOrBlank()) append(": ${t.message}")
+                        if (isResourceIdNotAllowed(code, responseText)) {
+                            append("，请确认火山控制台已开通该 ASR 资源 ID")
+                        }
                     }
                     listener.onError(detail)
                     finalResultDeferred?.complete(null)
@@ -263,6 +273,50 @@ class VolcanoAsrEngine(
         }
 
         webSocket = client.newWebSocket(request, wsListener)
+    }
+
+    private fun normalizeResourceId(resourceId: String): String {
+        val trimmed = resourceId.trim()
+        return if (trimmed.startsWith("volc.seedasr.", ignoreCase = true)) {
+            trimmed.replaceFirst(Regex("(?i)^volc\\.seedasr\\."), "volc.bigasr.")
+        } else {
+            trimmed
+        }
+    }
+
+    private fun isResourceIdNotAllowed(code: Int?, responseText: String?): Boolean {
+        if (code != 400 || responseText.isNullOrBlank()) return false
+        val lower = responseText.lowercase()
+        return lower.contains("resourceid") && lower.contains("not allowed")
+    }
+
+    private fun retryWithDurationIfAllowed(code: Int?, responseText: String?): Boolean {
+        if (!isResourceIdNotAllowed(code, responseText)) return false
+        val current = sessionResourceId
+        if (!current.endsWith(".concurrent", ignoreCase = true)) return false
+        if (!fallbackRetried.compareAndSet(false, true)) return false
+
+        val fallbackResourceId = current.replace(Regex("(?i)\\.concurrent$"), ".duration")
+        Log.w(
+            TAG,
+            "resourceId=$current not allowed, retry with fallback resourceId=$fallbackResourceId"
+        )
+        closeWebSocket()
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (running.get()) {
+                    connectWebSocket(resourceIdOverride = fallbackResourceId)
+                }
+            } catch (retryError: Throwable) {
+                Log.e(TAG, "retry with fallback resourceId failed", retryError)
+                if (running.get() && !finalDelivered.get()) {
+                    running.set(false)
+                    listener.onError("连接失败: resourceId 未开通，降级到 $fallbackResourceId 重试失败: ${retryError.message}")
+                    finalResultDeferred?.complete(null)
+                }
+            }
+        }
+        return true
     }
 
     private fun sendFullClientRequest(ws: WebSocket) {
@@ -502,7 +556,7 @@ class VolcanoAsrEngine(
     }
 
     override fun commit() {
-        if (!running.get()) return
+        if (!wsReady) return
         sendAudioFrame(ByteArray(0), isFinal = true)
     }
 

@@ -52,10 +52,10 @@ data class SpeechProviderConfig(
         val VOLCANO = SpeechProviderConfig(
             provider = SpeechProvider.VOLCANO,
             displayName = "火山引擎",
-            asrDefaultModel = "volc.seedasr.sauc.duration",
+            asrDefaultModel = "volc.bigasr.sauc.duration",
             asrModels = listOf(
-                "volc.seedasr.sauc.duration",
-                "volc.seedasr.sauc.concurrent"
+                "volc.bigasr.sauc.duration",
+                "volc.bigasr.sauc.concurrent"
             ),
             ttsDefaultModel = "seed-tts-2.0",
             ttsModels = listOf("seed-tts-2.0"),

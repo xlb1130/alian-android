@@ -644,12 +644,16 @@
     <string name="tts_interrupt">实时语音打断</string>
     <string name="tts_interrupt_enabled">TTS播放时检测到用户说话自动停止</string>
     <string name="tts_interrupt_disabled">不检测用户语音</string>
+    <string name="tts_interrupt_auto_enable_aec">已自动开启 AEC，以支持实时打断</string>
     <string name="tts_aec">回声消除（AEC）</string>
     <string name="tts_aec_enabled">启用 AEC 技术实现更精准的语音打断</string>
     <string name="tts_aec_disabled">不使用回声消除</string>
+    <string name="tts_aec_disable_interrupt_hint">关闭 AEC 将同时关闭实时语音打断</string>
     <string name="tts_streaming">流式播放</string>
     <string name="tts_streaming_enabled">启用流式 LLM + 流式 TTS，降低延迟</string>
     <string name="tts_streaming_disabled">使用传统播放模式</string>
+    <string name="tts_interrupt_dependency_title">实时打断依赖</string>
+    <string name="tts_interrupt_dependency_desc">实时语音打断依赖 AEC。开启实时打断会自动开启 AEC，关闭 AEC 会自动关闭实时打断。</string>
 
     <!-- API Settings -->
     <string name="api_backend_mode">Backend 模式</string>

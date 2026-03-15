@@ -82,16 +82,6 @@ data class UserData(
 )
 
 /**
- * 通用API响应
- */
-@Serializable
-data class ApiResponse<T>(
-    val code: Int,
-    val msg: String,
-    val data: T?
-)
-
-/**
  * 会话数据
  */
 @Serializable
@@ -151,16 +141,6 @@ data class SessionDetailData(
     val event_count: Int = 0,  // 新接口字段
     val last_event_seq: Int = 0,  // 新接口字段
     val is_shared: Boolean = false  // 新接口字段
-)
-
-/**
- * 会话事件列表响应（新接口）
- */
-@Serializable
-data class SessionEventsResponse(
-    val code: Int,
-    val msg: String,
-    val data: SessionEventsData?
 )
 
 @Serializable
@@ -329,22 +309,6 @@ data class SSEEvent(
 )
 
 /**
- * Shell输出请求
- */
-@Serializable
-data class ShellOutputRequest(
-    val session_id: String
-)
-
-/**
- * 文件内容请求
- */
-@Serializable
-data class FileContentRequest(
-    val file: String
-)
-
-/**
  * 文件列表响应
  */
 @Serializable
@@ -390,21 +354,6 @@ data class Step(
     val status: String,  // "pending" | "in_progress" | "completed" | "failed"
     val id: Int,
     val description: String
-)
-
-/**
- * 工具调用信息
- */
-@Serializable
-data class ToolCall(
-    val event_id: String,
-    val timestamp: Long,
-    val tool_call_id: String,
-    val name: String,
-    val status: String,  // "pending" | "in_progress" | "completed" | "failed"
-    val function: String,
-    val args: Map<String, String> = emptyMap(),
-    val content: JsonObject? = null  // 改为JsonObject类型，以匹配后端返回的对象类型
 )
 
 /**
@@ -523,44 +472,6 @@ data class WaitData(
     val event_id: String,
     val timestamp: Long
 )
-
-/**
- * 通用数据
- */
-@Serializable
-data class CommonData(
-    val event_id: String,
-    val timestamp: Long
-)
-
-/**
- * SSE事件（完整格式）
- */
-@Serializable
-data class SSEEventFull(
-    val event: String,
-    val data: String  // JSON字符串，需要根据event类型解析
-)
-
-/**
- * 步骤状态枚举
- */
-enum class StepStatus {
-    PENDING,
-    IN_PROGRESS,
-    COMPLETED,
-    FAILED
-}
-
-/**
- * 工具状态枚举
- */
-enum class ToolStatus {
-    PENDING,
-    IN_PROGRESS,
-    COMPLETED,
-    FAILED
-}
 
 /**
  * UI事件数据模型 - 用于在UI层展示各种事件

@@ -245,9 +245,11 @@ fun TTSSettingsContent(
     onUpdateEnableAEC: (Boolean) -> Unit,
     onUpdateEnableStreaming: (Boolean) -> Unit,
     onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsUseAndroidNative: (Boolean) -> Unit,
     onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
+    val context = LocalContext.current
 
     Column {
         // TTS 启用开关
@@ -296,6 +298,22 @@ fun TTSSettingsContent(
             if (settings.offlineTtsEnabled) {
                 Box(modifier = Modifier.staggeredFadeIn(3)) {
                     SettingsCardWithSwitch(
+                        icon = Icons.Default.Settings,
+                        title = "使用安卓原生离线 TTS",
+                        subtitle = if (settings.offlineTtsUseAndroidNative) {
+                            "已启用 Android TextToSpeech 离线合成"
+                        } else {
+                            "已关闭，使用 sherpa-onnx 本地模型"
+                        },
+                        checked = settings.offlineTtsUseAndroidNative,
+                        onCheckedChange = { enabled ->
+                            onUpdateOfflineTtsUseAndroidNative(enabled)
+                        }
+                    )
+                }
+
+                Box(modifier = Modifier.staggeredFadeIn(4)) {
+                    SettingsCardWithSwitch(
                         icon = Icons.Default.CloudSync,
                         title = "离线失败自动回退在线",
                         subtitle = if (settings.offlineTtsAutoFallbackToCloud) {
@@ -312,33 +330,47 @@ fun TTSSettingsContent(
             }
 
             // TTS 实时语音打断开关
-            Box(modifier = Modifier.staggeredFadeIn(4)) {
+            Box(modifier = Modifier.staggeredFadeIn(5)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Warning,
                     title = stringResource(R.string.tts_interrupt),
                     subtitle = if (settings.ttsInterruptEnabled) stringResource(R.string.tts_interrupt_enabled) else stringResource(R.string.tts_interrupt_disabled),
                     checked = settings.ttsInterruptEnabled,
                     onCheckedChange = { enabled ->
+                        if (enabled && !settings.enableAEC) {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.tts_interrupt_auto_enable_aec),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                         onUpdateTTSInterruptEnabled(enabled)
                     }
                 )
             }
 
             // AEC（回声消除）开关
-            Box(modifier = Modifier.staggeredFadeIn(5)) {
+            Box(modifier = Modifier.staggeredFadeIn(6)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Build,
                     title = stringResource(R.string.tts_aec),
                     subtitle = if (settings.enableAEC) stringResource(R.string.tts_aec_enabled) else stringResource(R.string.tts_aec_disabled),
                     checked = settings.enableAEC,
                     onCheckedChange = { enabled ->
+                        if (!enabled && settings.ttsInterruptEnabled) {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.tts_aec_disable_interrupt_hint),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                         onUpdateEnableAEC(enabled)
                     }
                 )
             }
 
             // 流式 LLM + 流式 TTS 开关
-            Box(modifier = Modifier.staggeredFadeIn(6)) {
+            Box(modifier = Modifier.staggeredFadeIn(7)) {
                 SettingsCardWithSwitch(
                     icon = Icons.Default.Speed,
                     title = stringResource(R.string.tts_streaming),
@@ -347,6 +379,13 @@ fun TTSSettingsContent(
                     onCheckedChange = { enabled ->
                         onUpdateEnableStreaming(enabled)
                     }
+                )
+            }
+
+            Box(modifier = Modifier.staggeredFadeIn(8)) {
+                InfoCard(
+                    title = stringResource(R.string.tts_interrupt_dependency_title),
+                    description = stringResource(R.string.tts_interrupt_dependency_desc)
                 )
             }
         }

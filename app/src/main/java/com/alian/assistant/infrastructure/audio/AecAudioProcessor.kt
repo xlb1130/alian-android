@@ -12,7 +12,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 
@@ -36,13 +35,20 @@ class AecAudioProcessor(
         private const val TAG = "AecAudioProcessor"
         private const val BUFFER_SIZE_MS = 20  // 20ms 缓冲区
         private const val BYTES_PER_SAMPLE = 2  // 16-bit = 2 bytes
-        private const val BASE_ENERGY_THRESHOLD = 500.0
-        private const val PLAYBACK_NO_REF_THRESHOLD = 1000.0
-        private const val PLAYBACK_GUARD_THRESHOLD = 1200.0
+        private const val BASE_ENERGY_THRESHOLD = 220.0
+        private const val PLAYBACK_NO_REF_THRESHOLD = 300.0
+        private const val PLAYBACK_GUARD_THRESHOLD = 420.0
         private const val NOISE_FLOOR_ADAPT_RATE = 0.05
-        private const val NOISE_THRESHOLD_FACTOR = 2.2
-        private const val MIN_INTERRUPT_HOLD_MS = 120L
-        private const val INTERRUPT_COOLDOWN_MS = 900L
+        private const val NOISE_THRESHOLD_FACTOR = 1.8
+        private const val MIN_INTERRUPT_HOLD_MS = 45L
+        private const val FAST_INTERRUPT_HOLD_MS = 10L
+        private const val INTERRUPT_COOLDOWN_MS = 250L
+        private const val FAST_INTERRUPT_ENERGY_FACTOR = 0.95
+        private const val FAST_INTERRUPT_PEAK_FACTOR = 0.85
+        private const val REFERENCE_COVERAGE_ADAPT_RATE = 0.15
+        private const val MIN_PLAYBACK_PROTECTION_PERIOD_MS = 80L
+        private const val MAX_PLAYBACK_PROTECTION_PERIOD_MS = 320L
+        private const val REFERENCE_BUFFER_MS = 4000
     }
 
     // 录音相关
@@ -60,12 +66,10 @@ class AecAudioProcessor(
     // 音频缓冲区
     private val bufferSize: Int
     private val microphoneBuffer: ByteArray
-    private val referenceBuffer: ByteArray
-    private val outputBuffer: ByteArray
 
-    // 音频队列
-    private val microphoneQueue = LinkedBlockingQueue<ByteArray>()
-    private val referenceQueue = LinkedBlockingQueue<ByteArray>()
+    // 参考信号缓冲（连续消费，避免分片截断导致的“无参考帧”）
+    private val referencePcmBuffer =
+        ReferencePcmBuffer(sampleRate * BYTES_PER_SAMPLE * REFERENCE_BUFFER_MS / 1000)
 
     // 回声消除相关
     private var adaptiveFilter: AdaptiveFilter? = null
@@ -87,12 +91,13 @@ class AecAudioProcessor(
     private var speechCandidateStartTime: Long = 0L
     private var lastInterruptTriggerTime: Long = 0L
     private var dynamicNoiseFloor = 120.0
+    private var smoothedReferenceCoverage = 1.0
 
     // TTS 播放状态感知（用于优化 VAD 检测，避免回声误触发）
     @Volatile
     private var isPlaybackActive = false
     private var playbackStartTime: Long = 0
-    private val PLAYBACK_PROTECTION_PERIOD_MS = 2000L  // TTS 播放初期打断保护期（2秒）
+    private var playbackProtectionPeriodMs = MAX_PLAYBACK_PROTECTION_PERIOD_MS
 
     init {
         // 计算缓冲区大小
@@ -100,8 +105,6 @@ class AecAudioProcessor(
         bufferSize = (sampleRate * BUFFER_SIZE_MS / 1000 * BYTES_PER_SAMPLE).coerceAtLeast(minBufferSize)
 
         microphoneBuffer = ByteArray(bufferSize)
-        referenceBuffer = ByteArray(bufferSize)
-        outputBuffer = ByteArray(bufferSize)
 
         // 初始化自适应滤波器
         adaptiveFilter = AdaptiveFilter(filterLength)
@@ -147,7 +150,9 @@ class AecAudioProcessor(
         playbackStartTime = System.currentTimeMillis()
         consecutiveSpeechDetectionCount = 0
         speechCandidateStartTime = 0L
-        Log.d(TAG, "TTS 播放已开始，启动打断保护期 ${PLAYBACK_PROTECTION_PERIOD_MS}ms")
+        smoothedReferenceCoverage = 0.0
+        playbackProtectionPeriodMs = MAX_PLAYBACK_PROTECTION_PERIOD_MS
+        Log.d(TAG, "TTS 播放已开始，启动自适应打断保护期")
     }
 
     /**
@@ -157,6 +162,8 @@ class AecAudioProcessor(
         isPlaybackActive = false
         consecutiveSpeechDetectionCount = 0
         speechCandidateStartTime = 0L
+        smoothedReferenceCoverage = 1.0
+        playbackProtectionPeriodMs = MIN_PLAYBACK_PROTECTION_PERIOD_MS
         Log.d(TAG, "TTS 播放已停止")
     }
 
@@ -235,8 +242,7 @@ class AecAudioProcessor(
         audioRecord = null
 
         // 清空队列
-        microphoneQueue.clear()
-        referenceQueue.clear()
+        referencePcmBuffer.clear()
 
         Log.d(TAG, "录音已停止")
     }
@@ -247,9 +253,9 @@ class AecAudioProcessor(
      * 实际的音频播放由 CosyVoiceTTSClient 负责
      */
     fun playAudio(audioData: ByteArray) {
-        // 将音频数据作为参考信号添加到队列
+        // 将音频数据作为参考信号写入连续缓冲
         // 注意：CosyVoiceTTSClient 和麦克风采样率已统一为 16kHz，无需重采样
-        referenceQueue.offer(audioData.copyOf())
+        referencePcmBuffer.append(audioData)
     }
 
     /**
@@ -260,7 +266,7 @@ class AecAudioProcessor(
         isPlaying.set(false)
 
         // 清空参考队列
-        referenceQueue.clear()
+        referencePcmBuffer.clear()
 
         Log.d(TAG, "播放已停止")
     }
@@ -322,27 +328,19 @@ class AecAudioProcessor(
                 }
 
                 if (readSize > 0) {
-                    // 获取参考信号（TTS 播放的音频）
-                    val reference = referenceQueue.poll()
+                    // 获取参考信号（按麦克风帧连续消费，避免分片截断）
+                    val (reference, referenceBytesCopied) = referencePcmBuffer.consume(readSize)
                     var processedAudio: ByteArray
 
-                    val hasReference = reference != null
+                    val hasReference = referenceBytesCopied > 0
+                    val referenceCoverage =
+                        if (readSize > 0) referenceBytesCopied.toDouble() / readSize.toDouble() else 0.0
+                    updateReferenceCoverage(referenceCoverage)
 
-                    if (reference != null) {
-                        // 确保参考信号长度与麦克风音频长度一致
-                        val referenceToUse = if (reference.size == readSize) {
-                            reference
-                        } else if (reference.size > readSize) {
-                            reference.copyOfRange(0, readSize)
-                        } else {
-                            // 参考信号长度不足，填充零
-                            val padded = ByteArray(readSize)
-                            System.arraycopy(reference, 0, padded, 0, reference.size)
-                            padded
-                        }
-
+                    if (hasReference) {
                         // 执行回声消除
-                        processedAudio = performAEC(microphoneBuffer.copyOfRange(0, readSize), referenceToUse)
+                        processedAudio =
+                            performAEC(microphoneBuffer.copyOfRange(0, readSize), reference)
                     } else {
                         // 没有参考信号，直接输出原始音频
                         processedAudio = microphoneBuffer.copyOfRange(0, readSize)
@@ -351,7 +349,7 @@ class AecAudioProcessor(
                    // 检测用户是否在说话（基于AEC处理后的音频能量）
                     // 当 TTS 正在播放但没有参考信号时，使用更高阈值检测，降低回声误触发风险
                     val useHighThreshold = isPlaybackActive && !hasReference
-                    detectUserSpeech(processedAudio, useHighThreshold)
+                    detectUserSpeech(processedAudio, useHighThreshold, referenceCoverage)
 
 
                     // 回调处理后的音频（在长生命周期模式下可通过开关关闭输出）
@@ -384,19 +382,25 @@ class AecAudioProcessor(
      * 使用防抖机制：需要连续多次检测到用户说话才触发打断
      * @param useHighThreshold 是否使用更高的能量阈值（TTS 播放中但无参考信号时使用，降低回声误触发）
      */
-    private fun detectUserSpeech(audioData: ByteArray, useHighThreshold: Boolean = false) {
+    private fun detectUserSpeech(
+        audioData: ByteArray,
+        useHighThreshold: Boolean = false,
+        referenceCoverage: Double = 0.0
+    ) {
         // 计算基础特征：能量 + 过零率 + 峰值
         val energy = calculateRms(audioData)
         val zcr = calculateZeroCrossingRate(audioData)
         val peak = calculatePeakAbs(audioData)
+        val now = System.currentTimeMillis()
+        val elapsedSincePlaybackStart = now - playbackStartTime
+        val inPlaybackGuard = isPlaybackActive && elapsedSincePlaybackStart < playbackProtectionPeriodMs
 
         // 根据当前状态选择能量阈值：
-        // - TTS 播放初期保护期（滤波器未收敛）：使用较高阈值 1200.0，过滤回声残留但用户说话仍可打断
+        // - TTS 播放保护期（滤波器未收敛/参考覆盖不足）：使用较高阈值
         // - TTS 播放中但无参考信号（回声未被消除）：使用稍高阈值 1000.0
         // - 正常情况：使用标准阈值 500.0
         val baseThreshold = if (isPlaybackActive) {
-            val elapsedSincePlaybackStart = System.currentTimeMillis() - playbackStartTime
-            if (elapsedSincePlaybackStart < PLAYBACK_PROTECTION_PERIOD_MS) {
+            if (inPlaybackGuard) {
                 PLAYBACK_GUARD_THRESHOLD  // 保护期内使用较高阈值
             } else if (useHighThreshold) {
                 PLAYBACK_NO_REF_THRESHOLD  // 无参考信号时使用稍高阈值
@@ -417,37 +421,66 @@ class AecAudioProcessor(
         }
 
         val adaptiveThreshold = maxOf(baseThreshold, dynamicNoiseFloor * NOISE_THRESHOLD_FACTOR)
-        val zcrValid = zcr in 0.02..0.45
-        val peakValid = peak > adaptiveThreshold * 1.15
-        val speechLike = energy > adaptiveThreshold && zcrValid && peakValid
+        val zcrValid = zcr in 0.0..0.70
+        val relaxedZcrValid = zcr in 0.005..0.80
+        val peakValid = peak > adaptiveThreshold * 0.55
+        val speechLike = energy > adaptiveThreshold * 0.75 && (zcrValid || peakValid)
+        val fastPathSpeechLike =
+            energy > adaptiveThreshold * FAST_INTERRUPT_ENERGY_FACTOR &&
+                peak > adaptiveThreshold * FAST_INTERRUPT_PEAK_FACTOR &&
+                relaxedZcrValid
 
-        if (speechLike) {
+        if (speechLike || fastPathSpeechLike) {
             // 检测到用户说话
-            val currentTime = System.currentTimeMillis()
-            lastUserSpeechTime = currentTime
+            lastUserSpeechTime = now
             userSpeechDetected = true
 
-            // 增加连续检测计数
-            consecutiveSpeechDetectionCount++
             if (speechCandidateStartTime == 0L) {
-                speechCandidateStartTime = currentTime
+                speechCandidateStartTime = now
                 VoiceTerminalMetrics.recordInterruptCandidate(
                     scene = metricsScene,
                     duringPlayback = isPlaybackActive
                 )
             }
-            val holdMs = currentTime - speechCandidateStartTime
+            val holdMs = now - speechCandidateStartTime
+            val inCooldown = (now - lastInterruptTriggerTime) < INTERRUPT_COOLDOWN_MS
+
+            // 快路径：播放中且明显人声，低延迟触发打断
+            if (!inCooldown &&
+                isPlaybackActive &&
+                fastPathSpeechLike &&
+                holdMs >= FAST_INTERRUPT_HOLD_MS
+            ) {
+                Log.d(
+                    TAG,
+                    "快路径确认用户说话，触发语音打断: energy=$energy, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, refCoverage=${"%.2f".format(referenceCoverage)}"
+                )
+                VoiceTerminalMetrics.recordInterruptConfirmed(
+                    scene = metricsScene,
+                    latencyMs = holdMs
+                )
+                onUserSpeechDetected?.invoke()
+                consecutiveSpeechDetectionCount = 0
+                speechCandidateStartTime = 0L
+                lastInterruptTriggerTime = now
+                return
+            }
+
+            // 慢路径：连续帧 + 持续时长确认，降低误触发
+            consecutiveSpeechDetectionCount++
+            val requiredDetections =
+                if (inPlaybackGuard) REQUIRED_CONSECUTIVE_DETECTIONS else REQUIRED_CONSECUTIVE_DETECTIONS
+            val requiredHoldMs = if (inPlaybackGuard) MIN_INTERRUPT_HOLD_MS + 20L else MIN_INTERRUPT_HOLD_MS
 
             Log.d(
                 TAG,
-                "检测到候选语音，energy=$energy, zcr=$zcr, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, count=$consecutiveSpeechDetectionCount/$REQUIRED_CONSECUTIVE_DETECTIONS"
+                "检测到候选语音，energy=$energy, zcr=$zcr, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, count=$consecutiveSpeechDetectionCount/$requiredDetections, refCoverage=${"%.2f".format(referenceCoverage)}, guard=${if (inPlaybackGuard) 1 else 0}"
             )
 
             // 只有连续检测到指定次数才触发回调（防抖机制）
-            val inCooldown = (currentTime - lastInterruptTriggerTime) < INTERRUPT_COOLDOWN_MS
             if (!inCooldown &&
-                holdMs >= MIN_INTERRUPT_HOLD_MS &&
-                consecutiveSpeechDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS
+                holdMs >= requiredHoldMs &&
+                consecutiveSpeechDetectionCount >= requiredDetections
             ) {
                 Log.d(TAG, "连续检测确认用户说话，触发语音打断回调")
                 VoiceTerminalMetrics.recordInterruptConfirmed(
@@ -458,7 +491,7 @@ class AecAudioProcessor(
                 // 重置计数，避免重复触发
                 consecutiveSpeechDetectionCount = 0
                 speechCandidateStartTime = 0L
-                lastInterruptTriggerTime = currentTime
+                lastInterruptTriggerTime = now
             } else if (inCooldown && consecutiveSpeechDetectionCount >= REQUIRED_CONSECUTIVE_DETECTIONS) {
                 VoiceTerminalMetrics.recordInterruptRejected(
                     scene = metricsScene,
@@ -478,6 +511,26 @@ class AecAudioProcessor(
                     reason = "short_burst"
                 )
             }
+        }
+    }
+
+    private fun updateReferenceCoverage(frameCoverage: Double) {
+        if (!isPlaybackActive) {
+            smoothedReferenceCoverage = 1.0
+            playbackProtectionPeriodMs = MIN_PLAYBACK_PROTECTION_PERIOD_MS
+            return
+        }
+
+        val boundedCoverage = frameCoverage.coerceIn(0.0, 1.0)
+        smoothedReferenceCoverage =
+            smoothedReferenceCoverage * (1 - REFERENCE_COVERAGE_ADAPT_RATE) +
+                boundedCoverage * REFERENCE_COVERAGE_ADAPT_RATE
+
+        playbackProtectionPeriodMs = when {
+            smoothedReferenceCoverage >= 0.82 -> MIN_PLAYBACK_PROTECTION_PERIOD_MS
+            smoothedReferenceCoverage >= 0.65 -> 120L
+            smoothedReferenceCoverage >= 0.45 -> 180L
+            else -> MAX_PLAYBACK_PROTECTION_PERIOD_MS
         }
     }
 
@@ -585,6 +638,72 @@ class AecAudioProcessor(
             bytes[i * 2 + 1] = ((value shr 8) and 0xFF).toByte()
         }
         return bytes
+    }
+
+    /**
+     * 参考音频连续缓冲：
+     * - 生产端按 TTS 回调写入任意长度 chunk
+     * - 消费端按麦克风 readSize 连续读取，避免“单次 poll + 截断/补零”导致错位
+     */
+    private class ReferencePcmBuffer(private val capacityBytes: Int) {
+        private val chunks = ArrayDeque<ByteArray>()
+        private var headOffset = 0
+        private var sizeBytes = 0
+
+        @Synchronized
+        fun append(data: ByteArray) {
+            if (data.isEmpty()) return
+            chunks.addLast(data.copyOf())
+            sizeBytes += data.size
+            trimOverflowLocked()
+        }
+
+        @Synchronized
+        fun consume(requestBytes: Int): Pair<ByteArray, Int> {
+            if (requestBytes <= 0) return Pair(ByteArray(0), 0)
+
+            val output = ByteArray(requestBytes)
+            var copied = 0
+
+            while (copied < requestBytes && chunks.isNotEmpty()) {
+                val head = chunks.first()
+                val available = head.size - headOffset
+                val toCopy = minOf(requestBytes - copied, available)
+                System.arraycopy(head, headOffset, output, copied, toCopy)
+                copied += toCopy
+                headOffset += toCopy
+                sizeBytes -= toCopy
+
+                if (headOffset >= head.size) {
+                    chunks.removeFirst()
+                    headOffset = 0
+                }
+            }
+
+            return Pair(output, copied)
+        }
+
+        @Synchronized
+        fun clear() {
+            chunks.clear()
+            headOffset = 0
+            sizeBytes = 0
+        }
+
+        private fun trimOverflowLocked() {
+            while (sizeBytes > capacityBytes && chunks.isNotEmpty()) {
+                val overflow = sizeBytes - capacityBytes
+                val head = chunks.first()
+                val available = head.size - headOffset
+                val drop = minOf(overflow, available)
+                headOffset += drop
+                sizeBytes -= drop
+                if (headOffset >= head.size) {
+                    chunks.removeFirst()
+                    headOffset = 0
+                }
+            }
+        }
     }
 
     /**

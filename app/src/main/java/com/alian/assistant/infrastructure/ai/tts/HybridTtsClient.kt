@@ -7,13 +7,13 @@ import com.alian.assistant.data.model.SpeechProvider
 import com.alian.assistant.data.model.SpeechProviderConfig
 import com.alian.assistant.infrastructure.ai.tts.bailian.BailianTtsEngine
 import com.alian.assistant.infrastructure.ai.tts.volcano.VolcanoTtsEngine
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 
 /**
  * 统一 TTS 客户端：
@@ -31,6 +31,8 @@ class HybridTtsClient(
 ) {
     companion object {
         private const val TAG = "HybridTtsClient"
+        private const val STREAM_WAIT_POLL_MS = 100L
+        private const val STREAM_ONLY_GRACE_MS = 15000L
     }
 
     private val settingsManager = SettingsManager(appContext)
@@ -38,17 +40,16 @@ class HybridTtsClient(
     private var onlineEngine: TtsEngine? = null
     private var onlineEngineSignature: String = ""
 
-    private var offlineClient: SherpaOnnxOfflineTtsClient? = null
+    private var offlineClient: OfflineTtsClient? = null
+    private var offlineBackend: OfflineBackend? = null
 
     private var onAudioDataCallback: ((ByteArray) -> Unit)? = null
 
     @Volatile
     private var offlineUnavailableReason: Throwable? = null
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var offlineStreamingContext: Context? = null
     private val offlineStreamingBuffer = StringBuilder()
-    private var offlineStreamingJob: Job? = null
 
     @Volatile
     private var offlineStreamingActive = false
@@ -58,6 +59,11 @@ class HybridTtsClient(
 
     @Volatile
     private var onlineStreamingFinished = true
+
+    private enum class OfflineBackend {
+        SHERPA_ONNX,
+        ANDROID_NATIVE
+    }
 
     suspend fun synthesizeAndPlay(text: String, context: Context): Result<Unit> = withContext(Dispatchers.IO) {
         if (text.isBlank()) {
@@ -69,10 +75,15 @@ class HybridTtsClient(
             if (offlineResult.isSuccess) {
                 return@withContext offlineResult
             }
+            val offlineError = offlineResult.exceptionOrNull()
+            if (isPlaybackInterruptedFailure(offlineError)) {
+                Log.d(TAG, "Offline TTS playback interrupted, skip cloud fallback")
+                return@withContext offlineResult
+            }
             if (!offlineTtsAutoFallbackToCloud) {
                 return@withContext offlineResult
             }
-            Log.w(TAG, "Offline TTS failed, fallback to cloud: ${offlineResult.exceptionOrNull()?.message}")
+            Log.w(TAG, "Offline TTS failed, fallback to cloud: ${offlineError?.message}")
         }
 
         synthesizeWithCloud(text, context)
@@ -80,7 +91,6 @@ class HybridTtsClient(
 
     suspend fun startStreamingSession(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
         if (offlineTtsEnabled) {
-            offlineStreamingJob?.cancel()
             offlineStreamingBuffer.clear()
             offlineStreamingContext = context
             offlineStreamingActive = true
@@ -128,24 +138,27 @@ class HybridTtsClient(
             val text = offlineStreamingBuffer.toString()
             val context = offlineStreamingContext ?: appContext
             offlineStreamingBuffer.clear()
+            offlineStreamingContext = null
             offlineStreamingActive = false
 
             if (text.isBlank()) {
                 return Result.success(Unit)
             }
 
-            offlineStreamingJob?.cancel()
-            offlineStreamingJob = scope.launch {
-                val playbackResult = synthesizeAndPlay(text, context)
-                if (playbackResult.isFailure) {
-                    Log.e(
-                        TAG,
-                        "Offline streaming playback failed: ${playbackResult.exceptionOrNull()?.message}",
-                        playbackResult.exceptionOrNull()
-                    )
-                }
+            offlineStreamingActive = true
+            val playbackResult = runBlocking(Dispatchers.IO) {
+                synthesizeAndPlay(text, context)
             }
-            return Result.success(Unit)
+            offlineStreamingActive = false
+
+            if (playbackResult.isFailure) {
+                Log.e(
+                    TAG,
+                    "Offline streaming playback failed: ${playbackResult.exceptionOrNull()?.message}",
+                    playbackResult.exceptionOrNull()
+                )
+            }
+            return playbackResult
         }
 
         val engine = ensureOnlineEngine()
@@ -168,8 +181,6 @@ class HybridTtsClient(
             offlineStreamingActive = false
             offlineStreamingBuffer.clear()
             offlineStreamingContext = null
-            offlineStreamingJob?.cancel()
-            offlineStreamingJob = null
             cancelPlayback()
             return
         }
@@ -180,8 +191,6 @@ class HybridTtsClient(
     }
 
     fun cancelPlayback() {
-        offlineStreamingJob?.cancel()
-        offlineStreamingJob = null
         offlineStreamingActive = false
         offlineStreamingBuffer.clear()
         offlineStreamingContext = null
@@ -195,7 +204,7 @@ class HybridTtsClient(
 
     fun isStreamingActive(): Boolean {
         if (offlineTtsEnabled) {
-            return offlineStreamingActive || offlineStreamingJob?.isActive == true
+            return offlineStreamingActive || offlineClient?.isCurrentlyPlaying() == true
         }
 
         val enginePlaying = onlineEngine?.isCurrentlyPlaying() == true
@@ -216,10 +225,56 @@ class HybridTtsClient(
         return onlineEngine?.isCurrentlyPlaying() == true
     }
 
+    /**
+     * 等待流式会话与音频播放真正完成。
+     * - 正常条件：stream inactive 且 AudioTrack 不再播放。
+     * - 保护条件：若持续仅 streamActive=true 但 audioPlaying=false，超过 grace 后强制收敛。
+     */
+    suspend fun awaitStreamingPlaybackCompleted(
+        streamOnlyGraceMs: Long = STREAM_ONLY_GRACE_MS,
+        pollIntervalMs: Long = STREAM_WAIT_POLL_MS,
+        onProgress: ((waitedMs: Long, streamActive: Boolean, audioPlaying: Boolean) -> Unit)? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        require(pollIntervalMs > 0) { "pollIntervalMs 必须大于 0" }
+        require(streamOnlyGraceMs >= pollIntervalMs) { "streamOnlyGraceMs 必须不小于 pollIntervalMs" }
+
+        var waitedMs = 0L
+        var streamOnlyMs = 0L
+
+        while (currentCoroutineContext().isActive) {
+            val streamActive = isStreamingActive()
+            val audioPlaying = isAudioTrackStillPlaying()
+
+            if (!streamActive && !audioPlaying) {
+                return@withContext Result.success(Unit)
+            }
+
+            if (streamActive && !audioPlaying) {
+                streamOnlyMs += pollIntervalMs
+                if (streamOnlyMs >= streamOnlyGraceMs) {
+                    Log.w(
+                        TAG,
+                        "Streaming state stuck without audio for ${streamOnlyMs}ms, force settle session"
+                    )
+                    onlineStreamingActive = false
+                    onlineStreamingFinished = true
+                    return@withContext Result.success(Unit)
+                }
+            } else {
+                streamOnlyMs = 0L
+            }
+
+            onProgress?.invoke(waitedMs, streamActive, audioPlaying)
+            delay(pollIntervalMs)
+            waitedMs += pollIntervalMs
+        }
+
+        Result.failure(CancellationException("等待流式播放完成被取消"))
+    }
+
     fun isCurrentlyPlaying(): Boolean {
         return offlineClient?.isCurrentlyPlaying() == true ||
-            onlineEngine?.isCurrentlyPlaying() == true ||
-            offlineStreamingJob?.isActive == true
+            onlineEngine?.isCurrentlyPlaying() == true
     }
 
     fun setStreamingFullText(text: String) {
@@ -240,23 +295,29 @@ class HybridTtsClient(
 
     fun release() {
         cancelPlayback()
-        scope.coroutineContext.cancelChildren()
         offlineClient?.release()
         offlineClient = null
+        offlineBackend = null
         onlineEngine?.release()
         onlineEngine = null
         onlineEngineSignature = ""
     }
 
     private suspend fun synthesizeWithOffline(text: String, context: Context): Result<Unit> = withContext(Dispatchers.IO) {
-        offlineUnavailableReason?.let {
-            return@withContext Result.failure(it)
+        offlineUnavailableReason?.let { reason ->
+            if (!isPlaybackInterruptedFailure(reason)) {
+                return@withContext Result.failure(reason)
+            }
+            offlineUnavailableReason = null
         }
 
         val client = ensureOfflineClient()
         val result = client.synthesizeAndPlay(text, context)
         if (result.isFailure) {
-            offlineUnavailableReason = result.exceptionOrNull()
+            val error = result.exceptionOrNull()
+            if (shouldMarkOfflineUnavailable(error)) {
+                offlineUnavailableReason = error
+            }
         }
         result
     }
@@ -366,17 +427,64 @@ class HybridTtsClient(
         return RuntimeOnlineConfig(provider, ttsConfig, signature)
     }
 
-    private fun ensureOfflineClient(): SherpaOnnxOfflineTtsClient {
+    private fun ensureOfflineClient(): OfflineTtsClient {
+        val desiredBackend = resolveOfflineBackend()
         val cached = offlineClient
-        if (cached != null) return cached
-
-        return SherpaOnnxOfflineTtsClient(
-            appContext = appContext,
-            speed = rate,
-            volume = volume
-        ).also {
-            it.setOnAudioDataCallback(onAudioDataCallback)
-            offlineClient = it
+        if (cached != null && offlineBackend == desiredBackend) {
+            return cached
         }
+
+        if (cached != null && offlineBackend != desiredBackend) {
+            cached.release()
+            offlineClient = null
+            offlineUnavailableReason = null
+        }
+
+        val created: OfflineTtsClient = when (desiredBackend) {
+            OfflineBackend.SHERPA_ONNX -> SherpaOnnxOfflineTtsClient(
+                appContext = appContext,
+                speed = rate,
+                volume = volume
+            )
+
+            OfflineBackend.ANDROID_NATIVE -> AndroidNativeOfflineTtsClient(
+                appContext = appContext,
+                speed = rate,
+                volume = volume
+            )
+        }
+
+        Log.d(TAG, "Offline TTS backend initialized: $desiredBackend")
+        created.setOnAudioDataCallback(onAudioDataCallback)
+        offlineClient = created
+        offlineBackend = desiredBackend
+        return created
+    }
+
+    private fun resolveOfflineBackend(): OfflineBackend {
+        val settings = settingsManager.settings.value
+        return if (settings.offlineTtsUseAndroidNative) {
+            OfflineBackend.ANDROID_NATIVE
+        } else {
+            OfflineBackend.SHERPA_ONNX
+        }
+    }
+
+    private fun shouldMarkOfflineUnavailable(error: Throwable?): Boolean {
+        if (error == null) {
+            return false
+        }
+        return !isPlaybackInterruptedFailure(error)
+    }
+
+    private fun isPlaybackInterruptedFailure(error: Throwable?): Boolean {
+        var current = error
+        while (current != null) {
+            if (current is OfflineTtsPlaybackInterruptedException || current is CancellationException) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 }

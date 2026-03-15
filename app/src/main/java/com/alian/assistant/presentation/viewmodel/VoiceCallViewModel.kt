@@ -531,6 +531,13 @@ class VoiceCallViewModel(private val context: Context) {
                         Log.d(TAG, "通话未激活，忽略流式播放错误: $error")
                         return@streamError
                     }
+                    if (isPlaybackInterruptedMessage(error)) {
+                        Log.d(TAG, "流式播放被语音打断，按正常中断处理")
+                        _currentPlayingMessage.value = ""
+                        isProcessing = false
+                        restartRecordingWithDelay(0, "stream_playback_interrupted")
+                        return@streamError
+                    }
                     Log.e(TAG, "流式播放错误: $error")
                     _callState.value = VoiceCallState.Error(error)
                     _currentPlayingMessage.value = ""
@@ -586,6 +593,12 @@ class VoiceCallViewModel(private val context: Context) {
                     Log.d(TAG, "通话未激活，忽略播放错误: $error")
                     return@playError
                 }
+                if (isPlaybackInterruptedMessage(error)) {
+                    Log.d(TAG, "播放被语音打断，按正常中断处理")
+                    _currentPlayingMessage.value = ""
+                    restartRecordingWithDelay(0, "playback_interrupted_error")
+                    return@playError
+                }
                 Log.e(TAG, "播放错误: $error")
                 _callState.value = VoiceCallState.Error(error)
                 _currentPlayingMessage.value = ""
@@ -607,6 +620,16 @@ class VoiceCallViewModel(private val context: Context) {
             _callState.value = VoiceCallState.Recording
             startRecording()
         }
+    }
+
+    private fun isPlaybackInterruptedMessage(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("interrupt") ||
+            normalized.contains("interrupted") ||
+            normalized.contains("cancel") ||
+            normalized.contains("canceled") ||
+            normalized.contains("中断") ||
+            normalized.contains("取消")
     }
 
     /**

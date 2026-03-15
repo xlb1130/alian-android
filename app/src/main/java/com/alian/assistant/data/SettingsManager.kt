@@ -143,6 +143,7 @@ data class AppSettings(
     val offlineAsrEnabled: Boolean = true,  // 是否启用本地离线 ASR（Sherpa）
     val offlineAsrAutoFallbackToCloud: Boolean = true,  // 本地离线 ASR 失败时是否自动回退在线 ASR
     val offlineTtsEnabled: Boolean = true,  // 是否启用本地离线 TTS（sherpa-onnx）
+    val offlineTtsUseAndroidNative: Boolean = true,  // 是否启用安卓原生离线 TTS（TextToSpeech）
     val offlineTtsAutoFallbackToCloud: Boolean = true,  // 本地离线 TTS 失败时是否自动回退在线 TTS
 
     // ========== ASR/TTS 服务商配置 ==========
@@ -357,6 +358,7 @@ class SettingsManager(context: Context) {
             offlineAsrEnabled = prefs.getBoolean("offline_asr_enabled", true),
             offlineAsrAutoFallbackToCloud = prefs.getBoolean("offline_asr_auto_fallback_to_cloud", true),
             offlineTtsEnabled = prefs.getBoolean("offline_tts_enabled", true),
+            offlineTtsUseAndroidNative = prefs.getBoolean("offline_tts_use_android_native", true),
             offlineTtsAutoFallbackToCloud = prefs.getBoolean("offline_tts_auto_fallback_to_cloud", true),
             
             // 加载 ASR/TTS 服务商配置
@@ -587,13 +589,27 @@ class SettingsManager(context: Context) {
     }
 
     fun updateTTSInterruptEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("tts_interrupt_enabled", enabled).apply()
-        _settings.value = _settings.value.copy(ttsInterruptEnabled = enabled)
+        val resolvedEnableAec = if (enabled) true else _settings.value.enableAEC
+        prefs.edit()
+            .putBoolean("tts_interrupt_enabled", enabled)
+            .putBoolean("enable_aec", resolvedEnableAec)
+            .apply()
+        _settings.value = _settings.value.copy(
+            ttsInterruptEnabled = enabled,
+            enableAEC = resolvedEnableAec
+        )
     }
 
     fun updateEnableAEC(enabled: Boolean) {
-        prefs.edit().putBoolean("enable_aec", enabled).apply()
-        _settings.value = _settings.value.copy(enableAEC = enabled)
+        val resolvedInterruptEnabled = if (!enabled) false else _settings.value.ttsInterruptEnabled
+        prefs.edit()
+            .putBoolean("enable_aec", enabled)
+            .putBoolean("tts_interrupt_enabled", resolvedInterruptEnabled)
+            .apply()
+        _settings.value = _settings.value.copy(
+            enableAEC = enabled,
+            ttsInterruptEnabled = resolvedInterruptEnabled
+        )
     }
 
     fun updateEnableStreaming(enabled: Boolean) {
@@ -802,8 +818,29 @@ class SettingsManager(context: Context) {
     }
 
     fun updateOfflineTtsEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean("offline_tts_enabled", enabled).apply()
-        _settings.value = _settings.value.copy(offlineTtsEnabled = enabled)
+        val nextUseAndroidNative = enabled
+        prefs.edit()
+            .putBoolean("offline_tts_enabled", enabled)
+            .putBoolean("offline_tts_use_android_native", nextUseAndroidNative)
+            .apply()
+
+        _settings.value = _settings.value.copy(
+            offlineTtsEnabled = enabled,
+            offlineTtsUseAndroidNative = nextUseAndroidNative
+        )
+    }
+
+    fun updateOfflineTtsUseAndroidNative(enabled: Boolean) {
+        // 切换安卓原生离线 TTS 时，不联动修改离线 TTS 总开关状态
+        val keepOfflineEnabled = _settings.value.offlineTtsEnabled
+        prefs.edit()
+            .putBoolean("offline_tts_use_android_native", enabled)
+            .putBoolean("offline_tts_enabled", keepOfflineEnabled)
+            .apply()
+        _settings.value = _settings.value.copy(
+            offlineTtsEnabled = keepOfflineEnabled,
+            offlineTtsUseAndroidNative = enabled
+        )
     }
 
     fun updateOfflineTtsAutoFallbackToCloud(enabled: Boolean) {
@@ -973,12 +1010,21 @@ class SettingsManager(context: Context) {
         val ttsModelKey = "speech_${provider.name}_tts_model"
 
         val asrModelRaw = prefs.getString(asrModelKey, "") ?: ""
-        val normalizedAsrModel = if (
-            provider == SpeechProvider.VOLCANO &&
-            asrModelRaw == "volc.seedasr.auc"
-        ) {
-            // 兼容旧配置：AUC 是录音文件识别资源，不适用于流式通话 ASR
-            "volc.seedasr.sauc.duration"
+        val normalizedAsrModel = if (provider == SpeechProvider.VOLCANO) {
+            when {
+                asrModelRaw.equals("volc.seedasr.auc", ignoreCase = true) ||
+                    asrModelRaw.equals("volc.bigasr.auc", ignoreCase = true) -> {
+                    // AUC 是录音文件识别资源，不适用于流式通话 ASR，统一迁移到流式 duration
+                    "volc.bigasr.sauc.duration"
+                }
+
+                asrModelRaw.startsWith("volc.seedasr.", ignoreCase = true) -> {
+                    // 老资源 ID 前缀兼容迁移到当前文档前缀
+                    asrModelRaw.replaceFirst(Regex("(?i)^volc\\.seedasr\\."), "volc.bigasr.")
+                }
+
+                else -> asrModelRaw
+            }
         } else {
             asrModelRaw
         }

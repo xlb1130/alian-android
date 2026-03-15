@@ -387,36 +387,3 @@ class VLMClient(
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
 }
-
-/**
- * 常用 VLM 配置
- */
-object VLMConfigs {
-    // OpenAI GPT-4V
-    fun gpt4v(apiKey: String) = VLMClient(
-        apiKey = apiKey,
-        baseUrl = "https://api.openai.com/v1",
-        model = "gpt-4-vision-preview"
-    )
-
-    // Qwen-VL (阿里云)
-    fun qwenVL(apiKey: String) = VLMClient(
-        apiKey = apiKey,
-        baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        model = "qwen-vl-max"
-    )
-
-    // Claude (Anthropic)
-    fun claude(apiKey: String) = VLMClient(
-        apiKey = apiKey,
-        baseUrl = "https://api.anthropic.com/v1",
-        model = "claude-3-5-sonnet-20241022"
-    )
-
-    // 自定义 (vLLM / Ollama / LocalAI)
-    fun custom(apiKey: String, baseUrl: String, model: String) = VLMClient(
-        apiKey = apiKey,
-        baseUrl = baseUrl,
-        model = model
-    )
-}

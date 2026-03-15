@@ -14,6 +14,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -26,7 +28,7 @@ class SherpaOnnxOfflineTtsClient(
     private val speed: Float = 1.0f,
     private val volume: Int = 50,
     private val preferredModelDir: String = DEFAULT_MODEL_DIR
-) {
+) : OfflineTtsClient {
     companion object {
         private const val TAG = "SherpaOnnxOfflineTts"
         const val DEFAULT_MODEL_DIR = "sherpa-onnx-tts"
@@ -35,6 +37,7 @@ class SherpaOnnxOfflineTtsClient(
         private const val SEGMENT_MAX_CHARS = 70
         private const val SEGMENT_PAUSE_MS = 70
         private const val OUTPUT_CHUNK_MS = 20
+        private const val RUNTIME_MODEL_ROOT = "sherpa-onnx-tts-runtime"
         private const val ALLOWED_PUNCTUATION =
             "，。！？；：、,.!?;:()（）[]【】{}<>《》“”‘’\"'`~·-—…_+=*/\\|@#$%^&"
     }
@@ -64,21 +67,27 @@ class SherpaOnnxOfflineTtsClient(
     @Volatile
     private var initFailure: Throwable? = null
 
+    @Volatile
+    private var preparedModel: ResolvedModel? = null
+
     private val trackLock = Any()
     private val synthMutex = Mutex()
 
     @Volatile
     private var isSynthesizing = false
 
+    @Volatile
+    private var totalFramesWritten: Long = 0L
+
     private var onAudioDataCallback: ((ByteArray) -> Unit)? = null
 
-    fun setOnAudioDataCallback(callback: ((ByteArray) -> Unit)?) {
+    override fun setOnAudioDataCallback(callback: ((ByteArray) -> Unit)?) {
         onAudioDataCallback = callback
     }
 
-    fun isCurrentlyPlaying(): Boolean = isPlaying
+    override fun isCurrentlyPlaying(): Boolean = isPlaying
 
-    suspend fun synthesizeAndPlay(text: String, context: Context): Result<Unit> = withContext(Dispatchers.IO) {
+    override suspend fun synthesizeAndPlay(text: String, context: Context): Result<Unit> = withContext(Dispatchers.IO) {
         synthMutex.withLock {
             synthesizeAndPlayLocked(text, context)
         }
@@ -108,30 +117,40 @@ class SherpaOnnxOfflineTtsClient(
         }
 
         val audioTrack = createAudioTrack(sampleRate)
-        currentAudioTrack = audioTrack
+        synchronized(trackLock) {
+            currentAudioTrack = audioTrack
+            totalFramesWritten = 0L
+        }
         isPlaying = true
         isSynthesizing = true
 
         return try {
             requestAudioFocus(context)
-            audioTrack.play()
 
             var totalFrames = 0L
+            var trackStarted = false
 
             for ((index, segment) in segments.withIndex()) {
                 if (stopRequested) break
 
+                Log.d(TAG, "Generate segment ${index + 1}/${segments.size}, length=${segment.length}")
                 val generated = tts.generate(
                     text = segment,
                     sid = sid,
                     speed = tunedSpeed
                 )
+                Log.d(TAG, "Generated samples=${generated.samples.size} for segment ${index + 1}")
 
                 if (generated.samples.isNotEmpty() && !stopRequested) {
                     val pcm = floatSamplesToPcm16(generated.samples, volume)
                     val chunkBytes = ((sampleRate * OUTPUT_CHUNK_MS) / 1000).coerceAtLeast(1) * 2
                     var offset = 0
                     while (!stopRequested && offset < pcm.size) {
+                        if (!trackStarted) {
+                            audioTrack.play()
+                            trackStarted = true
+                        }
+
                         val length = min(chunkBytes, pcm.size - offset)
                         val wrote = runCatching {
                             audioTrack.write(pcm, offset, length, AudioTrack.WRITE_BLOCKING)
@@ -143,6 +162,7 @@ class SherpaOnnxOfflineTtsClient(
                         }
 
                         totalFrames += wrote / 2L // PCM16 mono: 2 bytes per frame
+                        totalFramesWritten = totalFrames
                         onAudioDataCallback?.invoke(pcm.copyOfRange(offset, offset + wrote))
                         offset += wrote
                     }
@@ -151,15 +171,22 @@ class SherpaOnnxOfflineTtsClient(
                 if (index < segments.lastIndex && !stopRequested) {
                     val pauseFrames = (sampleRate * (SEGMENT_PAUSE_MS / 1000f)).toInt().coerceAtLeast(1)
                     val pausePcm = ByteArray(pauseFrames * 2)
+                    if (!trackStarted) {
+                        audioTrack.play()
+                        trackStarted = true
+                    }
                     val wrotePause = audioTrack.write(pausePcm, 0, pausePcm.size, AudioTrack.WRITE_BLOCKING)
                     if (wrotePause > 0) {
                         totalFrames += wrotePause / 2L
+                        totalFramesWritten = totalFrames
                         onAudioDataCallback?.invoke(pausePcm.copyOf(wrotePause))
                     }
                 }
             }
 
-            waitPlaybackCompleted(audioTrack, totalFrames)
+            if (trackStarted) {
+                waitPlaybackCompleted(audioTrack, totalFrames)
+            }
             Result.success(Unit)
         } catch (t: Throwable) {
             Log.e(TAG, "Offline TTS playback failed", t)
@@ -170,28 +197,34 @@ class SherpaOnnxOfflineTtsClient(
         }
     }
 
-    suspend fun isAudioTrackStillPlaying(): Boolean = withContext(Dispatchers.IO) {
-        val track = currentAudioTrack ?: return@withContext false
-        if (track.state != AudioTrack.STATE_INITIALIZED) {
-            return@withContext false
+    override suspend fun isAudioTrackStillPlaying(): Boolean = withContext(Dispatchers.IO) {
+        synchronized(trackLock) {
+            val track = currentAudioTrack ?: return@withContext false
+            if (track.state != AudioTrack.STATE_INITIALIZED) {
+                return@withContext false
+            }
+            if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                return@withContext false
+            }
+            val written = totalFramesWritten
+            if (written <= 0L) {
+                return@withContext false
+            }
+            val played = runCatching {
+                track.playbackHeadPosition.toLong() and 0xFFFFFFFFL
+            }.getOrDefault(0L)
+            written - played > 0L
         }
-        if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
-            return@withContext false
-        }
-        val pos = track.playbackHeadPosition
-        delay(50)
-        val newPos = track.playbackHeadPosition
-        pos != newPos
     }
 
-    fun cancelPlayback() {
+    override fun cancelPlayback() {
         stopRequested = true
         if (!isSynthesizing) {
             releaseTrack()
         }
     }
 
-    fun release() {
+    override fun release() {
         stopRequested = true
         if (!isSynthesizing) {
             releaseTrack()
@@ -214,7 +247,7 @@ class SherpaOnnxOfflineTtsClient(
         initFailure?.let { return Result.failure(it) }
 
         return runCatching {
-            val model = resolveModel()
+            val model = prepareModelForRuntime(resolveModel())
             Log.d(
                 TAG,
                 "Resolved sherpa-onnx model: dir=${model.modelDir}, model=${model.modelName}, voices=${model.voices}"
@@ -228,19 +261,111 @@ class SherpaOnnxOfflineTtsClient(
                 voices = model.voices,
                 lexicon = model.lexicon,
                 dataDir = model.dataDir,
-                dictDir = model.dataDir,
+                dictDir = "",
                 ruleFsts = "",
                 ruleFars = "",
                 numThreads = 1
             )
 
             OfflineTts(
-                assetManager = appContext.assets,
+                assetManager = null,
                 config = config
             ).also { offlineTts = it }
         }.onFailure { error ->
             initFailure = error
             Log.e(TAG, "Failed to initialize sherpa-onnx offline TTS", error)
+        }
+    }
+
+    private fun prepareModelForRuntime(assetModel: ResolvedModel): ResolvedModel {
+        preparedModel?.let { return it }
+
+        val runtimeRoot = File(appContext.noBackupFilesDir, RUNTIME_MODEL_ROOT)
+        val targetModelDir = File(runtimeRoot, assetModel.modelDir)
+        val marker = File(targetModelDir, ".ready")
+
+        if (!marker.exists()) {
+            if (targetModelDir.exists()) {
+                targetModelDir.deleteRecursively()
+            }
+            targetModelDir.mkdirs()
+            copyAssetTree(assetModel.modelDir, targetModelDir)
+            marker.writeText("ok")
+            Log.d(TAG, "Prepared offline TTS model files: ${targetModelDir.absolutePath}")
+        }
+
+        val mappedDataDir = if (assetModel.dataDir.isBlank()) {
+            ""
+        } else {
+            File(
+                targetModelDir,
+                relativePathUnderModel(assetModel.dataDir, assetModel.modelDir)
+            ).absolutePath
+        }
+
+        val mappedVocoder = if (assetModel.vocoder.isBlank()) {
+            ""
+        } else if (assetModel.vocoder.startsWith("/")) {
+            assetModel.vocoder
+        } else {
+            File(
+                targetModelDir,
+                relativePathUnderModel(assetModel.vocoder, assetModel.modelDir)
+            ).absolutePath
+        }
+
+        return assetModel.copy(
+            modelDir = targetModelDir.absolutePath,
+            dataDir = mappedDataDir,
+            vocoder = mappedVocoder
+        ).also {
+            preparedModel = it
+        }
+    }
+
+    private fun relativePathUnderModel(path: String, modelDir: String): String {
+        val prefix = "$modelDir/"
+        return if (path.startsWith(prefix)) {
+            path.removePrefix(prefix)
+        } else {
+            path
+        }
+    }
+
+    private fun copyAssetTree(assetPath: String, target: File) {
+        val children = runCatching {
+            appContext.assets.list(assetPath) ?: emptyArray()
+        }.getOrDefault(emptyArray())
+
+        if (children.isEmpty()) {
+            copyAssetFile(assetPath, target)
+            return
+        }
+
+        if (!target.exists()) {
+            target.mkdirs()
+        }
+
+        for (child in children) {
+            val childAssetPath = "$assetPath/$child"
+            val childTarget = File(target, child)
+            val grandChildren = runCatching {
+                appContext.assets.list(childAssetPath) ?: emptyArray()
+            }.getOrDefault(emptyArray())
+            if (grandChildren.isEmpty()) {
+                copyAssetFile(childAssetPath, childTarget)
+            } else {
+                copyAssetTree(childAssetPath, childTarget)
+            }
+        }
+    }
+
+    private fun copyAssetFile(assetPath: String, targetFile: File) {
+        targetFile.parentFile?.mkdirs()
+        appContext.assets.open(assetPath).use { input ->
+            FileOutputStream(targetFile).use { output ->
+                input.copyTo(output)
+            }
         }
     }
 
@@ -287,11 +412,25 @@ class SherpaOnnxOfflineTtsClient(
 
         val dataDir = runCatching {
             val dictFiles = assetManager.list("$modelDir/dict") ?: emptyArray()
-            if (dictFiles.isNotEmpty()) {
-                "$modelDir/dict"
-            } else {
-                val espeakFiles = assetManager.list("$modelDir/espeak-ng-data") ?: emptyArray()
-                if (espeakFiles.isNotEmpty()) "$modelDir/espeak-ng-data" else ""
+            val dictFileSet = dictFiles.toSet()
+            val hasPiperPhonemeDict = setOf("phontab", "phonindex", "phondata", "intonations")
+                .all { dictFileSet.contains(it) }
+
+            when {
+                hasPiperPhonemeDict -> "$modelDir/dict"
+                (assetManager.list("$modelDir/espeak-ng-data") ?: emptyArray()).isNotEmpty() -> {
+                    "$modelDir/espeak-ng-data"
+                }
+                else -> {
+                    if (dictFiles.isNotEmpty()) {
+                        Log.w(
+                            TAG,
+                            "Ignore `$modelDir/dict` as vits data_dir: missing piper files " +
+                                "(phontab/phonindex/phondata/intonations)"
+                        )
+                    }
+                    ""
+                }
             }
         }.getOrDefault("")
 
@@ -452,6 +591,7 @@ class SherpaOnnxOfflineTtsClient(
             val track = currentAudioTrack ?: return
             currentAudioTrack = null
             isPlaying = false
+            totalFramesWritten = 0L
             runCatching {
                 if (track.state == AudioTrack.STATE_INITIALIZED) {
                     if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
