@@ -77,9 +77,13 @@ fun FlowTemplateDetailScreen(
                 }
             }
             uiState.template != null -> {
+                val template = uiState.template!!
                 TemplateDetailContent(
-                    template = uiState.template!!,
-                    onExecute = { onExecute(uiState.template!!.name) },
+                    template = template,
+                    onExecute = {
+                        val executeInstruction = template.description.ifBlank { template.name }
+                        onExecute(executeInstruction)
+                    },
                     onExport = {
                         viewModel.exportTemplate(templateId) { json ->
                             showExportSuccess = json != null

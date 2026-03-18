@@ -169,6 +169,7 @@ fun SettingsScreen(
     onUpdateEnableAEC: (Boolean) -> Unit,
     onUpdateEnableStreaming: (Boolean) -> Unit,
     onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsUseAndroidNative: (Boolean) -> Unit,
     onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit,
     onUpdateVolume: (Int) -> Unit,
     onUpdateBackendUrl: (String) -> Unit,
@@ -348,6 +349,7 @@ fun SettingsScreen(
                                     onUpdateEnableAEC = onUpdateEnableAEC,
                                     onUpdateEnableStreaming = onUpdateEnableStreaming,
                                     onUpdateOfflineTtsEnabled = onUpdateOfflineTtsEnabled,
+                                    onUpdateOfflineTtsUseAndroidNative = onUpdateOfflineTtsUseAndroidNative,
                                     onUpdateOfflineTtsAutoFallbackToCloud = onUpdateOfflineTtsAutoFallbackToCloud
                                 )
                             }

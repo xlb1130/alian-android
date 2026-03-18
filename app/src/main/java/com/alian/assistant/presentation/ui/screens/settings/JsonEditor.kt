@@ -281,35 +281,3 @@ fun JsonSyntaxHighlighter(
         )
     }
 }
-
-/**
- * JSON 验证和格式化工具函数
- */
-object JsonFormatter {
-    fun format(json: String): Result<String> {
-        return try {
-            val jsonObj = JSONObject(json)
-            Result.success(jsonObj.toString(2))
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    fun compress(json: String): Result<String> {
-        return try {
-            val jsonObj = JSONObject(json)
-            Result.success(jsonObj.toString())
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    fun validate(json: String): Boolean {
-        return try {
-            JSONObject(json)
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-}

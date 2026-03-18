@@ -181,6 +181,10 @@ fun SkillCreatorScreen(
                             currentStep = 1
                         }
                     },
+                    onCancel = {
+                        performLightHaptic(context)
+                        onBack()
+                    },
                     isEditMode = isEditMode
                 )
 
@@ -329,6 +333,7 @@ fun StepOneContent(
     selectedCategory: String,
     onCategorySelected: (String) -> Unit,
     onNext: () -> Unit,
+    onCancel: () -> Unit,
     isEditMode: Boolean
 ) {
     val colors = BaoziTheme.colors
@@ -469,7 +474,7 @@ fun StepOneContent(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedButton(
-                    onClick = { },
+                    onClick = onCancel,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.outlinedButtonColors(

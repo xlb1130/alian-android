@@ -661,9 +661,25 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     System.out.flush()
                 }
 
-                // 如果启用了实时播放，且消息块不为空，则累积到缓冲区
-                if (ttsEnabled && ttsRealtime && event.chunk.isNotBlank()) {
-                    accumulateTTSChunk(event.messageId, event.chunk, event.done)
+                // 实时 TTS：
+                // 1. 离线模式：消息气泡完成后整条播放（不按 chunk 播放）
+                // 2. 在线模式：保持原有流式 chunk 播放逻辑
+                if (ttsEnabled && ttsRealtime) {
+                    if (offlineTtsEnabled) {
+                        if (event.done) {
+                            val finishedMessage = _messages.find { it.id == event.messageId }
+                            if (finishedMessage != null && !finishedMessage.isUser && finishedMessage.content.isNotBlank()) {
+                                enqueueTTSMessage(event.messageId)
+                            } else {
+                                Log.d(
+                                    "AlianViewModel",
+                                    "离线实时TTS跳过播放: messageId=${event.messageId}, hasMessage=${finishedMessage != null}, contentBlank=${finishedMessage?.content.isNullOrBlank()}"
+                                )
+                            }
+                        }
+                    } else if (event.chunk.isNotBlank()) {
+                        accumulateTTSChunk(event.messageId, event.chunk, event.done)
+                    }
                 }
             }
             is UIMessageEvent -> {

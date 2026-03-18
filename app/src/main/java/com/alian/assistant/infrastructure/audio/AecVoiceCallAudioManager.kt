@@ -19,6 +19,8 @@ import com.alian.assistant.infrastructure.ai.asr.SherpaOfflineSpeechRecognizer
 import com.alian.assistant.infrastructure.ai.asr.bailian.BailianAsrEngine
 import com.alian.assistant.infrastructure.ai.asr.volcano.VolcanoAsrEngine
 import com.alian.assistant.infrastructure.ai.tts.HybridTtsClient
+import com.alian.assistant.infrastructure.ai.tts.OfflineTtsPlaybackInterruptedException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,10 +54,10 @@ class AecVoiceCallAudioManager(
     companion object {
         private const val TAG = "AecVoiceCallAudioManager"
         private const val SILENCE_DURATION_MS = Long.MAX_VALUE  // 静音持续时间
-        private const val CLOUD_UTTERANCE_SILENCE_MS = 1500L    // 云识别单句静音收尾阈值
-        private const val STREAM_SETTLE_TIMEOUT_MS = 5000L      // 流式会话收敛超时
-        private const val STREAM_AUDIO_DRAIN_TIMEOUT_MS = 3000L // AudioTrack 缓冲排空超时
-        private const val STREAM_ONLY_GRACE_MS = 1500L          // 仅剩流式状态的容忍时间
+        private const val CLOUD_UTTERANCE_SILENCE_MS = 1000L    // 云识别单句静音收尾阈值
+        private const val CLOUD_SPEECH_AMPLITUDE_THRESHOLD = 0.02f // 云识别静音判停的振幅阈值
+        private const val STREAM_WAIT_LOG_INTERVAL_MS = 1000L   // 流式播放等待日志间隔
+        private const val STREAM_ONLY_GRACE_MS = 15000L         // 仅剩流式状态的容忍时间
     }
 
     // 音频管理器
@@ -96,6 +98,8 @@ class AecVoiceCallAudioManager(
     private var lastAudioTime: Long = 0
     // 当前轮次是否已检测到有效说话内容（用于云识别单句自动收尾）
     private var hasSpeechInCurrentTurn: Boolean = false
+    // 云识别当前轮次最近一次 partial 文本（用于去重，避免重复 partial 刷新静音计时）
+    private var lastCloudPartialText: String = ""
 
     // 播放中断回调（语音打断时调用）
     private var onPlaybackInterrupted: (() -> Unit)? = null
@@ -436,18 +440,35 @@ class AecVoiceCallAudioManager(
                 shouldAutoResumeRecording = false
                 lastAudioTime = System.currentTimeMillis()
                 hasSpeechInCurrentTurn = false
+                lastCloudPartialText = ""
                 activeAsrEngine = ActiveAsrEngine.NONE
 
                 requestAudioFocus()
 
                 val asrListener = object : AsrListener {
                     override fun onPartial(text: String) {
-                        Log.d(TAG, "部分识别结果: $text")
-                        if (text.isNotBlank()) {
+                        val normalized = text.trim()
+                        val isDuplicate = normalized.isNotEmpty() && normalized == lastCloudPartialText
+                        if (!isDuplicate) {
+                            Log.d(TAG, "部分识别结果: $text")
+                        }
+                        if (normalized.isNotEmpty()) {
+                            hasSpeechInCurrentTurn = true
+                            if (!isDuplicate) {
+                                lastAudioTime = System.currentTimeMillis()
+                                lastCloudPartialText = normalized
+                            }
+                        }
+                        if (!isDuplicate) {
+                            onPartialResult(text)
+                        }
+                    }
+
+                    override fun onAmplitude(amplitude: Float) {
+                        if (amplitude >= CLOUD_SPEECH_AMPLITUDE_THRESHOLD) {
                             hasSpeechInCurrentTurn = true
                             lastAudioTime = System.currentTimeMillis()
                         }
-                        onPartialResult(text)
                     }
 
                 override fun onFinal(text: String) {
@@ -491,6 +512,7 @@ class AecVoiceCallAudioManager(
                 override fun onError(error: String) {
                     Log.e(TAG, "录音错误: $error")
                     isStopping = true
+                    lastCloudPartialText = ""
 
                     if (usePersistentAec) {
                         stopRecognitionSessionInternal()
@@ -550,6 +572,7 @@ class AecVoiceCallAudioManager(
         isRecording = false
         recognitionActive = false
         activeAsrEngine = ActiveAsrEngine.NONE
+        lastCloudPartialText = ""
 
         // 停止静音检测
         silenceTimer?.cancel()
@@ -623,6 +646,7 @@ class AecVoiceCallAudioManager(
             isRecording = false
             recognitionActive = false
             hasSpeechInCurrentTurn = false
+            lastCloudPartialText = ""
             silenceTimer?.cancel()
             silenceTimer = null
             activeAsrEngine = ActiveAsrEngine.NONE
@@ -660,6 +684,7 @@ class AecVoiceCallAudioManager(
         isRecording = false
         isStopping = true
         hasSpeechInCurrentTurn = false
+        lastCloudPartialText = ""
 
         // 停止静音检测
         silenceTimer?.cancel()
@@ -721,9 +746,15 @@ class AecVoiceCallAudioManager(
                 onFinished()
                 isPlaying = false
             } catch (e: Exception) {
-                Log.e(TAG, "TTS 播放异常", e)
-                isPlaying = false
-                onError(e.message ?: "播放异常")
+                if (isPlaybackInterruptedError(e)) {
+                    Log.d(TAG, "TTS 播放被打断，按正常中断处理")
+                    isPlaying = false
+                    onFinished()
+                } else {
+                    Log.e(TAG, "TTS 播放异常", e)
+                    isPlaying = false
+                    onError(e.message ?: "播放异常")
+                }
             }
         }
     }
@@ -759,10 +790,12 @@ class AecVoiceCallAudioManager(
         try {
             // 启动流式 TTS 会话
             val startResult = cosyVoiceTTSClient?.startStreamingSession(context)
-            if (startResult?.isFailure == true) {
+                ?: Result.failure(IllegalStateException("TTS 客户端未初始化"))
+            if (startResult.isFailure) {
+                val startError = startResult.exceptionOrNull()?.message ?: "启动流式 TTS 会话失败"
                 Log.e(TAG, "启动流式 TTS 会话失败")
                 isPlaying = false
-                onError("启动流式 TTS 会话失败")
+                onError(startError)
                 cosyVoiceTTSClient?.stopStreamingSession()
                 return
             }
@@ -822,6 +855,14 @@ class AecVoiceCallAudioManager(
             collectJob.join()
 
             if (streamError != null) {
+                if (isPlaybackInterruptedMessage(streamError) || !isPlaying) {
+                    Log.d(TAG, "流式 TTS 被打断，按正常中断处理: $streamError")
+                    aecAudioProcessor?.notifyPlaybackStopped()
+                    isPlaying = false
+                    cosyVoiceTTSClient?.stopStreamingSession()
+                    onFinished(fullText.toString())
+                    return
+                }
                 Log.e(TAG, "流式 TTS 会话提前失败: $streamError")
                 aecAudioProcessor?.notifyPlaybackStopped()
                 isPlaying = false
@@ -831,51 +872,35 @@ class AecVoiceCallAudioManager(
             }
 
             Log.d(TAG, "等待流式会话收敛与音频播放完成...")
-
-            // 某些机型/网络下，服务端状态位会晚于音频结束；避免因为状态位滞后卡住下一轮录音
-            var settleWaitMs = 0L
-            var streamOnlyMs = 0L
-            while (settleWaitMs < STREAM_SETTLE_TIMEOUT_MS) {
-                val streamActive = cosyVoiceTTSClient?.isStreamingActive() == true
-                val audioPlaying = cosyVoiceTTSClient?.isAudioTrackStillPlaying() == true
-
-                if (!streamActive && !audioPlaying) {
-                    break
-                }
-
-                if (streamActive && !audioPlaying) {
-                    streamOnlyMs += 100L
-                    if (streamOnlyMs >= STREAM_ONLY_GRACE_MS) {
-                        Log.w(TAG, "音频已结束但流式状态未关闭，提前收敛会话")
-                        break
+            val waitResult = cosyVoiceTTSClient?.awaitStreamingPlaybackCompleted(
+                streamOnlyGraceMs = STREAM_ONLY_GRACE_MS,
+                onProgress = { waitedMs, streamActive, audioPlaying ->
+                    val nextWait = waitedMs + 100L
+                    if (nextWait % STREAM_WAIT_LOG_INTERVAL_MS == 0L) {
+                        Log.d(
+                            TAG,
+                            "等待流式播放完成... ${nextWait}ms, streamActive=$streamActive, audioPlaying=$audioPlaying"
+                        )
                     }
-                } else {
-                    streamOnlyMs = 0L
                 }
+            ) ?: Result.failure(IllegalStateException("TTS 客户端未初始化"))
 
-                delay(100)
-                settleWaitMs += 100L
-                if (settleWaitMs % 1000L == 0L) {
-                    Log.d(TAG, "等待流式收敛... ${settleWaitMs}ms/${STREAM_SETTLE_TIMEOUT_MS}ms")
+            if (waitResult.isFailure) {
+                val waitError = waitResult.exceptionOrNull()?.message ?: "等待流式播放完成失败"
+                if (isPlaybackInterruptedError(waitResult.exceptionOrNull()) || !isPlaying) {
+                    Log.d(TAG, "等待流式播放完成被中断，按正常中断处理: $waitError")
+                    aecAudioProcessor?.notifyPlaybackStopped()
+                    isPlaying = false
+                    cosyVoiceTTSClient?.stopStreamingSession()
+                    onFinished(fullText.toString())
+                    return
                 }
-            }
-            if (settleWaitMs >= STREAM_SETTLE_TIMEOUT_MS) {
-                Log.w(TAG, "等待流式收敛超时，继续后续流程")
-            }
-
-            // 再短暂等待 AudioTrack 缓冲区排空，避免截断尾音
-            var audioDrainMs = 0L
-            while (
-                cosyVoiceTTSClient?.isAudioTrackStillPlaying() == true &&
-                audioDrainMs < STREAM_AUDIO_DRAIN_TIMEOUT_MS
-            ) {
-                delay(100)
-                audioDrainMs += 100L
-            }
-            if (audioDrainMs >= STREAM_AUDIO_DRAIN_TIMEOUT_MS) {
-                Log.w(TAG, "等待 AudioTrack 排空超时，继续后续流程")
-            } else {
-                Log.d(TAG, "AudioTrack 播放完成")
+                Log.e(TAG, "等待流式播放完成失败: $waitError")
+                aecAudioProcessor?.notifyPlaybackStopped()
+                isPlaying = false
+                onError(waitError)
+                cosyVoiceTTSClient?.stopStreamingSession()
+                return
             }
 
             Log.d(TAG, "流式 TTS 播放完成")
@@ -888,11 +913,20 @@ class AecVoiceCallAudioManager(
             onFinished(fullText.toString())
 
         } catch (e: Exception) {
-            Log.e(TAG, "流式 TTS 播放异常", e)
-            isPlaying = false
-            onError(e.message ?: "播放异常")
-            // 异常时也要停止流式会话
-            cosyVoiceTTSClient?.stopStreamingSession()
+            if (isPlaybackInterruptedError(e) || !isPlaying) {
+                Log.d(TAG, "流式 TTS 播放被打断，按正常中断处理")
+                aecAudioProcessor?.notifyPlaybackStopped()
+                isPlaying = false
+                cosyVoiceTTSClient?.stopStreamingSession()
+                onFinished("")
+            } else {
+                Log.e(TAG, "流式 TTS 播放异常", e)
+                aecAudioProcessor?.notifyPlaybackStopped()
+                isPlaying = false
+                onError(e.message ?: "播放异常")
+                // 异常时也要停止流式会话
+                cosyVoiceTTSClient?.stopStreamingSession()
+            }
         }
     }
 
@@ -908,7 +942,10 @@ class AecVoiceCallAudioManager(
             val result = cosyVoiceTTSClient?.synthesizeAndPlay(text, context)
 
             if (result?.isFailure == true) {
-                throw result.exceptionOrNull() ?: Exception("播放失败")
+                val failure = result.exceptionOrNull()
+                if (!isPlaybackInterruptedError(failure)) {
+                    throw failure ?: Exception("播放失败")
+                }
             }
         } finally {
             // 播放结束后通知 AEC 处理器
@@ -1191,5 +1228,27 @@ class AecVoiceCallAudioManager(
 
     private fun shouldFallbackToCloud(): Boolean {
         return offlineAsrAutoFallbackToCloud && resolveOnlineAsrRuntime() != null
+    }
+
+    private fun isPlaybackInterruptedError(error: Throwable?): Boolean {
+        var current: Throwable? = error
+        while (current != null) {
+            if (current is OfflineTtsPlaybackInterruptedException || current is CancellationException) {
+                return true
+            }
+            current = current.cause
+        }
+        return isPlaybackInterruptedMessage(error?.message)
+    }
+
+    private fun isPlaybackInterruptedMessage(message: String?): Boolean {
+        if (message.isNullOrBlank()) return false
+        val normalized = message.lowercase()
+        return normalized.contains("interrupt") ||
+            normalized.contains("interrupted") ||
+            normalized.contains("cancel") ||
+            normalized.contains("canceled") ||
+            normalized.contains("中断") ||
+            normalized.contains("取消")
     }
 }

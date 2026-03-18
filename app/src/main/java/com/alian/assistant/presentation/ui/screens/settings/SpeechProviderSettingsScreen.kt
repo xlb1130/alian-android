@@ -25,6 +25,7 @@ fun SpeechProviderSettingsScreen(
     offlineAsrEnabled: Boolean,
     offlineAsrAutoFallbackToCloud: Boolean,
     offlineTtsEnabled: Boolean,
+    offlineTtsUseAndroidNative: Boolean,
     offlineTtsAutoFallbackToCloud: Boolean,
     onBack: () -> Unit,
     onSelectProvider: (SpeechProvider) -> Unit,
@@ -33,6 +34,7 @@ fun SpeechProviderSettingsScreen(
     onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
     onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit,
     onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsUseAndroidNative: (Boolean) -> Unit,
     onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
@@ -68,6 +70,7 @@ fun SpeechProviderSettingsScreen(
             offlineAsrEnabled = offlineAsrEnabled,
             offlineAsrAutoFallbackToCloud = offlineAsrAutoFallbackToCloud,
             offlineTtsEnabled = offlineTtsEnabled,
+            offlineTtsUseAndroidNative = offlineTtsUseAndroidNative,
             offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud,
             onSelectProvider = onSelectProvider,
             onUpdateCredentials = onUpdateCredentials,
@@ -75,6 +78,7 @@ fun SpeechProviderSettingsScreen(
             onUpdateOfflineAsrEnabled = onUpdateOfflineAsrEnabled,
             onUpdateOfflineAsrAutoFallbackToCloud = onUpdateOfflineAsrAutoFallbackToCloud,
             onUpdateOfflineTtsEnabled = onUpdateOfflineTtsEnabled,
+            onUpdateOfflineTtsUseAndroidNative = onUpdateOfflineTtsUseAndroidNative,
             onUpdateOfflineTtsAutoFallbackToCloud = onUpdateOfflineTtsAutoFallbackToCloud
         )
     }

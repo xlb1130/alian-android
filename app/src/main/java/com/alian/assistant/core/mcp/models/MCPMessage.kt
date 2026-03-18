@@ -106,16 +106,3 @@ object MCPMethod {
     const val PROMPTS_GET = "prompts/get"
     const val NOTIFICATIONS_INITIALIZED = "notifications/initialized"
 }
-
-/**
- * MCP 协议错误码
- */
-object MCPErrorCode {
-    const val PARSE_ERROR = -32700
-    const val INVALID_REQUEST = -32600
-    const val METHOD_NOT_FOUND = -32601
-    const val INVALID_PARAMS = -32602
-    const val INTERNAL_ERROR = -32603
-    const val SERVER_ERROR_START = -32000
-    const val SERVER_ERROR_END = -32099
-}

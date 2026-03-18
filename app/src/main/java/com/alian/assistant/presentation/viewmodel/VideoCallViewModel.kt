@@ -222,7 +222,8 @@ class VideoCallViewModel(private val context: Context) {
                 ttsVoice = ttsVoice,
                 ttsInterruptEnabled = ttsInterruptEnabled,
                 volume = volume,
-                metricsScene = "video_call"
+                metricsScene = "video_call",
+                usePersistentAec = ttsInterruptEnabled
             )
             aecManager.setOnPlaybackInterrupted {
                 Log.d(TAG, "播放被中断，更新状态并开始录音")
@@ -563,7 +564,18 @@ class VideoCallViewModel(private val context: Context) {
                         }
                     }
                 },
-                onError = { error ->
+                onError = streamError@{ error ->
+                    if (isPlaybackInterruptedMessage(error)) {
+                        Log.d(TAG, "流式播放被语音打断，按正常中断处理")
+                        _currentPlayingMessage.value = ""
+                        CoroutineScope(Dispatchers.IO).launch {
+                            if (!isCallStopped) {
+                                _callState.value = VideoCallState.Recording
+                                startRecording()
+                            }
+                        }
+                        return@streamError
+                    }
                     Log.e(TAG, "流式播放错误: $error")
                     _callState.value = VideoCallState.Error(error)
                     _currentPlayingMessage.value = ""
@@ -625,6 +637,17 @@ class VideoCallViewModel(private val context: Context) {
                 }
             },
             onError = { error ->
+                if (isPlaybackInterruptedMessage(error)) {
+                    Log.d(TAG, "播放被语音打断，按正常中断处理")
+                    _currentPlayingMessage.value = ""
+                    CoroutineScope(Dispatchers.IO).launch {
+                        if (!isCallStopped) {
+                            _callState.value = VideoCallState.Recording
+                            startRecording()
+                        }
+                    }
+                    return@playText
+                }
                 Log.e(TAG, "播放错误: $error")
                 _callState.value = VideoCallState.Error(error)
                 _currentPlayingMessage.value = ""
@@ -638,6 +661,16 @@ class VideoCallViewModel(private val context: Context) {
                 }
             }
         )
+    }
+
+    private fun isPlaybackInterruptedMessage(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("interrupt") ||
+            normalized.contains("interrupted") ||
+            normalized.contains("cancel") ||
+            normalized.contains("canceled") ||
+            normalized.contains("中断") ||
+            normalized.contains("取消")
     }
 
     /**

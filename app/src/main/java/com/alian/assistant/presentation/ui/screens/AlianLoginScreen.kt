@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -211,7 +212,7 @@ fun AlianLoginScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.clickable {
                         performLightHaptic(context)
-                        // TODO: 实现忘记密码功能
+                        Toast.makeText(context, "敬请期待", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -323,7 +324,7 @@ fun AlianLoginScreen(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable {
                         performLightHaptic(context)
-                        // TODO: 实现注册功能
+                        Toast.makeText(context, "敬请期待", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -707,7 +708,7 @@ private fun SocialLoginButton(
     Surface(
         onClick = {
             performLightHaptic(context)
-            // TODO: 实现社交登录
+            Toast.makeText(context, "敬请期待", Toast.LENGTH_SHORT).show()
         },
         modifier = modifier
             .height(50.dp)

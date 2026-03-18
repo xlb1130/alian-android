@@ -383,15 +383,34 @@ class PhoneCallViewModel(private val context: Context) {
 
         // 初始化音频管理器
         audioManager = if (enableAEC) {
-            AecVoiceCallAudioManager(
+            val aecManager = AecVoiceCallAudioManager(
                 context = context,
                 apiKey = apiKey,
                 ttsVoice = ttsVoice,
                 ttsSpeed = ttsSpeed,
                 ttsInterruptEnabled = ttsInterruptEnabled,
                 volume = volume,
-                metricsScene = "phone_call"
+                metricsScene = "phone_call",
+                usePersistentAec = ttsInterruptEnabled
             )
+            aecManager.setOnPlaybackInterrupted {
+                viewModelScope.launch {
+                    if (_callState.value is PhoneCallState.Idle || audioManager == null) {
+                        Log.d(TAG, "通话未激活，忽略播放中断回调")
+                        return@launch
+                    }
+                    Log.d(TAG, "播放被中断(语音打断)，恢复监听")
+                    isProcessing = false
+                    _currentPlayingMessage.value = ""
+                    if (!_isMicrophoneEnabled.value) {
+                        _callState.value = PhoneCallState.MicMuted
+                        return@launch
+                    }
+                    _callState.value = PhoneCallState.Recording
+                    startRecording()
+                }
+            }
+            aecManager
         } else {
             VoiceCallAudioManager(
                 context = context,
@@ -686,6 +705,14 @@ class PhoneCallViewModel(private val context: Context) {
                 }
             },
             onError = { error ->
+                if (isPlaybackInterruptedMessage(error)) {
+                    Log.d(TAG, "播放被语音打断，按正常中断处理")
+                    _currentPlayingMessage.value = ""
+                    viewModelScope.launch {
+                        startRecording()
+                    }
+                    return@playText
+                }
                 Log.e(TAG, "播放错误: $error")
                 _callState.value = PhoneCallState.Error(error)
                 _currentPlayingMessage.value = ""
@@ -697,6 +724,16 @@ class PhoneCallViewModel(private val context: Context) {
                 }
             }
         )
+    }
+
+    private fun isPlaybackInterruptedMessage(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("interrupt") ||
+            normalized.contains("interrupted") ||
+            normalized.contains("cancel") ||
+            normalized.contains("canceled") ||
+            normalized.contains("中断") ||
+            normalized.contains("取消")
     }
 
     /**

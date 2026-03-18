@@ -61,6 +61,7 @@ fun SpeechProviderSettingsContent(
     offlineAsrEnabled: Boolean,
     offlineAsrAutoFallbackToCloud: Boolean,
     offlineTtsEnabled: Boolean,
+    offlineTtsUseAndroidNative: Boolean,
     offlineTtsAutoFallbackToCloud: Boolean,
     onSelectProvider: (SpeechProvider) -> Unit,
     onUpdateCredentials: (SpeechProvider, SpeechProviderCredentials) -> Unit,
@@ -68,6 +69,7 @@ fun SpeechProviderSettingsContent(
     onUpdateOfflineAsrEnabled: (Boolean) -> Unit,
     onUpdateOfflineAsrAutoFallbackToCloud: (Boolean) -> Unit,
     onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsUseAndroidNative: (Boolean) -> Unit,
     onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
@@ -114,8 +116,10 @@ fun SpeechProviderSettingsContent(
         item {
             OfflineTtsSettingsCard(
                 offlineTtsEnabled = offlineTtsEnabled,
+                offlineTtsUseAndroidNative = offlineTtsUseAndroidNative,
                 offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud,
                 onUpdateOfflineTtsEnabled = onUpdateOfflineTtsEnabled,
+                onUpdateOfflineTtsUseAndroidNative = onUpdateOfflineTtsUseAndroidNative,
                 onUpdateOfflineTtsAutoFallbackToCloud = onUpdateOfflineTtsAutoFallbackToCloud
             )
         }
@@ -252,8 +256,10 @@ private fun OfflineAsrSettingsCard(
 @Composable
 private fun OfflineTtsSettingsCard(
     offlineTtsEnabled: Boolean,
+    offlineTtsUseAndroidNative: Boolean,
     offlineTtsAutoFallbackToCloud: Boolean,
     onUpdateOfflineTtsEnabled: (Boolean) -> Unit,
+    onUpdateOfflineTtsUseAndroidNative: (Boolean) -> Unit,
     onUpdateOfflineTtsAutoFallbackToCloud: (Boolean) -> Unit
 ) {
     val colors = BaoziTheme.colors
@@ -271,7 +277,7 @@ private fun OfflineTtsSettingsCard(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "离线 TTS（sherpa-onnx，实验性）",
+            text = "离线 TTS",
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             color = colors.textPrimary
@@ -291,7 +297,7 @@ private fun OfflineTtsSettingsCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (offlineTtsEnabled) {
-                        "启用后优先使用本地模型，音色配置将隐藏"
+                        "启用后优先使用离线合成（可选 sherpa 或安卓原生）"
                     } else {
                         "关闭后使用当前服务商在线 TTS"
                     },
@@ -306,6 +312,36 @@ private fun OfflineTtsSettingsCard(
         }
 
         if (offlineTtsEnabled) {
+            HorizontalDivider(color = colors.textHint.copy(alpha = 0.2f))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "使用安卓原生离线 TTS",
+                        fontSize = 13.sp,
+                        color = colors.textPrimary,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (offlineTtsUseAndroidNative) {
+                            "已启用 Android TextToSpeech 离线合成（无需 sherpa 模型）"
+                        } else {
+                            "已关闭，继续使用 sherpa-onnx 离线模型"
+                        },
+                        fontSize = 11.sp,
+                        color = colors.textHint
+                    )
+                }
+                Switch(
+                    checked = offlineTtsUseAndroidNative,
+                    onCheckedChange = onUpdateOfflineTtsUseAndroidNative
+                )
+            }
+
             HorizontalDivider(color = colors.textHint.copy(alpha = 0.2f))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -505,7 +541,7 @@ private fun ProviderCard(
                         value = credentials.asrResourceId,
                         isPassword = false,
                         onValueChange = { onUpdateCredentials(credentials.copy(asrResourceId = it)) },
-                        placeholder = "如: volc.seedasr.auc"
+                        placeholder = "如: volc.bigasr.sauc.duration"
                     )
                 }
 
