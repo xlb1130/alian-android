@@ -3,11 +3,15 @@ package com.alian.assistant.presentation.ui.screens.voicecall
 import android.util.Log
 import com.alian.assistant.core.mcp.MCPManager
 import com.alian.assistant.presentation.viewmodel.VoiceCallMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -16,6 +20,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 语音通话客户端（支持 MCP 工具调用）
@@ -41,6 +46,20 @@ class MCPVoiceCallClient(
         .build()
 
     private val jsonMediaType = "application/json".toMediaType()
+    private val requestCounter = AtomicLong(0L)
+
+    @Volatile
+    private var activeCall: Call? = null
+
+    @Volatile
+    private var activeRequestId: Long = 0L
+
+    fun cancelActiveRequest() {
+        val call = activeCall ?: return
+        val requestId = activeRequestId
+        Log.d(TAG, "取消当前语音通话请求: requestId=$requestId")
+        call.cancel()
+    }
 
     /**
      * 发送消息（支持工具调用）
@@ -63,6 +82,9 @@ class MCPVoiceCallClient(
 
         while (maxIterations > 0) {
             maxIterations--
+            var call: Call? = null
+            val requestId = nextRequestId()
+            lastException = null
 
             try {
                 Log.d(TAG, "=== 发送消息（尝试 ${5 - maxIterations}/5） ===")
@@ -81,64 +103,72 @@ class MCPVoiceCallClient(
                     .build()
 
                 // 发送请求
-                val response: Response = client.newCall(request).execute()
+                call = client.newCall(request)
+                registerActiveCall(call, requestId)
 
-                if (!response.isSuccessful) {
-                    val errorMsg = "API 请求失败: ${response.code} ${response.message}"
-                    Log.e(TAG, errorMsg)
-                    lastException = Exception(errorMsg)
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        val errorMsg = "API 请求失败: ${response.code} ${response.message}"
+                        Log.e(TAG, errorMsg)
+                        lastException = Exception(errorMsg)
+                        return@use
+                    }
+
+                    // 解析响应
+                    val responseBody = response.body?.string()
+                    if (responseBody.isNullOrBlank()) {
+                        val errorMsg = "API 响应为空"
+                        Log.e(TAG, errorMsg)
+                        lastException = Exception(errorMsg)
+                        return@use
+                    }
+
+                    Log.d(TAG, "API 响应: $responseBody")
+
+                    // 解析响应（检查是否有工具调用）
+                    val parsed = parseResponse(responseBody)
+
+                    when (parsed) {
+                        is ParsedResponse.Text -> {
+                            return@withContext Result.success(parsed.content)
+                        }
+
+                        is ParsedResponse.ToolCalls -> {
+                            Log.d(TAG, "处理 ${parsed.calls.size} 个工具调用")
+
+                            val toolResults = mutableListOf<ToolCallResult>()
+                            for (toolCall in parsed.calls) {
+                                val result = executeMCPTool(toolCall.name, toolCall.arguments)
+                                toolResults.add(ToolCallResult(toolCall.id, toolCall.name, result))
+                                currentHistory.add(
+                                    VoiceCallMessage(
+                                        id = toolCall.id,
+                                        content = "[工具调用: ${toolCall.name}] 结果: $result",
+                                        isUser = false,
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                )
+                            }
+                        }
+
+                        is ParsedResponse.Error -> {
+                            lastException = Exception(parsed.message)
+                        }
+                    }
+                }
+                if (lastException != null) {
                     break
                 }
-
-                // 解析响应
-                val responseBody = response.body?.string()
-                if (responseBody.isNullOrBlank()) {
-                    val errorMsg = "API 响应为空"
-                    Log.e(TAG, errorMsg)
-                    lastException = Exception(errorMsg)
-                    break
-                }
-
-                Log.d(TAG, "API 响应: $responseBody")
-
-                // 解析响应（检查是否有工具调用）
-                val parsed = parseResponse(responseBody)
-
-                when (parsed) {
-                    is ParsedResponse.Text -> {
-                        // 普通文本响应，直接返回
-                        return@withContext Result.success(parsed.content)
-                    }
-                    is ParsedResponse.ToolCalls -> {
-                        // 工具调用，需要继续对话
-                        Log.d(TAG, "处理 ${parsed.calls.size} 个工具调用")
-
-                        // 执行工具调用
-                        val toolResults = mutableListOf<ToolCallResult>()
-                        for (call in parsed.calls) {
-                            val result = executeMCPTool(call.name, call.arguments)
-                            toolResults.add(ToolCallResult(call.id, call.name, result))
-
-                            // 添加工具调用结果到历史
-                                                    currentHistory.add(VoiceCallMessage(
-                                                        id = call.id,
-                                                        content = "[工具调用: ${call.name}] 结果: $result",
-                                                        isUser = false,
-                                                        timestamp = System.currentTimeMillis()
-                                                    ))                        }
-
-                        // 继续循环，让模型根据工具结果生成最终响应
-                        continue
-                    }
-                    is ParsedResponse.Error -> {
-                        lastException = Exception(parsed.message)
-                        break
-                    }
-                }
+                continue
             } catch (e: Exception) {
+                if (isRequestCancelled(e, call)) {
+                    return@withContext Result.failure(CancellationException("语音通话请求已取消"))
+                }
                 Log.e(TAG, "发送消息失败", e)
                 lastException = e
                 break
+            } finally {
+                clearActiveCall(call)
             }
         }
 
@@ -171,10 +201,8 @@ class MCPVoiceCallClient(
             maxIterations--
 
             var response: Response? = null
-            var toolCallsBuffer = StringBuffer()
-            var currentToolCallId = ""
-            var currentToolCallFunctionName = ""
-            var currentToolCallArguments = StringBuffer()
+            var call: Call? = null
+            val requestId = nextRequestId()
 
             try {
                 // 构建请求体（包含 MCP 工具）
@@ -191,7 +219,10 @@ class MCPVoiceCallClient(
 
                 // 发送请求
                 Log.d(TAG, "开始发送 HTTP 请求...")
-                response = client.newCall(request).execute()
+                currentCoroutineContext().ensureActive()
+                call = client.newCall(request)
+                registerActiveCall(call, requestId)
+                response = call.execute()
                 Log.d(TAG, "HTTP 请求完成，响应码: ${response.code}")
 
                 if (!response.isSuccessful) {
@@ -217,6 +248,7 @@ class MCPVoiceCallClient(
 
                 reader.useLines { lines ->
                     for (line in lines) {
+                        currentCoroutineContext().ensureActive()
                         if (line.startsWith("data: ")) {
                             val data = line.substring(6).trim()
 
@@ -330,15 +362,55 @@ class MCPVoiceCallClient(
                 Log.d(TAG, "=== 流式消息结束，总耗时: ${endTime - startTime}ms ===")
                 break
 
+            } catch (e: CancellationException) {
+                call?.cancel()
+                throw e
             } catch (e: Exception) {
+                if (isRequestCancelled(e, call)) {
+                    throw CancellationException("语音通话流式请求已取消")
+                }
                 val endTime = System.currentTimeMillis()
                 Log.e(TAG, "=== 流式消息失败，总耗时: ${endTime - startTime}ms ===", e)
                 throw e
             } finally {
+                clearActiveCall(call)
                 response?.close()
             }
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun nextRequestId(): Long = requestCounter.incrementAndGet()
+
+    @Synchronized
+    private fun registerActiveCall(call: Call?, requestId: Long) {
+        val previous = activeCall
+        if (previous != null && previous !== call) {
+            previous.cancel()
+        }
+        activeCall = call
+        activeRequestId = requestId
+        Log.d(TAG, "注册活动中的语音通话请求: requestId=$requestId")
+    }
+
+    @Synchronized
+    private fun clearActiveCall(call: Call?) {
+        if (call != null && activeCall === call) {
+            Log.d(TAG, "清理活动中的语音通话请求: requestId=$activeRequestId")
+            activeCall = null
+            activeRequestId = 0L
+        }
+    }
+
+    private fun isRequestCancelled(error: Throwable?, call: Call?): Boolean {
+        if (error is CancellationException) {
+            return true
+        }
+        if (call?.isCanceled() == true) {
+            return true
+        }
+        val message = error?.message?.lowercase() ?: return false
+        return message.contains("canceled") || message.contains("cancelled")
+    }
 
 
     /**

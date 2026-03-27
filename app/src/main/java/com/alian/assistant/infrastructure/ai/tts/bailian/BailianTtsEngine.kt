@@ -85,7 +85,8 @@ data class CosyVoiceTTSResponsePayload(
  * 支持流式语音合成和实时播放
  */
 class BailianTtsEngine(
-    private val config: TtsConfig
+    private val config: TtsConfig,
+    private val manageAudioFocus: Boolean = true
 ) : TtsEngine {
 
     companion object {
@@ -176,12 +177,14 @@ class BailianTtsEngine(
 
             val taskId = System.currentTimeMillis().toString()
 
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            audioManager.requestAudioFocus(
-                null,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-            )
+            if (manageAudioFocus) {
+                val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                audioManager.requestAudioFocus(
+                    null,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+                )
+            }
 
             val bufferSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
             val actualBufferSize = bufferSize * 4

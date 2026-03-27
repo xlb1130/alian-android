@@ -6,12 +6,16 @@ import android.util.Base64
 import android.util.Log
 import com.alian.assistant.core.mcp.MCPManager
 import com.alian.assistant.presentation.viewmodel.VideoCallMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -24,6 +28,7 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * 仅使用视觉大模型的视频通话客户端（支持 MCP 工具调用）
@@ -66,6 +71,20 @@ open class MCPVLMOnlyVideoCallClient(
         .build()
 
     protected val model: String = model
+    private val requestCounter = AtomicLong(0L)
+
+    @Volatile
+    private var activeCall: Call? = null
+
+    @Volatile
+    private var activeRequestId: Long = 0L
+
+    open fun cancelActiveRequest() {
+        val call = activeCall ?: return
+        val requestId = activeRequestId
+        Log.d(TAG, "[MCP-VLM-ONLY] cancelActiveRequest: requestId=$requestId")
+        call.cancel()
+    }
 
     /**
      * 发送消息（非流式，支持 MCP 工具调用）
@@ -98,13 +117,17 @@ open class MCPVLMOnlyVideoCallClient(
 
         while (maxIterations > 0) {
             maxIterations--
+            var call: Call? = null
+            val requestId = nextRequestId()
 
             try {
                 // 构建消息列表
                 val messagesJson = buildMessages(currentHistory, imageHistory)
 
                 // 调用 VLM API（包含 MCP 工具）
-                val result = callVLMApiWithTools(messagesJson)
+                val result = callVLMApiWithTools(messagesJson, requestId) { registeredCall ->
+                    call = registeredCall
+                }
 
                 if (result.isSuccess) {
                     val parsed = result.getOrNull() ?: throw Exception("解析结果为空")
@@ -150,9 +173,14 @@ open class MCPVLMOnlyVideoCallClient(
                     return@withContext Result.failure(Exception(errorMsg))
                 }
             } catch (e: Exception) {
+                if (isRequestCancelled(e, call)) {
+                    return@withContext Result.failure(CancellationException("VLM 视频请求已取消"))
+                }
                 val elapsed = System.currentTimeMillis() - startTime
                 Log.e(TAG, "[MCP-VLM-ONLY] sendMessage 异常，总耗时: ${elapsed}ms", e)
                 return@withContext Result.failure(e)
+            } finally {
+                clearActiveCall(call)
             }
         }
 
@@ -203,6 +231,8 @@ open class MCPVLMOnlyVideoCallClient(
                 // 如果有工具调用，会自动在流式处理中完成并继续循环
                 // 如果没有工具调用，正常结束
                 break
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val elapsed = System.currentTimeMillis() - startTime
                 Log.e(TAG, "[MCP-VLM-ONLY] sendMessageStream 异常，总耗时: ${elapsed}ms", e)
@@ -282,10 +312,15 @@ open class MCPVLMOnlyVideoCallClient(
     /**
      * 调用 VLM API（非流式，支持 MCP 工具）
      */
-    private suspend fun callVLMApiWithTools(messagesJson: JSONArray): Result<ParsedResponse> = withContext(Dispatchers.IO) {
+    private suspend fun callVLMApiWithTools(
+        messagesJson: JSONArray,
+        requestId: Long,
+        onCallCreated: (Call) -> Unit
+    ): Result<ParsedResponse> = withContext(Dispatchers.IO) {
         var lastException: Exception? = null
 
         for (attempt in 1..MAX_RETRIES) {
+            var call: Call? = null
             try {
                 val requestBody = JSONObject().apply {
                     put("model", model)
@@ -312,13 +347,18 @@ open class MCPVLMOnlyVideoCallClient(
                     .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
                     .build()
 
-                val response = client.newCall(request).execute()
-                val responseBody = response.body?.string() ?: ""
+                call = client.newCall(request)
+                onCallCreated(call)
+                registerActiveCall(call, requestId)
 
-                if (response.isSuccessful) {
-                    return@withContext parseResponse(responseBody)
-                } else {
-                    lastException = Exception("API error: ${response.code} - $responseBody")
+                call.execute().use { response ->
+                    val responseBody = response.body?.string() ?: ""
+
+                    if (response.isSuccessful) {
+                        return@withContext parseResponse(responseBody)
+                    } else {
+                        lastException = Exception("API error: ${response.code} - $responseBody")
+                    }
                 }
             } catch (e: UnknownHostException) {
                 Log.w(TAG, "[MCP-VLM-ONLY] DNS 解析失败，重试 $attempt/$MAX_RETRIES")
@@ -333,13 +373,21 @@ open class MCPVLMOnlyVideoCallClient(
                     delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: IOException) {
+                if (isRequestCancelled(e, call)) {
+                    return@withContext Result.failure(CancellationException("VLM 视频请求已取消"))
+                }
                 Log.w(TAG, "[MCP-VLM-ONLY] IO 错误: ${e.message}，重试 $attempt/$MAX_RETRIES")
                 lastException = e
                 if (attempt < MAX_RETRIES) {
                     delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: Exception) {
+                if (isRequestCancelled(e, call)) {
+                    return@withContext Result.failure(CancellationException("VLM 视频请求已取消"))
+                }
                 return@withContext Result.failure(e)
+            } finally {
+                clearActiveCall(call)
             }
         }
 
@@ -379,34 +427,38 @@ open class MCPVLMOnlyVideoCallClient(
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
+        var call: Call? = null
+        val requestId = nextRequestId()
+
         try {
-            val response = client.newCall(request).execute()
+            currentCoroutineContext().ensureActive()
+            call = client.newCall(request)
+            registerActiveCall(call, requestId)
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errorBody = response.body?.string() ?: ""
+                    throw Exception("API error: ${response.code} - $errorBody")
+                }
 
-            if (!response.isSuccessful) {
-                val errorBody = response.body?.string() ?: ""
-                throw Exception("API error: ${response.code} - $errorBody")
-            }
+                val inputStream = response.body?.byteStream()
+                    ?: throw Exception("API 响应流为空")
 
-            // 使用 byteStream 真正流式读取响应
-            val inputStream = response.body?.byteStream()
-            if (inputStream == null) {
-                throw Exception("API 响应流为空")
-            }
+                Log.d(TAG, "[MCP-VLM-ONLY] 开始流式读取 SSE 响应")
 
-            Log.d(TAG, "[MCP-VLM-ONLY] 开始流式读取 SSE 响应")
+                val reader = inputStream.bufferedReader()
+                var currentContent = ""
+                var emitCount = 0
+                val collectedToolCalls = mutableListOf<StreamToolCall>()
 
-            // 逐行读取 SSE 响应
-            val reader = inputStream.bufferedReader()
-            var currentContent = ""
-            var emitCount = 0
-            val collectedToolCalls = mutableListOf<StreamToolCall>()
+                reader.useLines { lines ->
+                    for (line in lines) {
+                        currentCoroutineContext().ensureActive()
+                        if (!line.startsWith("data: ")) {
+                            continue
+                        }
 
-            reader.useLines { lines ->
-                for (line in lines) {
-                    if (line.startsWith("data: ")) {
                         val data = line.substring(6).trim()
 
-                        // 检查是否是结束标记
                         if (data == "[DONE]") {
                             Log.d(TAG, "[MCP-VLM-ONLY] 流式响应结束")
                             if (currentContent.isNotEmpty()) {
@@ -426,16 +478,20 @@ open class MCPVLMOnlyVideoCallClient(
                                 val firstChoice = choices.getJSONObject(0)
                                 val delta = firstChoice.optJSONObject("delta")
 
-                                // 处理文本内容
                                 val content = delta?.optString("content")
                                 if (!content.isNullOrBlank()) {
                                     Log.d(TAG, "[MCP-VLM-ONLY] 流式文本块: $content")
                                     currentContent += content
 
-                                    // 按句子累积：当遇到句子结束标点时 emit
-                                    if (content.endsWith("！") || content.endsWith("。") || content.endsWith("？") ||
-                                        content.endsWith(".") || content.endsWith("!") || content.endsWith("?") ||
-                                        content.endsWith("\n")) {
+                                    if (
+                                        content.endsWith("！") ||
+                                        content.endsWith("。") ||
+                                        content.endsWith("？") ||
+                                        content.endsWith(".") ||
+                                        content.endsWith("!") ||
+                                        content.endsWith("?") ||
+                                        content.endsWith("\n")
+                                    ) {
                                         emitCount++
                                         Log.d(TAG, "[MCP-VLM-ONLY] emit #$emitCount: $currentContent")
                                         emit(currentContent)
@@ -443,7 +499,6 @@ open class MCPVLMOnlyVideoCallClient(
                                     }
                                 }
 
-                                // 处理工具调用（流式）
                                 val toolCalls = delta?.optJSONArray("tool_calls")
                                 if (toolCalls != null && toolCalls.length() > 0) {
                                     Log.d(TAG, "[MCP-VLM-ONLY] 检测到流式工具调用")
@@ -452,20 +507,16 @@ open class MCPVLMOnlyVideoCallClient(
                                         val toolCall = toolCalls.getJSONObject(i)
                                         val index = toolCall.optInt("index", 0)
 
-                                        // 确保有足够的空间存储工具调用
                                         while (collectedToolCalls.size <= index) {
                                             collectedToolCalls.add(StreamToolCall("", "", ""))
                                         }
 
                                         val currentCall = collectedToolCalls[index]
-
-                                        // 处理工具调用 ID
                                         val id = toolCall.optString("id")
                                         if (!id.isNullOrBlank()) {
                                             currentCall.id = id
                                         }
 
-                                        // 处理函数信息
                                         val function = toolCall.optJSONObject("function")
                                         if (function != null) {
                                             val name = function.optString("name")
@@ -486,43 +537,47 @@ open class MCPVLMOnlyVideoCallClient(
                         }
                     }
                 }
-            }
 
-            // 发送剩余的内容
-            if (currentContent.isNotEmpty()) {
-                emitCount++
-                Log.d(TAG, "[MCP-VLM-ONLY] emit 最后 #$emitCount: $currentContent")
-                emit(currentContent)
-            }
+                if (currentContent.isNotEmpty()) {
+                    emitCount++
+                    Log.d(TAG, "[MCP-VLM-ONLY] emit 最后 #$emitCount: $currentContent")
+                    emit(currentContent)
+                }
 
-            // 如果有工具调用，执行它们
-            if (collectedToolCalls.isNotEmpty()) {
-                Log.d(TAG, "[MCP-VLM-ONLY] 处理 ${collectedToolCalls.size} 个工具调用")
-
-                // 执行工具调用
-                for (call in collectedToolCalls) {
-                    if (call.functionName.isNotEmpty()) {
-                        Log.d(TAG, "[MCP-VLM-ONLY] 执行工具: ${call.functionName}, 参数: ${call.arguments}")
-                        val result = executeMCPTool(call.functionName, call.arguments)
-
-                        // 添加工具调用结果到历史
-                        currentHistory.add(VideoCallMessage(
-                            id = call.id,
-                            content = "[工具调用: ${call.functionName}] 结果: $result",
-                            isUser = false,
-                            timestamp = System.currentTimeMillis()
-                        ))
+                if (collectedToolCalls.isNotEmpty()) {
+                    Log.d(TAG, "[MCP-VLM-ONLY] 处理 ${collectedToolCalls.size} 个工具调用")
+                    for (toolCall in collectedToolCalls) {
+                        if (toolCall.functionName.isNotEmpty()) {
+                            Log.d(
+                                TAG,
+                                "[MCP-VLM-ONLY] 执行工具: ${toolCall.functionName}, 参数: ${toolCall.arguments}"
+                            )
+                            val result = executeMCPTool(toolCall.functionName, toolCall.arguments)
+                            currentHistory.add(
+                                VideoCallMessage(
+                                    id = toolCall.id,
+                                    content = "[工具调用: ${toolCall.functionName}] 结果: $result",
+                                    isUser = false,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                        }
                     }
                 }
 
-                // 注意：这里不继续循环，因为流式处理中工具调用后应该继续生成响应
-                // 这部分逻辑由外层循环处理
+                Log.d(TAG, "[MCP-VLM-ONLY] 流式响应处理完成，共 emit $emitCount")
             }
-
-            Log.d(TAG, "[MCP-VLM-ONLY] 流式响应处理完成，共 emit $emitCount")
+        } catch (e: CancellationException) {
+            call?.cancel()
+            throw e
         } catch (e: Exception) {
+            if (isRequestCancelled(e, call)) {
+                throw CancellationException("VLM 视频流式请求已取消")
+            }
             Log.e(TAG, "[MCP-VLM-ONLY] 流式请求失败: ${e.message}")
             throw e
+        } finally {
+            clearActiveCall(call)
         }
     }
 
@@ -724,4 +779,37 @@ open class MCPVLMOnlyVideoCallClient(
         var functionName: String = "",
         var arguments: String = ""
     )
+
+    private fun nextRequestId(): Long = requestCounter.incrementAndGet()
+
+    @Synchronized
+    private fun registerActiveCall(call: Call?, requestId: Long) {
+        val previous = activeCall
+        if (previous != null && previous !== call) {
+            previous.cancel()
+        }
+        activeCall = call
+        activeRequestId = requestId
+        Log.d(TAG, "[MCP-VLM-ONLY] 注册活动请求: requestId=$requestId")
+    }
+
+    @Synchronized
+    private fun clearActiveCall(call: Call?) {
+        if (call != null && activeCall === call) {
+            Log.d(TAG, "[MCP-VLM-ONLY] 清理活动请求: requestId=$activeRequestId")
+            activeCall = null
+            activeRequestId = 0L
+        }
+    }
+
+    private fun isRequestCancelled(error: Throwable?, call: Call?): Boolean {
+        if (error is CancellationException) {
+            return true
+        }
+        if (call?.isCanceled() == true) {
+            return true
+        }
+        val message = error?.message?.lowercase() ?: return false
+        return message.contains("canceled") || message.contains("cancelled")
+    }
 }

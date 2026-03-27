@@ -79,6 +79,9 @@ class AecVoiceCallAudioManager(
     // 当前录音任务
     private var recordingJob: Job? = null
 
+    // 当前流式文本收集任务（用于在打断时立即取消旧 collect）
+    private var streamCollectJob: Job? = null
+
     // 是否正在录音
     private var isRecording = false
 
@@ -206,7 +209,9 @@ class AecVoiceCallAudioManager(
             rate = ttsSpeed,
             volume = volume,
             offlineTtsEnabled = offlineTtsEnabled,
-            offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud
+            offlineTtsAutoFallbackToCloud = offlineTtsAutoFallbackToCloud,
+            requirePcmAudioDataCallback = ttsInterruptEnabled,
+            manageAudioFocus = !ttsInterruptEnabled
         )
 
         // 设置音频数据回调，将播放的音频数据提供给 AecAudioProcessor 作为参考信号
@@ -844,15 +849,31 @@ class AecVoiceCallAudioManager(
                     }
                     Log.d(TAG, "finish-task 已发送")
                 } catch (e: Exception) {
+                    if (e is CancellationException && !isPlaying) {
+                        Log.d(TAG, "collect 文本块因播放中断被取消")
+                        return@launch
+                    }
                     Log.e(TAG, "collect 文本块异常", e)
                     if (streamError == null) {
                         streamError = e.message ?: "collect 文本块异常"
                     }
                 }
             }
+            streamCollectJob = collectJob
 
             // 等待 collect 完成（文本块发送完成）
             collectJob.join()
+            if (streamCollectJob === collectJob) {
+                streamCollectJob = null
+            }
+
+            if (!isPlaying) {
+                Log.d(TAG, "流式 TTS 在 collect 完成后发现已被打断，按正常中断处理")
+                aecAudioProcessor?.notifyPlaybackStopped()
+                cosyVoiceTTSClient?.stopStreamingSession()
+                onFinished(fullText.toString())
+                return
+            }
 
             if (streamError != null) {
                 if (isPlaybackInterruptedMessage(streamError) || !isPlaying) {
@@ -964,6 +985,8 @@ class AecVoiceCallAudioManager(
         }
 
         isPlaying = false
+        streamCollectJob?.cancel()
+        streamCollectJob = null
 
         // 通知 AEC 处理器 TTS 播放已停止
         aecAudioProcessor?.notifyPlaybackStopped()
@@ -990,6 +1013,8 @@ class AecVoiceCallAudioManager(
         silenceTimer = null
         recordingJob?.cancel()
         recordingJob = null
+        streamCollectJob?.cancel()
+        streamCollectJob = null
 
         // 停止播放
         if (isPlaying) {

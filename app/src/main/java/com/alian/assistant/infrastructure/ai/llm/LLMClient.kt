@@ -1,11 +1,16 @@
 package com.alian.assistant.infrastructure.ai.llm
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import okhttp3.Call
 import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -17,6 +22,7 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * LLM (Large Language Model) API 客户端
@@ -28,18 +34,8 @@ class LLMClient(
     baseUrl: String = "https://dashscope.aliyuncs.com/compatible-mode/v1",
     private val model: String = "qwen-plus"
 ) {
-    // 规范化 URL：自动添加 https:// 前缀，移除末尾斜杠
-    private val baseUrl: String = normalizeUrl(baseUrl)
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .connectionPool(ConnectionPool(5, 1, TimeUnit.MINUTES))
-        .build()
-
     companion object {
+        private const val TAG = "LLMClient"
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 1000L
 
@@ -51,6 +47,32 @@ class LLMClient(
             }
             return normalized
         }
+    }
+
+    // 规范化 URL：自动添加 https:// 前缀，移除末尾斜杠
+    private val baseUrl: String = normalizeUrl(baseUrl)
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .connectionPool(ConnectionPool(5, 1, TimeUnit.MINUTES))
+        .build()
+
+    private val requestCounter = AtomicLong(0L)
+
+    @Volatile
+    private var activeCall: Call? = null
+
+    @Volatile
+    private var activeRequestId: Long = 0L
+
+    fun cancelActiveRequest() {
+        val call = activeCall ?: return
+        val requestId = activeRequestId
+        Log.d(TAG, "取消当前 LLM 请求: requestId=$requestId")
+        call.cancel()
     }
 
     /**
@@ -66,6 +88,8 @@ class LLMClient(
         var lastException: Exception? = null
 
         for (attempt in 1..MAX_RETRIES) {
+            var call: Call? = null
+            val requestId = nextRequestId()
             try {
                 // 构建完整的消息列表
                 val fullMessages = JSONArray()
@@ -103,22 +127,26 @@ class LLMClient(
                     .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
                     .build()
 
-                val response = client.newCall(request).execute()
-                val responseBody = response.body?.string() ?: ""
+                call = client.newCall(request)
+                registerActiveCall(call, requestId)
 
-                if (response.isSuccessful) {
-                    val json = JSONObject(responseBody)
-                    val choices = json.getJSONArray("choices")
-                    if (choices.length() > 0) {
-                        val message = choices.getJSONObject(0).getJSONObject("message")
-                        val responseContent = message.getString("content")
-                        println("[LLMClient] 请求成功，响应长度: ${responseContent.length}")
-                        return@withContext Result.success(responseContent)
+                call.execute().use { response ->
+                    val responseBody = response.body?.string() ?: ""
+
+                    if (response.isSuccessful) {
+                        val json = JSONObject(responseBody)
+                        val choices = json.getJSONArray("choices")
+                        if (choices.length() > 0) {
+                            val message = choices.getJSONObject(0).getJSONObject("message")
+                            val responseContent = message.getString("content")
+                            println("[LLMClient] 请求成功，响应长度: ${responseContent.length}")
+                            return@withContext Result.success(responseContent)
+                        } else {
+                            lastException = Exception("No response from model")
+                        }
                     } else {
-                        lastException = Exception("No response from model")
+                        lastException = Exception("API error: ${response.code} - $responseBody")
                     }
-                } else {
-                    lastException = Exception("API error: ${response.code} - $responseBody")
                 }
             } catch (e: UnknownHostException) {
                 println("[LLMClient] DNS 解析失败，重试 $attempt/$MAX_RETRIES...")
@@ -133,13 +161,21 @@ class LLMClient(
                     delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: IOException) {
+                if (isRequestCancelled(e, call)) {
+                    return@withContext Result.failure(CancellationException("LLM 请求已取消"))
+                }
                 println("[LLMClient] IO 错误: ${e.message}，重试 $attempt/$MAX_RETRIES...")
                 lastException = e
                 if (attempt < MAX_RETRIES) {
                     delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: Exception) {
+                if (isRequestCancelled(e, call)) {
+                    return@withContext Result.failure(CancellationException("LLM 请求已取消"))
+                }
                 return@withContext Result.failure(e)
+            } finally {
+                clearActiveCall(call)
             }
         }
 
@@ -187,40 +223,122 @@ class LLMClient(
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
+        var call: Call? = null
+        val requestId = nextRequestId()
+
         try {
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
+            currentCoroutineContext().ensureActive()
+            call = client.newCall(request)
+            registerActiveCall(call, requestId)
 
-            if (!response.isSuccessful) {
-                throw Exception("API error: ${response.code} - $responseBody")
-            }
+            call.execute().use { response ->
+                if (!response.isSuccessful) {
+                    val responseBody = response.body?.string() ?: ""
+                    throw Exception("API error: ${response.code} - $responseBody")
+                }
 
-            // 解析 SSE 流式响应
-            responseBody.lines().forEach { line ->
-                if (line.startsWith("data: ")) {
-                    val data = line.substring(6).trim()
-                    if (data == "[DONE]") {
-                        return@forEach
-                    }
+                val inputStream = response.body?.byteStream()
+                    ?: throw Exception("API 响应流为空")
 
-                    try {
-                        val json = JSONObject(data)
-                        val choices = json.getJSONArray("choices")
-                        if (choices.length() > 0) {
-                            val delta = choices.getJSONObject(0).getJSONObject("delta")
-                            val content = delta.optString("content", "")
-                            if (content.isNotEmpty()) {
-                                emit(content)
-                            }
+                val reader = inputStream.bufferedReader()
+                var currentContent = ""
+
+                reader.useLines { lines ->
+                    for (line in lines) {
+                        currentCoroutineContext().ensureActive()
+
+                        if (!line.startsWith("data: ")) {
+                            continue
                         }
-                    } catch (e: Exception) {
-                        println("[LLMClient] 解析流式响应失败: ${e.message}")
+
+                        val data = line.substring(6).trim()
+                        if (data == "[DONE]") {
+                            if (currentContent.isNotEmpty()) {
+                                emit(currentContent)
+                                currentContent = ""
+                            }
+                            break
+                        }
+
+                        try {
+                            val json = JSONObject(data)
+                            val choices = json.optJSONArray("choices") ?: continue
+                            if (choices.length() == 0) {
+                                continue
+                            }
+                            val delta = choices.getJSONObject(0).optJSONObject("delta")
+                            val content = delta?.optString("content")
+                            if (!content.isNullOrEmpty() && !"null".equals(content, ignoreCase = true)) {
+                                currentContent += content
+                                if (
+                                    content.endsWith("。") ||
+                                    content.endsWith("！") ||
+                                    content.endsWith("？") ||
+                                    content.endsWith(".") ||
+                                    content.endsWith("!") ||
+                                    content.endsWith("?") ||
+                                    content.endsWith("\n")
+                                ) {
+                                    emit(currentContent)
+                                    currentContent = ""
+                                }
+                            }
+                        } catch (e: Exception) {
+                            println("[LLMClient] 解析流式响应失败: ${e.message}")
+                        }
                     }
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: IOException) {
+            if (isRequestCancelled(e, call)) {
+                throw CancellationException("LLM 流式请求已取消")
+            }
             println("[LLMClient] 流式请求失败: ${e.message}")
             throw e
+        } catch (e: CancellationException) {
+            call?.cancel()
+            throw e
+        } catch (e: Exception) {
+            if (isRequestCancelled(e, call)) {
+                throw CancellationException("LLM 流式请求已取消")
+            }
+            println("[LLMClient] 流式请求失败: ${e.message}")
+            throw e
+        } finally {
+            clearActiveCall(call)
         }
     }.flowOn(Dispatchers.IO)
+
+    private fun nextRequestId(): Long = requestCounter.incrementAndGet()
+
+    @Synchronized
+    private fun registerActiveCall(call: Call?, requestId: Long) {
+        val previous = activeCall
+        if (previous != null && previous !== call) {
+            previous.cancel()
+        }
+        activeCall = call
+        activeRequestId = requestId
+        Log.d(TAG, "注册活动中的 LLM 请求: requestId=$requestId")
+    }
+
+    @Synchronized
+    private fun clearActiveCall(call: Call?) {
+        if (call != null && activeCall === call) {
+            Log.d(TAG, "清理活动中的 LLM 请求: requestId=$activeRequestId")
+            activeCall = null
+            activeRequestId = 0L
+        }
+    }
+
+    private fun isRequestCancelled(error: Throwable?, call: Call?): Boolean {
+        if (error is CancellationException) {
+            return true
+        }
+        if (call?.isCanceled() == true) {
+            return true
+        }
+        val message = error?.message?.lowercase() ?: return false
+        return message.contains("canceled") || message.contains("cancelled")
+    }
 }

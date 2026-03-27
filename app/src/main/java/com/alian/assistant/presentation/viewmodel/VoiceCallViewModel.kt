@@ -53,6 +53,7 @@ class VoiceCallViewModel(private val context: Context) {
     companion object {
         private const val TAG = "VoiceCallViewModel"
         private const val MAX_HISTORY_SIZE = 10  // 最多保留 10 条对话历史
+        private const val NO_ACTIVE_TURN = -1L
     }
 
     // 通话状态
@@ -88,6 +89,10 @@ class VoiceCallViewModel(private val context: Context) {
 
     // 通话是否处于激活状态（用于拦截挂断后的异步重入）
     private var callActive = false
+
+    // 当前激活的助手轮次
+    private var activeTurnId: Long = NO_ACTIVE_TURN
+    private var turnCounter: Long = 0L
 
     // API 配置
     var apiKey: String = ""
@@ -141,14 +146,20 @@ class VoiceCallViewModel(private val context: Context) {
 
         // 重置处理标志
         isProcessing = false
+        activeTurnId = NO_ACTIVE_TURN
 
         // 清空之前的对话历史
         _conversationHistory.clear()
         _currentRecognizedText.value = ""
         _currentPlayingMessage.value = ""
 
+        val shouldUseAec = enableAEC || ttsInterruptEnabled
+        if (ttsInterruptEnabled && !enableAEC) {
+            Log.w(TAG, "实时语音打断依赖 AEC，启动语音通话时自动切换到 AEC 音频链路")
+        }
+
         // 初始化音频管理器
-        audioManager = if (enableAEC) {
+        audioManager = if (shouldUseAec) {
             val aecManager = AecVoiceCallAudioManager(
                 context = context,
                 apiKey = apiKey,
@@ -166,11 +177,7 @@ class VoiceCallViewModel(private val context: Context) {
                         Log.d(TAG, "通话未激活，忽略播放中断回调")
                         return@launch
                     }
-                    Log.d(TAG, "播放被中断(语音打断),更新状态并开始录音")
-                    isProcessing = false
-                    _currentPlayingMessage.value = ""
-                    _callState.value = VoiceCallState.Recording
-                    startRecording()
+                    interruptCurrentTurn("aec_playback_interrupted")
                 }
             }
             aecManager
@@ -209,12 +216,14 @@ class VoiceCallViewModel(private val context: Context) {
         callActive = false
 
         // 取消所有协程（包括延迟重启录音任务）
+        voiceCallClient?.cancelActiveRequest()
         currentJob?.cancel()
         currentJob = null
         viewModelScope.coroutineContext.cancelChildren()
 
         // 重置处理标志
         isProcessing = false
+        activeTurnId = NO_ACTIVE_TURN
 
         // 释放音频（包含 stopAll + 内部作用域清理）
         audioManager?.release()
@@ -382,27 +391,26 @@ class VoiceCallViewModel(private val context: Context) {
 
         // 标记为正在处理
         isProcessing = true
+        val turnId = activateTurn("user:$guardedText")
 
         // 发送到 API（使用 viewModelScope 统一管理）
+        currentJob?.cancel()
         currentJob = viewModelScope.launch {
-            try {
-                processUserMessage(guardedText)
-            } finally {
-                // 处理完成后重置标志
-                isProcessing = false
-            }
+            processUserMessage(guardedText, turnId)
         }
     }
 
     /**
      * 处理用户消息（调用 API）
      */
-    private suspend fun processUserMessage(message: String) {
-        Log.d(TAG, "处理用户消息: $message, enableStreaming=$enableStreaming")
+    private suspend fun processUserMessage(message: String, turnId: Long) {
+        if (isStaleTurn(turnId, "process_user_message_start")) return
+
+        Log.d(TAG, "处理用户消息: turnId=$turnId, message=$message, enableStreaming=$enableStreaming")
 
         // 根据配置选择流式或非流式模式
         if (enableStreaming) {
-            processUserMessageStream(message)
+            processUserMessageStream(message, turnId)
             return
         }
 
@@ -416,6 +424,8 @@ class VoiceCallViewModel(private val context: Context) {
                 conversationHistory = _conversationHistory.toList()
             )
 
+            if (isStaleTurn(turnId, "process_user_message_response")) return
+
             if (result != null && result.isSuccess) {
                 val content = result.getOrNull() ?: ""
                 Log.d(TAG, "API 解析后的内容: $content")
@@ -423,6 +433,7 @@ class VoiceCallViewModel(private val context: Context) {
                 // 检查空响应
                 if (content.isBlank()) {
                     Log.w(TAG, "API 返回空响应")
+                    completeTurn(turnId, "empty_response")
                     _callState.value = VoiceCallState.Error("AI 返回空响应，请重试")
                     
                     // 等待 2 秒后重新开始录音
@@ -430,25 +441,13 @@ class VoiceCallViewModel(private val context: Context) {
                     startRecording()
                     return
                 }
-                
-                // 添加助手消息到历史
-                val assistantMessage = VoiceCallMessage(
-                    id = generateMessageId(),
-                    content = content,
-                    isUser = false
-                )
-                _conversationHistory.add(assistantMessage)
 
                 // 播放响应
-                playResponse(content)
-
-                // 限制历史大小
-                while (_conversationHistory.size > MAX_HISTORY_SIZE) {
-                    _conversationHistory.removeAt(0)
-                }
+                playResponse(content, turnId)
             } else {
                 val errorMsg = result?.exceptionOrNull()?.message ?: "API 调用失败"
                 Log.e(TAG, "API 调用失败: $errorMsg")
+                completeTurn(turnId, "request_failed")
                 _callState.value = VoiceCallState.Error(errorMsg)
                 
                 // 等待 2 秒后重新开始录音
@@ -456,10 +455,12 @@ class VoiceCallViewModel(private val context: Context) {
                 startRecording()
             }
         } catch (e: CancellationException) {
-            Log.d(TAG, "处理用户消息任务已取消")
+            Log.d(TAG, "处理用户消息任务已取消: turnId=$turnId")
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "处理用户消息失败", e)
+            if (isStaleTurn(turnId, "process_user_message_exception")) return
+            completeTurn(turnId, "request_exception")
             _callState.value = VoiceCallState.Error(e.message ?: "处理失败")
             
             // 等待 2 秒后重新开始录音
@@ -472,11 +473,13 @@ class VoiceCallViewModel(private val context: Context) {
      * 处理用户消息（流式 LLM + 流式 TTS）
      * @param message 用户消息
      */
-    private suspend fun processUserMessageStream(message: String) {
+    private suspend fun processUserMessageStream(message: String, turnId: Long) {
         Log.d(TAG, "=== processUserMessageStream 开始 ===")
-        Log.d(TAG, "处理用户消息（流式）: $message")
+        Log.d(TAG, "处理用户消息（流式）: turnId=$turnId, message=$message")
         Log.d(TAG, "audioManager 是否为 null: ${audioManager == null}")
         Log.d(TAG, "voiceCallClient 是否为 null: ${voiceCallClient == null}")
+
+        if (isStaleTurn(turnId, "process_stream_start")) return
 
         _callState.value = VoiceCallState.Processing
         Log.d(TAG, "状态已更新为: Processing")
@@ -499,59 +502,51 @@ class VoiceCallViewModel(private val context: Context) {
             audioManager?.playTextStream(
                 textFlow = textFlow,
                 onFinished = streamFinished@{ fullText ->
-                    if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
-                        Log.d(TAG, "通话未激活，忽略流式播放完成回调")
+                    if (isStaleTurn(turnId, "stream_finished")) {
                         return@streamFinished
                     }
-                    Log.d(TAG, "流式播放完成，完整文本: $fullText")
+                    Log.d(TAG, "流式播放完成: turnId=$turnId, 完整文本: $fullText")
 
-                    // 添加助手消息到历史
-                    val assistantMessage = VoiceCallMessage(
-                        id = generateMessageId(),
-                        content = fullText,
-                        isUser = false
-                    )
-                    _conversationHistory.add(assistantMessage)
-
-                    // 限制历史大小
-                    while (_conversationHistory.size > MAX_HISTORY_SIZE) {
-                        _conversationHistory.removeAt(0)
+                    if (fullText.isNotBlank()) {
+                        _conversationHistory.add(
+                            VoiceCallMessage(
+                                id = generateMessageId(),
+                                content = fullText,
+                                isUser = false
+                            )
+                        )
+                        trimConversationHistory()
                     }
 
-                    // 清空播放消息
                     _currentPlayingMessage.value = ""
-
-                    // 流式场景下，尽早释放处理锁，避免“播放已结束但用户说话仍被判定为处理中”
-                    isProcessing = false
-
+                    completeTurn(turnId, "stream_finished")
                     restartRecordingWithDelay(100, "stream_finished")
                 },
                 onError = streamError@{ error ->
-                    if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
-                        Log.d(TAG, "通话未激活，忽略流式播放错误: $error")
+                    if (isStaleTurn(turnId, "stream_error")) {
                         return@streamError
                     }
                     if (isPlaybackInterruptedMessage(error)) {
-                        Log.d(TAG, "流式播放被语音打断，按正常中断处理")
-                        _currentPlayingMessage.value = ""
-                        isProcessing = false
-                        restartRecordingWithDelay(0, "stream_playback_interrupted")
+                        Log.d(TAG, "流式播放被语音打断，交给统一中断流程处理: turnId=$turnId")
+                        interruptCurrentTurn("stream_playback_interrupted")
                         return@streamError
                     }
                     Log.e(TAG, "流式播放错误: $error")
+                    completeTurn(turnId, "stream_playback_error")
                     _callState.value = VoiceCallState.Error(error)
                     _currentPlayingMessage.value = ""
-                    isProcessing = false
 
                     restartRecordingWithDelay(2000, "stream_playback_error")
                 }
             )
 
         } catch (e: CancellationException) {
-            Log.d(TAG, "处理用户消息（流式）任务已取消")
+            Log.d(TAG, "处理用户消息（流式）任务已取消: turnId=$turnId")
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "处理用户消息（流式）失败", e)
+            if (isStaleTurn(turnId, "stream_exception")) return
+            completeTurn(turnId, "stream_exception")
             _callState.value = VoiceCallState.Error(e.message ?: "处理失败")
 
             restartRecordingWithDelay(2000, "stream_process_exception")
@@ -561,8 +556,10 @@ class VoiceCallViewModel(private val context: Context) {
     /**
      * 播放响应
      */
-    private fun playResponse(text: String) {
-        Log.d(TAG, "播放响应: text长度=${text.length}, text前50字符=${text.take(50)}, 完整text=$text")
+    private fun playResponse(text: String, turnId: Long) {
+        if (isStaleTurn(turnId, "play_response_start")) return
+
+        Log.d(TAG, "播放响应: turnId=$turnId, text长度=${text.length}, text前50字符=${text.take(50)}, 完整text=$text")
 
         _callState.value = VoiceCallState.Playing
         _currentPlayingMessage.value = text
@@ -570,36 +567,34 @@ class VoiceCallViewModel(private val context: Context) {
         audioManager?.playText(
             text = text,
             onFinished = playFinished@{
-                if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
-                    Log.d(TAG, "通话未激活，忽略播放完成回调")
+                if (isStaleTurn(turnId, "play_finished")) {
                     return@playFinished
                 }
-                Log.d(TAG, "播放完成")
+                Log.d(TAG, "播放完成: turnId=$turnId")
 
-                // 先清空播放消息
+                _conversationHistory.add(
+                    VoiceCallMessage(
+                        id = generateMessageId(),
+                        content = text,
+                        isUser = false
+                    )
+                )
+                trimConversationHistory()
                 _currentPlayingMessage.value = ""
-
-                // 检查是否还在播放(可能已经被语音打断)
-                if (audioManager?.isCurrentlyPlaying() == false) {
-                    Log.d(TAG, "播放已被停止(可能是语音打断),立即开始录音")
-                    restartRecordingWithDelay(0, "playback_interrupted_or_stopped")
-                } else {
-                    // 正常完成播放，等待一小段时间后开始录音
-                    restartRecordingWithDelay(100, "playback_finished")
-                }
+                completeTurn(turnId, "playback_finished")
+                restartRecordingWithDelay(100, "playback_finished")
             },
             onError = playError@{ error ->
-                if (!callActive || audioManager == null || _callState.value is VoiceCallState.Idle) {
-                    Log.d(TAG, "通话未激活，忽略播放错误: $error")
+                if (isStaleTurn(turnId, "play_error")) {
                     return@playError
                 }
                 if (isPlaybackInterruptedMessage(error)) {
-                    Log.d(TAG, "播放被语音打断，按正常中断处理")
-                    _currentPlayingMessage.value = ""
-                    restartRecordingWithDelay(0, "playback_interrupted_error")
+                    Log.d(TAG, "播放被语音打断，交给统一中断流程处理: turnId=$turnId")
+                    interruptCurrentTurn("playback_interrupted_error")
                     return@playError
                 }
                 Log.e(TAG, "播放错误: $error")
+                completeTurn(turnId, "playback_error")
                 _callState.value = VoiceCallState.Error(error)
                 _currentPlayingMessage.value = ""
 
@@ -619,6 +614,59 @@ class VoiceCallViewModel(private val context: Context) {
             }
             _callState.value = VoiceCallState.Recording
             startRecording()
+        }
+    }
+
+    private fun activateTurn(reason: String): Long {
+        val turnId = ++turnCounter
+        activeTurnId = turnId
+        Log.d(TAG, "激活轮次: turnId=$turnId, reason=$reason")
+        return turnId
+    }
+
+    private fun completeTurn(turnId: Long, reason: String) {
+        if (activeTurnId != turnId) {
+            Log.d(TAG, "轮次完成时已非激活状态，忽略: turnId=$turnId, activeTurnId=$activeTurnId, reason=$reason")
+            return
+        }
+        Log.d(TAG, "完成轮次: turnId=$turnId, reason=$reason")
+        activeTurnId = NO_ACTIVE_TURN
+        isProcessing = false
+        currentJob = null
+    }
+
+    private fun interruptCurrentTurn(reason: String, restartRecording: Boolean = true) {
+        val interruptedTurnId = activeTurnId
+        Log.d(TAG, "中断当前轮次: turnId=$interruptedTurnId, reason=$reason")
+        activeTurnId = NO_ACTIVE_TURN
+        isProcessing = false
+        _currentPlayingMessage.value = ""
+        voiceCallClient?.cancelActiveRequest()
+        currentJob?.cancel()
+        currentJob = null
+        audioManager?.stopPlayback()
+
+        if (restartRecording) {
+            restartRecordingWithDelay(0, "interrupt_$reason")
+        }
+    }
+
+    private fun isStaleTurn(turnId: Long, event: String): Boolean {
+        val stale =
+            turnId == NO_ACTIVE_TURN ||
+                activeTurnId != turnId ||
+                !callActive ||
+                audioManager == null ||
+                _callState.value is VoiceCallState.Idle
+        if (stale) {
+            Log.d(TAG, "丢弃过期回调: event=$event, turnId=$turnId, activeTurnId=$activeTurnId, callActive=$callActive")
+        }
+        return stale
+    }
+
+    private fun trimConversationHistory() {
+        while (_conversationHistory.size > MAX_HISTORY_SIZE) {
+            _conversationHistory.removeAt(0)
         }
     }
 

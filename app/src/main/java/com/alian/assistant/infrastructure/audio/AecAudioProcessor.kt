@@ -92,6 +92,9 @@ class AecAudioProcessor(
     private var lastInterruptTriggerTime: Long = 0L
     private var dynamicNoiseFloor = 120.0
     private var smoothedReferenceCoverage = 1.0
+    private var lastPlaybackRejectLogTime: Long = 0L
+    private var lastDoubleTalkFreezeLogTime: Long = 0L
+    private var lastPlaybackUncorroboratedLogTime: Long = 0L
 
     // TTS 播放状态感知（用于优化 VAD 检测，避免回声误触发）
     @Volatile
@@ -150,6 +153,9 @@ class AecAudioProcessor(
         playbackStartTime = System.currentTimeMillis()
         consecutiveSpeechDetectionCount = 0
         speechCandidateStartTime = 0L
+        lastPlaybackRejectLogTime = 0L
+        lastDoubleTalkFreezeLogTime = 0L
+        lastPlaybackUncorroboratedLogTime = 0L
         smoothedReferenceCoverage = 0.0
         playbackProtectionPeriodMs = MAX_PLAYBACK_PROTECTION_PERIOD_MS
         Log.d(TAG, "TTS 播放已开始，启动自适应打断保护期")
@@ -162,6 +168,9 @@ class AecAudioProcessor(
         isPlaybackActive = false
         consecutiveSpeechDetectionCount = 0
         speechCandidateStartTime = 0L
+        lastPlaybackRejectLogTime = 0L
+        lastDoubleTalkFreezeLogTime = 0L
+        lastPlaybackUncorroboratedLogTime = 0L
         smoothedReferenceCoverage = 1.0
         playbackProtectionPeriodMs = MIN_PLAYBACK_PROTECTION_PERIOD_MS
         Log.d(TAG, "TTS 播放已停止")
@@ -337,19 +346,54 @@ class AecAudioProcessor(
                         if (readSize > 0) referenceBytesCopied.toDouble() / readSize.toDouble() else 0.0
                     updateReferenceCoverage(referenceCoverage)
 
+                    val rawAudio = microphoneBuffer.copyOfRange(0, readSize)
+                    val rawEnergy = calculateRms(rawAudio)
+                    val rawPeak = calculatePeakAbs(rawAudio)
+                    var aecResult: AecFrameResult? = null
+
+                    val inPlaybackGuard =
+                        isPlaybackActive &&
+                            (System.currentTimeMillis() - playbackStartTime) < playbackProtectionPeriodMs
+
                     if (hasReference) {
                         // 执行回声消除
-                        processedAudio =
-                            performAEC(microphoneBuffer.copyOfRange(0, readSize), reference)
+                        aecResult = performAEC(
+                            microphone = rawAudio,
+                            reference = reference,
+                            allowDoubleTalkFreeze = isPlaybackActive &&
+                                !inPlaybackGuard &&
+                                smoothedReferenceCoverage >= 0.75
+                        )
+                        processedAudio = aecResult.processedAudio
+                        val now = System.currentTimeMillis()
+                        if (aecResult.adaptationFrozen &&
+                            now - lastDoubleTalkFreezeLogTime >= 500L
+                        ) {
+                            lastDoubleTalkFreezeLogTime = now
+                            Log.d(
+                                TAG,
+                                "AEC 双讲保护已冻结权重更新: micRms=${"%.2f".format(aecResult.microphoneRms)}, refRms=${"%.2f".format(aecResult.referenceRms)}, residualRms=${"%.2f".format(aecResult.residualRms)}, refCoverage=${"%.2f".format(referenceCoverage)}"
+                            )
+                        }
                     } else {
                         // 没有参考信号，直接输出原始音频
-                        processedAudio = microphoneBuffer.copyOfRange(0, readSize)
+                        processedAudio = rawAudio
                     }
 
                    // 检测用户是否在说话（基于AEC处理后的音频能量）
                     // 当 TTS 正在播放但没有参考信号时，使用更高阈值检测，降低回声误触发风险
                     val useHighThreshold = isPlaybackActive && !hasReference
-                    detectUserSpeech(processedAudio, useHighThreshold, referenceCoverage)
+                    detectUserSpeech(
+                        audioData = processedAudio,
+                        useHighThreshold = useHighThreshold,
+                        referenceCoverage = referenceCoverage,
+                        rawEnergy = rawEnergy,
+                        rawPeak = rawPeak,
+                        microphoneRms = if (hasReference) aecResult?.microphoneRms else null,
+                        referenceRms = if (hasReference) aecResult?.referenceRms else null,
+                        residualRms = if (hasReference) aecResult?.residualRms else null,
+                        adaptationFrozen = if (hasReference) aecResult?.adaptationFrozen else null
+                    )
 
 
                     // 回调处理后的音频（在长生命周期模式下可通过开关关闭输出）
@@ -385,7 +429,13 @@ class AecAudioProcessor(
     private fun detectUserSpeech(
         audioData: ByteArray,
         useHighThreshold: Boolean = false,
-        referenceCoverage: Double = 0.0
+        referenceCoverage: Double = 0.0,
+        rawEnergy: Double? = null,
+        rawPeak: Double? = null,
+        microphoneRms: Double? = null,
+        referenceRms: Double? = null,
+        residualRms: Double? = null,
+        adaptationFrozen: Boolean? = null
     ) {
         // 计算基础特征：能量 + 过零率 + 峰值
         val energy = calculateRms(audioData)
@@ -429,6 +479,33 @@ class AecAudioProcessor(
             energy > adaptiveThreshold * FAST_INTERRUPT_ENERGY_FACTOR &&
                 peak > adaptiveThreshold * FAST_INTERRUPT_PEAK_FACTOR &&
                 relaxedZcrValid
+        val playbackNeedsCorroboration =
+            isPlaybackActive && !inPlaybackGuard && referenceCoverage >= 0.75
+        val playbackCorroborated =
+            !playbackNeedsCorroboration ||
+                isPlaybackSpeechCorroborated(
+                    microphoneRms = microphoneRms,
+                    referenceRms = referenceRms,
+                    residualRms = residualRms,
+                    adaptationFrozen = adaptationFrozen
+                )
+
+        if ((speechLike || fastPathSpeechLike) && !playbackCorroborated) {
+            consecutiveSpeechDetectionCount = 0
+            speechCandidateStartTime = 0L
+            if (now - lastPlaybackUncorroboratedLogTime >= 1000L) {
+                lastPlaybackUncorroboratedLogTime = now
+                Log.d(
+                    TAG,
+                    "播放期检测到残余能量但缺少近端人声佐证，忽略本次候选: energy=$energy, peak=$peak, threshold=$adaptiveThreshold, micRms=${microphoneRms ?: -1.0}, refRms=${referenceRms ?: -1.0}, residualRms=${residualRms ?: -1.0}, frozen=${if (adaptationFrozen == true) 1 else 0}, refCoverage=${"%.2f".format(referenceCoverage)}"
+                )
+            }
+            VoiceTerminalMetrics.recordInterruptRejected(
+                scene = metricsScene,
+                reason = "aec_uncorroborated"
+            )
+            return
+        }
 
         if (speechLike || fastPathSpeechLike) {
             // 检测到用户说话
@@ -453,7 +530,7 @@ class AecAudioProcessor(
             ) {
                 Log.d(
                     TAG,
-                    "快路径确认用户说话，触发语音打断: energy=$energy, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, refCoverage=${"%.2f".format(referenceCoverage)}"
+                    "快路径确认用户说话，触发语音打断: energy=$energy, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, micRms=${microphoneRms ?: -1.0}, refRms=${referenceRms ?: -1.0}, residualRms=${residualRms ?: -1.0}, frozen=${if (adaptationFrozen == true) 1 else 0}, refCoverage=${"%.2f".format(referenceCoverage)}"
                 )
                 VoiceTerminalMetrics.recordInterruptConfirmed(
                     scene = metricsScene,
@@ -474,7 +551,7 @@ class AecAudioProcessor(
 
             Log.d(
                 TAG,
-                "检测到候选语音，energy=$energy, zcr=$zcr, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, count=$consecutiveSpeechDetectionCount/$requiredDetections, refCoverage=${"%.2f".format(referenceCoverage)}, guard=${if (inPlaybackGuard) 1 else 0}"
+                "检测到候选语音，energy=$energy, zcr=$zcr, peak=$peak, threshold=$adaptiveThreshold, holdMs=$holdMs, count=$consecutiveSpeechDetectionCount/$requiredDetections, micRms=${microphoneRms ?: -1.0}, refRms=${referenceRms ?: -1.0}, residualRms=${residualRms ?: -1.0}, frozen=${if (adaptationFrozen == true) 1 else 0}, refCoverage=${"%.2f".format(referenceCoverage)}, guard=${if (inPlaybackGuard) 1 else 0}"
             )
 
             // 只有连续检测到指定次数才触发回调（防抖机制）
@@ -505,6 +582,13 @@ class AecAudioProcessor(
                 consecutiveSpeechDetectionCount = 0
             }
             speechCandidateStartTime = 0L
+            if (isPlaybackActive && now - lastPlaybackRejectLogTime >= 1000L) {
+                lastPlaybackRejectLogTime = now
+                Log.d(
+                    TAG,
+                    "播放期未判定为人声: energy=$energy, zcr=$zcr, peak=$peak, rawEnergy=${rawEnergy ?: -1.0}, rawPeak=${rawPeak ?: -1.0}, micRms=${microphoneRms ?: -1.0}, refRms=${referenceRms ?: -1.0}, residualRms=${residualRms ?: -1.0}, frozen=${if (adaptationFrozen == true) 1 else 0}, threshold=$adaptiveThreshold, refCoverage=${"%.2f".format(referenceCoverage)}, guard=${if (inPlaybackGuard) 1 else 0}, useHighThreshold=${if (useHighThreshold) 1 else 0}"
+                )
+            }
             if (hadCandidate) {
                 VoiceTerminalMetrics.recordInterruptRejected(
                     scene = metricsScene,
@@ -512,6 +596,28 @@ class AecAudioProcessor(
                 )
             }
         }
+    }
+
+    private fun isPlaybackSpeechCorroborated(
+        microphoneRms: Double?,
+        referenceRms: Double?,
+        residualRms: Double?,
+        adaptationFrozen: Boolean?
+    ): Boolean {
+        if (adaptationFrozen == true) {
+            return true
+        }
+
+        if (microphoneRms == null || referenceRms == null || residualRms == null) {
+            return false
+        }
+
+        val micDominates = microphoneRms > referenceRms * 1.10
+        val residualStrong =
+            residualRms > maxOf(140.0, referenceRms * 0.24) &&
+                microphoneRms > referenceRms * 0.94
+
+        return micDominates || residualStrong
     }
 
     private fun updateReferenceCoverage(frameCoverage: Double) {
@@ -579,18 +685,42 @@ class AecAudioProcessor(
     /**
      * 执行回声消除
      */
-    private fun performAEC(microphone: ByteArray, reference: ByteArray): ByteArray {
-        val filter = adaptiveFilter ?: return microphone
+    private fun performAEC(
+        microphone: ByteArray,
+        reference: ByteArray,
+        allowDoubleTalkFreeze: Boolean
+    ): AecFrameResult {
+        val filter = adaptiveFilter
+        if (filter == null) {
+            val microphoneRms = calculateRms(microphone)
+            return AecFrameResult(
+                processedAudio = microphone,
+                microphoneRms = microphoneRms,
+                referenceRms = calculateRms(reference),
+                residualRms = microphoneRms,
+                adaptationFrozen = false
+            )
+        }
 
         // 转换为 short 数组
         val micShort = byteArrayToShortArray(microphone)
         val refShort = byteArrayToShortArray(reference)
 
         // 执行自适应滤波
-        val outputShort = filter.filter(micShort, refShort)
+        val outputResult = filter.filter(
+            desired = micShort,
+            reference = refShort,
+            allowDoubleTalkFreeze = allowDoubleTalkFreeze
+        )
 
         // 转换回 byte 数组
-        return shortArrayToByteArray(outputShort)
+        return AecFrameResult(
+            processedAudio = shortArrayToByteArray(outputResult.output),
+            microphoneRms = outputResult.microphoneRms.toDouble(),
+            referenceRms = outputResult.referenceRms.toDouble(),
+            residualRms = outputResult.residualRms.toDouble(),
+            adaptationFrozen = outputResult.adaptationFrozen
+        )
     }
 
     /**
@@ -639,6 +769,14 @@ class AecAudioProcessor(
         }
         return bytes
     }
+
+    private data class AecFrameResult(
+        val processedAudio: ByteArray,
+        val microphoneRms: Double,
+        val referenceRms: Double,
+        val residualRms: Double,
+        val adaptationFrozen: Boolean
+    )
 
     /**
      * 参考音频连续缓冲：
@@ -710,44 +848,158 @@ class AecAudioProcessor(
      * 自适应滤波器（用于回声消除）
      */
     private class AdaptiveFilter(private val filterLength: Int) {
+        companion object {
+            private const val NLMS_STEP_SIZE = 0.08f
+            private const val NLMS_EPSILON = 1e-6f
+            private const val DOUBLE_TALK_MIC_RMS_MIN = 220f
+            private const val DOUBLE_TALK_REFERENCE_RMS_MIN = 140f
+            private const val DOUBLE_TALK_DOMINANCE_RATIO = 1.12f
+            private const val DOUBLE_TALK_RESIDUAL_RATIO = 0.30f
+            private const val DOUBLE_TALK_RESIDUAL_MIN = 120f
+        }
+
         private var weights: FloatArray = FloatArray(filterLength)
         private var referenceBuffer: FloatArray = FloatArray(filterLength)
-        private var stepSize = 0.001f  // 步长（降低步长以避免过度适应 TTS 音频特征，防止错误消除用户语音）
+        private val previewReferenceBuffer: FloatArray = FloatArray(filterLength)
+
+        data class FilterResult(
+            val output: ShortArray,
+            val microphoneRms: Float,
+            val referenceRms: Float,
+            val residualRms: Float,
+            val adaptationFrozen: Boolean
+        )
 
         /**
          * 执行滤波
          */
-        fun filter(desired: ShortArray, reference: ShortArray): ShortArray {
+        fun filter(
+            desired: ShortArray,
+            reference: ShortArray,
+            allowDoubleTalkFreeze: Boolean
+        ): FilterResult {
             val output = ShortArray(desired.size)
+            if (desired.isEmpty() || reference.isEmpty()) {
+                return FilterResult(
+                    output = output,
+                    microphoneRms = 0f,
+                    referenceRms = 0f,
+                    residualRms = 0f,
+                    adaptationFrozen = false
+                )
+            }
+
+            System.arraycopy(referenceBuffer, 0, previewReferenceBuffer, 0, filterLength)
+
+            var microphoneEnergy = 0.0
+            var referenceEnergy = 0.0
+            var residualEnergy = 0.0
+
+            // 先用当前权重对整帧做一次预估，用于双讲检测。
+            for (i in desired.indices) {
+                val desiredFloat = desired[i].toFloat()
+                val referenceFloat = reference.getOrElse(i) { 0 }.toFloat()
+
+                shiftRight(previewReferenceBuffer)
+                previewReferenceBuffer[0] = referenceFloat
+
+                val estimated = dot(weights, previewReferenceBuffer)
+                val error = desiredFloat - estimated
+
+                microphoneEnergy += desiredFloat * desiredFloat
+                referenceEnergy += referenceFloat * referenceFloat
+                residualEnergy += error * error
+            }
+
+            val microphoneRms = sqrt(microphoneEnergy / desired.size).toFloat()
+            val referenceRms = sqrt(referenceEnergy / desired.size).toFloat()
+            val residualRms = sqrt(residualEnergy / desired.size).toFloat()
+            val adaptationFrozen =
+                allowDoubleTalkFreeze &&
+                    shouldFreezeAdaptation(
+                        microphoneRms = microphoneRms,
+                        referenceRms = referenceRms,
+                        residualRms = residualRms
+                    )
 
             for (i in desired.indices) {
                 // 转换为浮点数
                 val desiredFloat = desired[i].toFloat()
-                val referenceFloat = reference[i].toFloat()
+                val referenceFloat = reference.getOrElse(i) { 0 }.toFloat()
 
                 // 更新参考缓冲区
-                System.arraycopy(referenceBuffer, 0, referenceBuffer, 1, filterLength - 1)
+                shiftRight(referenceBuffer)
                 referenceBuffer[0] = referenceFloat
 
                 // 计算滤波器输出
-                var estimated = 0f
-                for (j in 0 until filterLength) {
-                    estimated += weights[j] * referenceBuffer[j]
-                }
+                val estimated = dot(weights, referenceBuffer)
 
                 // 计算误差
                 val error = desiredFloat - estimated
 
-                // 更新权重（LMS 算法）
-                for (j in 0 until filterLength) {
-                    weights[j] += stepSize * error * referenceBuffer[j]
+                // 双讲时冻结自适应更新，只输出残差，避免把近端人声也学掉。
+                if (!adaptationFrozen) {
+                    val normalization = NLMS_EPSILON + energy(referenceBuffer)
+                    val step = NLMS_STEP_SIZE / normalization
+                    for (j in 0 until filterLength) {
+                        weights[j] += step * error * referenceBuffer[j]
+                    }
                 }
 
                 // 输出误差（回声消除后的信号）
-                output[i] = error.toInt().toShort()
+                output[i] = clampToShort(error)
             }
 
-            return output
+            return FilterResult(
+                output = output,
+                microphoneRms = microphoneRms,
+                referenceRms = referenceRms,
+                residualRms = residualRms,
+                adaptationFrozen = adaptationFrozen
+            )
+        }
+
+        private fun shouldFreezeAdaptation(
+            microphoneRms: Float,
+            referenceRms: Float,
+            residualRms: Float
+        ): Boolean {
+            if (microphoneRms < DOUBLE_TALK_MIC_RMS_MIN || referenceRms < DOUBLE_TALK_REFERENCE_RMS_MIN) {
+                return false
+            }
+
+            val microphoneDominates = microphoneRms > referenceRms * DOUBLE_TALK_DOMINANCE_RATIO
+            val residualUnexpectedlyHigh =
+                residualRms > maxOf(
+                    DOUBLE_TALK_RESIDUAL_MIN,
+                    referenceRms * DOUBLE_TALK_RESIDUAL_RATIO
+                ) && microphoneRms > referenceRms * 1.02f
+
+            return microphoneDominates || residualUnexpectedlyHigh
+        }
+
+        private fun dot(weights: FloatArray, referenceBuffer: FloatArray): Float {
+            var sum = 0f
+            for (i in weights.indices) {
+                sum += weights[i] * referenceBuffer[i]
+            }
+            return sum
+        }
+
+        private fun energy(values: FloatArray): Float {
+            var sum = 0f
+            for (value in values) {
+                sum += value * value
+            }
+            return sum
+        }
+
+        private fun shiftRight(buffer: FloatArray) {
+            System.arraycopy(buffer, 0, buffer, 1, filterLength - 1)
+        }
+
+        private fun clampToShort(value: Float): Short {
+            return value.coerceIn(Short.MIN_VALUE.toFloat(), Short.MAX_VALUE.toFloat()).toInt().toShort()
         }
     }
 }
