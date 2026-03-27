@@ -34,6 +34,11 @@ class VideoCallClient(
         model = model
     )
 
+    fun cancelActiveRequest() {
+        Log.d(TAG, "[DEBUG] cancelActiveRequest")
+        llmClient.cancelActiveRequest()
+    }
+
     /**
      * 发送消息（非流式）
      * @param message 用户消息

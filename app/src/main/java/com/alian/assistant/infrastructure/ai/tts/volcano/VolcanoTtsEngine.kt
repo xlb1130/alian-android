@@ -38,7 +38,8 @@ import java.util.zip.GZIPInputStream
  * 文档：wss://openspeech.bytedance.com/api/v3/tts/bidirection
  */
 class VolcanoTtsEngine(
-    private val config: TtsConfig
+    private val config: TtsConfig,
+    private val manageAudioFocus: Boolean = true
 ) : TtsEngine {
 
     companion object {
@@ -756,12 +757,14 @@ class VolcanoTtsEngine(
     }
 
     private fun createAudioTrack(context: Context): AudioTrack {
-        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        audioManager.requestAudioFocus(
-            null,
-            AudioManager.STREAM_MUSIC,
-            AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-        )
+        if (manageAudioFocus) {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            audioManager.requestAudioFocus(
+                null,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            )
+        }
 
         val channelConfig = AudioFormat.CHANNEL_OUT_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT

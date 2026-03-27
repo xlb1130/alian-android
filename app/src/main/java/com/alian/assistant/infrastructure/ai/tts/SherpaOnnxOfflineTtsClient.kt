@@ -27,7 +27,8 @@ class SherpaOnnxOfflineTtsClient(
     private val appContext: Context,
     private val speed: Float = 1.0f,
     private val volume: Int = 50,
-    private val preferredModelDir: String = DEFAULT_MODEL_DIR
+    private val preferredModelDir: String = DEFAULT_MODEL_DIR,
+    private val manageAudioFocus: Boolean = true
 ) : OfflineTtsClient {
     companion object {
         private const val TAG = "SherpaOnnxOfflineTts"
@@ -125,7 +126,9 @@ class SherpaOnnxOfflineTtsClient(
         isSynthesizing = true
 
         return try {
-            requestAudioFocus(context)
+            if (manageAudioFocus) {
+                requestAudioFocus(context)
+            }
 
             var totalFrames = 0L
             var trackStarted = false

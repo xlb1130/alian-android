@@ -27,7 +27,9 @@ class HybridTtsClient(
     private val rate: Float = 1.0f,
     private val volume: Int = 50,
     private val offlineTtsEnabled: Boolean = false,
-    private val offlineTtsAutoFallbackToCloud: Boolean = true
+    private val offlineTtsAutoFallbackToCloud: Boolean = true,
+    private val requirePcmAudioDataCallback: Boolean = false,
+    private val manageAudioFocus: Boolean = true
 ) {
     companion object {
         private const val TAG = "HybridTtsClient"
@@ -341,8 +343,14 @@ class HybridTtsClient(
         onlineEngine?.release()
 
         val newEngine: TtsEngine = when (runtime.provider) {
-            SpeechProvider.BAILIAN -> BailianTtsEngine(runtime.config)
-            SpeechProvider.VOLCANO -> VolcanoTtsEngine(runtime.config)
+            SpeechProvider.BAILIAN -> BailianTtsEngine(
+                config = runtime.config,
+                manageAudioFocus = manageAudioFocus
+            )
+            SpeechProvider.VOLCANO -> VolcanoTtsEngine(
+                config = runtime.config,
+                manageAudioFocus = manageAudioFocus
+            )
         }
 
         newEngine.setOnAudioDataCallback(onAudioDataCallback)
@@ -444,7 +452,8 @@ class HybridTtsClient(
             OfflineBackend.SHERPA_ONNX -> SherpaOnnxOfflineTtsClient(
                 appContext = appContext,
                 speed = rate,
-                volume = volume
+                volume = volume,
+                manageAudioFocus = manageAudioFocus
             )
 
             OfflineBackend.ANDROID_NATIVE -> AndroidNativeOfflineTtsClient(
@@ -463,6 +472,13 @@ class HybridTtsClient(
 
     private fun resolveOfflineBackend(): OfflineBackend {
         val settings = settingsManager.settings.value
+        if (requirePcmAudioDataCallback && settings.offlineTtsUseAndroidNative) {
+            Log.d(
+                TAG,
+                "PCM audio callback required, skip Android native offline TTS and use sherpa-onnx backend"
+            )
+            return OfflineBackend.SHERPA_ONNX
+        }
         return if (settings.offlineTtsUseAndroidNative) {
             OfflineBackend.ANDROID_NATIVE
         } else {

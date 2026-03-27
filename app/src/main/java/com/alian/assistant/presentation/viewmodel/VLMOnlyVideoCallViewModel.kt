@@ -45,6 +45,7 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
         private const val SPEAKING_CAPTURE_INTERVAL_MS = 2000L  // 说话时2秒捕获一次
         private const val IDLE_CAPTURE_INTERVAL_MS = 15000L  // 空闲时15秒捕获一次
         private const val SPEECH_TIMEOUT_MS = 3000L  // 3秒无语音认为说话结束
+        private const val NO_ACTIVE_TURN = -1L
     }
 
     // 通话状态
@@ -98,6 +99,10 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
 
     // 通话是否已停止
     private var isCallStopped = false
+
+    // 当前激活的助手轮次
+    private var activeTurnId: Long = NO_ACTIVE_TURN
+    private var turnCounter: Long = 0L
 
     // 语音活动状态跟踪（混合捕获模式）
     private var isSpeaking = false  // 是否正在说话
@@ -216,6 +221,7 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
 
         // 重置停止标志
         isCallStopped = false
+        activeTurnId = NO_ACTIVE_TURN
 
         if (apiKey.isBlank()) {
             _callState.value = VideoCallState.Error("请先设置 API Key")
@@ -241,10 +247,7 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
                 usePersistentAec = ttsInterruptEnabled
             )
             aecManager.setOnPlaybackInterrupted {
-                Log.d(TAG, "播放被中断，更新状态并开始录音")
-                _currentPlayingMessage.value = ""
-                _callState.value = VideoCallState.Recording
-                startRecording()
+                interruptCurrentTurn("aec_playback_interrupted")
             }
             aecManager
         } else {
@@ -317,11 +320,13 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
         // 设置停止标志
         isCallStopped = true
 
+        videoCallClient?.cancelActiveRequest()
         currentJob?.cancel()
         currentJob = null
         frameCaptureJob?.cancel()
         frameCaptureJob = null
         isProcessing = false
+        activeTurnId = NO_ACTIVE_TURN
 
         audioManager?.stopAll()
         audioManager = null
@@ -368,11 +373,11 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
                     onSpeechActivityDetected()
                 }
             },
-            onFinalResult = { text ->
+            onFinalResult = finalResult@{ text ->
                 Log.d(TAG, "[VLM-ONLY] onFinalResult: text='$text'")
                 if (isCallStopped) {
                     Log.d(TAG, "通话已停止，忽略录音结果")
-                    return@startRecording
+                    return@finalResult
                 }
                 if (text.isNotBlank()) {
                     onSpeechRecognized(text)
@@ -456,24 +461,24 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
         _currentRecognizedText.value = ""
 
         isProcessing = true
+        val turnId = activateTurn("user:$guardedText")
 
+        currentJob?.cancel()
         currentJob = viewModelScope.launch {
-            try {
-                processUserMessage(guardedText)
-            } finally {
-                isProcessing = false
-            }
+            processUserMessage(guardedText, turnId)
         }
     }
 
     /**
      * 处理用户消息（调用 API）
      */
-    private suspend fun processUserMessage(message: String) {
-        Log.d(TAG, "[VLM-ONLY] 处理用户消息: $message, enableStreaming=$enableStreaming")
+    private suspend fun processUserMessage(message: String, turnId: Long) {
+        if (isStaleTurn(turnId, "process_user_message_start")) return
+
+        Log.d(TAG, "[VLM-ONLY] 处理用户消息: turnId=$turnId, message=$message, enableStreaming=$enableStreaming")
 
         if (enableStreaming) {
-            processUserMessageStream(message)
+            processUserMessageStream(message, turnId)
             return
         }
 
@@ -486,39 +491,37 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
                 imageHistory = _imageHistory.toList()
             )
 
+            if (isStaleTurn(turnId, "process_user_message_response")) return
+
             if (result != null && result.isSuccess) {
                 val content = result.getOrNull() ?: ""
                 Log.d(TAG, "[VLM-ONLY] API 响应: $content")
 
                 if (content.isBlank()) {
                     Log.w(TAG, "API 返回空响应")
+                    completeTurn(turnId, "empty_response")
                     _callState.value = VideoCallState.Error("AI 返回空响应，请重试")
                     delay(2000)
                     startRecording()
                     return
                 }
 
-                val assistantMessage = VideoCallMessage(
-                    id = generateMessageId(),
-                    content = content,
-                    isUser = false
-                )
-                _conversationHistory.add(assistantMessage)
-
-                playResponse(content)
-
-                while (_conversationHistory.size > MAX_HISTORY_SIZE) {
-                    _conversationHistory.removeAt(0)
-                }
+                playResponse(content, turnId)
             } else {
                 val errorMsg = result?.exceptionOrNull()?.message ?: "API 调用失败"
                 Log.e(TAG, "API 调用失败: $errorMsg")
+                completeTurn(turnId, "request_failed")
                 _callState.value = VideoCallState.Error(errorMsg)
                 delay(2000)
                 startRecording()
             }
+        } catch (e: CancellationException) {
+            Log.d(TAG, "[VLM-ONLY] 处理用户消息任务已取消: turnId=$turnId")
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "处理用户消息失败", e)
+            if (isStaleTurn(turnId, "process_user_message_exception")) return
+            completeTurn(turnId, "request_exception")
             _callState.value = VideoCallState.Error(e.message ?: "处理失败")
             delay(2000)
             startRecording()
@@ -528,8 +531,10 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
     /**
      * 处理用户消息（流式）
      */
-    private suspend fun processUserMessageStream(message: String) {
-        Log.d(TAG, "[VLM-ONLY] 处理用户消息（流式）: $message")
+    private suspend fun processUserMessageStream(message: String, turnId: Long) {
+        Log.d(TAG, "[VLM-ONLY] 处理用户消息（流式）: turnId=$turnId, message=$message")
+
+        if (isStaleTurn(turnId, "process_stream_start")) return
 
         _callState.value = VideoCallState.Processing
 
@@ -545,21 +550,25 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
             // 直接调用 playTextStream，不使用 withContext 包裹
             audioManager?.playTextStream(
                 textFlow = textFlow,
-                onFinished = { fullText ->
-                    Log.d(TAG, "[VLM-ONLY] 流式播放完成，完整文本: $fullText")
+                onFinished = streamFinished@{ fullText ->
+                    if (isStaleTurn(turnId, "stream_finished")) {
+                        return@streamFinished
+                    }
+                    Log.d(TAG, "[VLM-ONLY] 流式播放完成: turnId=$turnId, 完整文本: $fullText")
 
-                    val assistantMessage = VideoCallMessage(
-                        id = generateMessageId(),
-                        content = fullText,
-                        isUser = false
-                    )
-                    _conversationHistory.add(assistantMessage)
-
-                    while (_conversationHistory.size > MAX_HISTORY_SIZE) {
-                        _conversationHistory.removeAt(0)
+                    if (fullText.isNotBlank()) {
+                        _conversationHistory.add(
+                            VideoCallMessage(
+                                id = generateMessageId(),
+                                content = fullText,
+                                isUser = false
+                            )
+                        )
+                        trimConversationHistory()
                     }
 
                     _currentPlayingMessage.value = ""
+                    completeTurn(turnId, "stream_finished")
 
                     viewModelScope.launch {
                         delay(100)
@@ -570,18 +579,16 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
                     }
                 },
                 onError = streamError@{ error ->
+                    if (isStaleTurn(turnId, "stream_error")) {
+                        return@streamError
+                    }
                     if (isPlaybackInterruptedMessage(error)) {
-                        Log.d(TAG, "[VLM-ONLY] 流式播放被语音打断，按正常中断处理")
-                        _currentPlayingMessage.value = ""
-                        viewModelScope.launch {
-                            if (!isCallStopped) {
-                                _callState.value = VideoCallState.Recording
-                                startRecording()
-                            }
-                        }
+                        Log.d(TAG, "[VLM-ONLY] 流式播放被语音打断，交给统一中断流程处理: turnId=$turnId")
+                        interruptCurrentTurn("stream_playback_interrupted")
                         return@streamError
                     }
                     Log.e(TAG, "[VLM-ONLY] 流式播放错误: $error")
+                    completeTurn(turnId, "stream_playback_error")
                     _callState.value = VideoCallState.Error(error)
                     _currentPlayingMessage.value = ""
 
@@ -594,8 +601,13 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
                 }
             )
 
+        } catch (e: CancellationException) {
+            Log.d(TAG, "[VLM-ONLY] 处理用户消息（流式）任务已取消: turnId=$turnId")
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "[VLM-ONLY] 处理用户消息（流式）失败", e)
+            if (isStaleTurn(turnId, "stream_exception")) return
+            completeTurn(turnId, "stream_exception")
             _callState.value = VideoCallState.Error(e.message ?: "处理失败")
             delay(2000)
             startRecording()
@@ -605,8 +617,10 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
     /**
      * 播放响应
      */
-    private fun playResponse(text: String) {
-        Log.d(TAG, "[VLM-ONLY] 播放响应: text长度=${text.length}")
+    private fun playResponse(text: String, turnId: Long) {
+        if (isStaleTurn(turnId, "play_response_start")) return
+
+        Log.d(TAG, "[VLM-ONLY] 播放响应: turnId=$turnId, text长度=${text.length}")
 
         _callState.value = VideoCallState.Playing
         _currentPlayingMessage.value = text
@@ -614,41 +628,41 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
         audioManager?.playText(
             text = text,
             onFinished = {
-                Log.d(TAG, "[VLM-ONLY] 播放完成")
-
-                _currentPlayingMessage.value = ""
-
-                if (isCallStopped) {
-                    Log.d(TAG, "通话已停止，不重新启动录音")
+                if (isStaleTurn(turnId, "play_finished")) {
                     return@playText
                 }
+                Log.d(TAG, "[VLM-ONLY] 播放完成: turnId=$turnId")
 
-                if (audioManager?.isCurrentlyPlaying() == false) {
-                    _callState.value = VideoCallState.Recording
-                    startRecording()
-                } else {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        delay(100)
-                        if (!isCallStopped) {
-                            _callState.value = VideoCallState.Recording
-                            startRecording()
-                        }
+                _conversationHistory.add(
+                    VideoCallMessage(
+                        id = generateMessageId(),
+                        content = text,
+                        isUser = false
+                    )
+                )
+                trimConversationHistory()
+                _currentPlayingMessage.value = ""
+                completeTurn(turnId, "playback_finished")
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    delay(100)
+                    if (!isCallStopped) {
+                        _callState.value = VideoCallState.Recording
+                        startRecording()
                     }
                 }
             },
             onError = { error ->
+                if (isStaleTurn(turnId, "play_error")) {
+                    return@playText
+                }
                 if (isPlaybackInterruptedMessage(error)) {
-                    Log.d(TAG, "[VLM-ONLY] 播放被语音打断，按正常中断处理")
-                    _currentPlayingMessage.value = ""
-                    CoroutineScope(Dispatchers.IO).launch {
-                        if (!isCallStopped) {
-                            _callState.value = VideoCallState.Recording
-                            startRecording()
-                        }
-                    }
+                    Log.d(TAG, "[VLM-ONLY] 播放被语音打断，交给统一中断流程处理: turnId=$turnId")
+                    interruptCurrentTurn("playback_interrupted_error")
                     return@playText
                 }
                 Log.e(TAG, "[VLM-ONLY] 播放错误: $error")
+                completeTurn(turnId, "playback_error")
                 _callState.value = VideoCallState.Error(error)
                 _currentPlayingMessage.value = ""
 
@@ -677,6 +691,64 @@ class VLMOnlyVideoCallViewModel(private val context: Context) {
      */
     private fun generateMessageId(): String {
         return "vlm_video_msg_${System.currentTimeMillis()}_${_conversationHistory.size}"
+    }
+
+    private fun activateTurn(reason: String): Long {
+        val turnId = ++turnCounter
+        activeTurnId = turnId
+        Log.d(TAG, "[VLM-ONLY] 激活轮次: turnId=$turnId, reason=$reason")
+        return turnId
+    }
+
+    private fun completeTurn(turnId: Long, reason: String) {
+        if (activeTurnId != turnId) {
+            Log.d(TAG, "[VLM-ONLY] 轮次完成时已非激活状态，忽略: turnId=$turnId, activeTurnId=$activeTurnId, reason=$reason")
+            return
+        }
+        Log.d(TAG, "[VLM-ONLY] 完成轮次: turnId=$turnId, reason=$reason")
+        activeTurnId = NO_ACTIVE_TURN
+        isProcessing = false
+        currentJob = null
+    }
+
+    private fun interruptCurrentTurn(reason: String, restartRecording: Boolean = true) {
+        val interruptedTurnId = activeTurnId
+        Log.d(TAG, "[VLM-ONLY] 中断当前轮次: turnId=$interruptedTurnId, reason=$reason")
+        activeTurnId = NO_ACTIVE_TURN
+        isProcessing = false
+        _currentPlayingMessage.value = ""
+        videoCallClient?.cancelActiveRequest()
+        currentJob?.cancel()
+        currentJob = null
+        audioManager?.stopPlayback()
+
+        if (restartRecording) {
+            viewModelScope.launch {
+                if (!isCallStopped) {
+                    _callState.value = VideoCallState.Recording
+                    startRecording()
+                }
+            }
+        }
+    }
+
+    private fun isStaleTurn(turnId: Long, event: String): Boolean {
+        val stale =
+            turnId == NO_ACTIVE_TURN ||
+                activeTurnId != turnId ||
+                isCallStopped ||
+                audioManager == null ||
+                _callState.value is VideoCallState.Idle
+        if (stale) {
+            Log.d(TAG, "[VLM-ONLY] 丢弃过期回调: event=$event, turnId=$turnId, activeTurnId=$activeTurnId, isCallStopped=$isCallStopped")
+        }
+        return stale
+    }
+
+    private fun trimConversationHistory() {
+        while (_conversationHistory.size > MAX_HISTORY_SIZE) {
+            _conversationHistory.removeAt(0)
+        }
     }
 
     /**
