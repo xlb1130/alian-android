@@ -50,6 +50,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import com.alian.assistant.R
@@ -774,7 +775,7 @@ fun AlianInputArea(
                         ),
                         cursorBrush = SolidColor(colors.primary),
                         enabled = !isProcessing,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).testTag("message_input"),
                         interactionSource = interactionSource,
                         maxLines = 5,
                         minLines = 1,
@@ -870,6 +871,7 @@ fun AlianInputArea(
                             modifier = Modifier
                                 .size(32.dp)
                                 .scale(buttonScale * sendButtonPressScale * sendFlyoutScale)
+                                .testTag("send_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Send,

@@ -96,7 +96,7 @@ data class AppSettings(
     val rootModeEnabled: Boolean = false,
     val suCommandEnabled: Boolean = false,
     val useBackend: Boolean = true,  // 是否使用Backend API（Alian聊天）
-    val backendBaseUrl: String = "http://39.98.113.244:5173/api/v1",  // Backend服务器地址
+    val backendBaseUrl: String = "http://192.168.10.103:5173/api/v1",  // Backend服务器地址（本地开发环境）
     val ttsEnabled: Boolean = false,  // 是否启用TTS语音播放
     val ttsRealtime: Boolean = false,  // 是否实时播放（机器人输出时立即播放）
     val ttsVoice: String = "longyingmu_v3",  // TTS音色
@@ -315,7 +315,7 @@ class SettingsManager(context: Context) {
             rootModeEnabled = prefs.getBoolean("root_mode_enabled", false),
             suCommandEnabled = prefs.getBoolean("su_command_enabled", false),
             useBackend = prefs.getBoolean("use_backend", true),
-            backendBaseUrl = prefs.getString("backend_base_url", "http://39.98.113.244:5173/api/v1") ?: "http://39.98.113.244:5173/api/v1",
+            backendBaseUrl = prefs.getString("backend_base_url", "http://192.168.10.103:5173/api/v1") ?: "http://192.168.10.103:5173/api/v1",
             ttsEnabled = prefs.getBoolean("tts_enabled", false),
             ttsRealtime = prefs.getBoolean("tts_realtime", false),
             ttsVoice = prefs.getString("tts_voice", "longyingmu_v3") ?: "longyingmu_v3",

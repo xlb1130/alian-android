@@ -17,7 +17,6 @@ import com.alian.assistant.presentation.viewmodel.AlianViewModel
 import com.alian.assistant.presentation.ui.theme.BaoziTheme
 import com.alian.assistant.infrastructure.voice.VoiceRecognitionManager
 import com.alian.assistant.infrastructure.ai.asr.StreamingVoiceRecognitionManager
-import kotlinx.coroutines.launch
 
 /**
  * Alian 主屏幕
@@ -35,7 +34,7 @@ fun AlianScreen(
     voiceCallSystemPrompt: String = "",
     videoCallSystemPrompt: String = "",
     useBackend: Boolean = false,
-    backendBaseUrl: String = "http://39.98.113.244:5173/api/v1",
+    backendBaseUrl: String = "http://192.168.10.103:5173/api/v1",
     ttsEnabled: Boolean = false,
     ttsRealtime: Boolean = false,
     onTtsRealtimeChanged: (Boolean) -> Unit = {},
@@ -68,6 +67,7 @@ fun AlianScreen(
     onDeleteRecord: (ExecutionRecord) -> Unit = {},
     showLoginScreen: Boolean = false,
     onLoginBack: () -> Unit = {},
+    onLogin: () -> Unit = {},
     // 切换控制
     forceShowLocal: Boolean = false,
     onForceShowLocalChanged: (Boolean) -> Unit = {},
@@ -80,7 +80,6 @@ fun AlianScreen(
     mediaProjectionData: Intent? = null
 ) {
     val colors = BaoziTheme.colors
-    val scope = rememberCoroutineScope()
 
     // 控制是否显示登录页面（用于从 AlianLocalScreen 打开登录页面）
     var showLocalLoginScreen by remember { mutableStateOf(false) }
@@ -254,9 +253,8 @@ fun AlianScreen(
                     password = viewModel.password.value,
                     onPasswordChange = { viewModel.password.value = it },
                     onLogin = {
-                        scope.launch {
-                            viewModel.login()
-                        }
+                        Log.d("AlianScreen", "onLogin callback invoked, forwarding to parent")
+                        onLogin()
                     },
                     isLoading = viewModel.isLoading.value,
                     errorMessage = viewModel.errorMessage.value,

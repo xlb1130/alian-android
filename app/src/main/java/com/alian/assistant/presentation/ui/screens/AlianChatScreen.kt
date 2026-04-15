@@ -471,6 +471,10 @@ fun AlianChatScreen(
                                     }
                                 }
                             },
+                            onConfirmMobileTask = { taskId ->
+                                Log.d("AlianChatScreen", "确认移动端任务: taskId=$taskId")
+                                viewModel.confirmAndExecuteMobileTask(taskId)
+                            },
                             userAvatar = userAvatar,
                             assistantAvatar = assistantAvatar
                         )

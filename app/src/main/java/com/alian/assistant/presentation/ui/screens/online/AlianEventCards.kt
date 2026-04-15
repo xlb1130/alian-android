@@ -463,7 +463,7 @@ fun PlanCard(
     var isExpanded by remember { mutableStateOf(false) }
 
     // 存储每个step的展开状态
-    val expandedStates = remember { mutableStateMapOf<Int, Boolean>() }
+    val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
     Log.d(
         "PlanCard",
@@ -596,7 +596,7 @@ fun PlanFloatingButton(
     var isExpanded by remember { mutableStateOf(false) }
 
     // 存储每个step的展开状态
-    val expandedStates = remember { mutableStateMapOf<Int, Boolean>() }
+    val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
     Log.d(
         "PlanFloatingButton",

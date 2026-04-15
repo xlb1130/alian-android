@@ -1071,7 +1071,7 @@ fun SettingsScreen(
                         value = backendUrl,
                         onValueChange = { backendUrl = it },
                         placeholder = {
-                            Text("http://39.98.113.244:5173/api/v1", color = colors.textHint)
+                            Text("http://localhost:5173/api/v1", color = colors.textHint)
                         },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),

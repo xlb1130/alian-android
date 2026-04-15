@@ -1,5 +1,6 @@
 package com.alian.assistant.core.alian.backend
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -235,6 +236,26 @@ data class SessionsData(
 )
 
 /**
+ * 会话运行时请求
+ */
+@Serializable
+data class SessionRuntimeRequest(
+    val source: String = "mobile",
+    val device_id: String? = null,
+    val platform: String? = "android",
+    val app_version: String? = null,
+    val enabled_tools: List<String> = listOf("mobile_execute")
+)
+
+/**
+ * 创建会话请求
+ */
+@Serializable
+data class CreateSessionRequest(
+    val runtime: SessionRuntimeRequest? = SessionRuntimeRequest()
+)
+
+/**
  * 创建会话响应
  */
 @Serializable
@@ -297,7 +318,12 @@ enum class SSEEventType {
     PLAN_STARTED,         // 计划开始（新接口）
     PLAN_FINISHED,        // 计划完成（新接口）
     PHASE_STARTED,        // 阶段开始（新接口）
-    PHASE_FINISHED        // 阶段完成（新接口）
+    PHASE_FINISHED,       // 阶段完成（新接口）
+
+    // 移动端任务事件类型
+    MOBILE_TASK_CREATED,   // 移动端任务创建
+    MOBILE_TASK_UPDATED,   // 移动端任务更新
+    MOBILE_TASK_RESOLVED   // 移动端任务解决
 }
 
 /**
@@ -349,10 +375,10 @@ data class Attachment(
  */
 @Serializable
 data class Step(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val status: String,  // "pending" | "in_progress" | "completed" | "failed"
-    val id: Int,
     val description: String
 )
 
@@ -361,6 +387,7 @@ data class Step(
  */
 @Serializable
 data class MessageData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val role: String,  // "user" | "assistant"
@@ -374,6 +401,7 @@ data class MessageData(
  */
 @Serializable
 data class MessageChunkData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val message_id: String,
@@ -389,6 +417,7 @@ data class MessageChunkData(
  */
 @Serializable
 data class TitleData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val title: String
@@ -399,6 +428,7 @@ data class TitleData(
  */
 @Serializable
 data class PlanData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val steps: List<Step>
@@ -409,10 +439,10 @@ data class PlanData(
  */
 @Serializable
 data class StepData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val status: String,  // "pending" | "in_progress" | "completed" | "failed"
-    val id: Int,
     val description: String
 )
 
@@ -421,6 +451,7 @@ data class StepData(
  */
 @Serializable
 data class ToolData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val tool_call_id: String,
@@ -428,7 +459,7 @@ data class ToolData(
     val status: String,  // "pending" | "in_progress" | "completed" | "failed"
     val function: String,
     val args: Map<String, JsonElement> = emptyMap(),
-    val content: JsonObject? = null  // 改为JsonObject类型，以匹配后端返回的对象类型
+    val content: String? = null  // 工具执行结果，可能是字符串
 )
 
 /**
@@ -436,6 +467,7 @@ data class ToolData(
  */
 @Serializable
 data class DeepThinkingChunkData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val chunk_type: String,  // "title" | "paragraph"
@@ -450,6 +482,7 @@ data class DeepThinkingChunkData(
  */
 @Serializable
 data class ErrorData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long,
     val error: String
@@ -460,6 +493,7 @@ data class ErrorData(
  */
 @Serializable
 data class DoneData(
+    @SerialName("id")
     val event_id: String,
     val timestamp: Long
 )
@@ -469,8 +503,12 @@ data class DoneData(
  */
 @Serializable
 data class WaitData(
+    @SerialName("id")
     val event_id: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val reason: String? = null,
+    val tool_call_id: String? = null,
+    val tool_call_name: String? = null
 )
 
 /**
@@ -585,10 +623,29 @@ data class UIWaitEvent(
 ) : UIEvent()
 
 /**
+ * UI移动端任务事件
+ */
+data class UIMobileTaskEvent(
+    override val eventId: String,
+    override val timestamp: Long,
+    val taskId: String,
+    val action: String,  // "created" | "updated" | "resolved"
+    val title: String? = null,
+    val instruction: String? = null,
+    val phase: String? = null,
+    val status: String? = null,
+    val progress: Int? = null,
+    val message: String? = null,
+    val resultSummary: String? = null,
+    val resolvedBy: String? = null,
+    val metadata: Map<String, JsonElement>? = null
+) : UIEvent()
+
+/**
  * UI步骤数据
  */
 data class UIStep(
-    val id: Int,
+    val id: String,  // 改为 String 类型，使用 event_id
     val description: String,
     val status: String,  // "pending" | "in_progress" | "completed" | "failed"
     val toolCallIds: List<String> = emptyList(),  // 步骤执行的工具调用ID列表
@@ -614,7 +671,7 @@ data class UIToolCall(
     val status: String,  // "pending" | "in_progress" | "completed" | "failed"
     val function: String,
     val args: Map<String, JsonElement> = emptyMap(),
-    val content: JsonObject? = null
+    val content: String? = null  // 工具执行结果，可能是字符串
 )
 
 // ========================================
@@ -692,7 +749,7 @@ data class ToolCallResultData(
     val timestamp: Long,
     val tool_call_id: String,
     val tool_call_name: String,
-    val content: JsonObject? = null  // 工具执行结果，可能为 null
+    val content: String? = null  // 工具执行结果，可能是字符串或JSON
 )
 
 /**

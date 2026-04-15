@@ -152,7 +152,10 @@ data class ExecutionRecord(
     val logs: List<String> = emptyList(),
     val resultMessage: String = "",
     val chatHistory: List<ChatMessageData> = emptyList(),  // 对话历史
-    val executionMetrics: ExecutionMetricsData? = null
+    val executionMetrics: ExecutionMetricsData? = null,
+    // 远端移动任务关联字段
+    val remoteTaskId: String? = null,  // 关联的远端任务 ID
+    val remoteTaskSessionId: String? = null  // 关联的会话 ID
 ) {
     val duration: Long get() = if (endTime > 0) endTime - startTime else System.currentTimeMillis() - startTime
 
@@ -193,6 +196,8 @@ data class ExecutionRecord(
             }
         })
         executionMetrics?.let { put("executionMetrics", it.toJson()) }
+        remoteTaskId?.let { put("remoteTaskId", it) }
+        remoteTaskSessionId?.let { put("remoteTaskSessionId", it) }
     }
 
     companion object {
@@ -239,7 +244,9 @@ data class ExecutionRecord(
                 chatHistory = chatHistory,
                 executionMetrics = json.optJSONObject("executionMetrics")?.let {
                     ExecutionMetricsData.fromJson(it)
-                }
+                },
+                remoteTaskId = json.optString("remoteTaskId", null)?.takeIf { it.isNotEmpty() },
+                remoteTaskSessionId = json.optString("remoteTaskSessionId", null)?.takeIf { it.isNotEmpty() }
             )
         }
     }
