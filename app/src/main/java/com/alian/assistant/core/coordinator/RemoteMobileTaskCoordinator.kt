@@ -41,6 +41,11 @@ interface RemoteMobileTaskExecutionBridge {
      * 检查是否可以执行任务（设备控制权是否可用）
      */
     fun canExecuteTask(): Boolean
+
+    /**
+     * 获取不可执行原因（用于更精确的错误提示）
+     */
+    fun getCannotExecuteReason(): String? = null
 }
 
 /**
@@ -134,11 +139,28 @@ class RemoteMobileTaskCoordinator(
         }
 
         if (!bridge.canExecuteTask()) {
-            Log.w(tag, "设备控制权不可用")
+            val reason = bridge.getCannotExecuteReason()
+                ?: "设备当前不可执行，请检查无障碍/Shizuku状态"
+            Log.w(tag, "设备当前不可执行任务: $reason")
+            val isPermissionIssue = reason.contains("需要") ||
+                reason.contains("权限") ||
+                reason.contains("授权")
+            if (isPermissionIssue) {
+                // 缺权限时不标记任务失败，仅提示并保持待执行状态
+                onStatusChange(task.copy(
+                    status = MobileTaskStatus.PENDING,
+                    phase = MobileTaskPhase.CREATED,
+                    statusMessage = reason,
+                    errorCode = null,
+                    errorMessage = null
+                ))
+                return
+            }
+
             onStatusChange(task.copy(
                 status = MobileTaskStatus.FAILED,
                 errorCode = MobileTaskErrorCodes.DEVICE_BUSY,
-                errorMessage = "设备正在执行其他任务"
+                errorMessage = reason
             ))
             return
         }

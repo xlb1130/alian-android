@@ -104,6 +104,10 @@ Limitations:
         
         // 截图失败处理参数
         private const val MAX_CONSECUTIVE_SCREENSHOT_FAILURES = 3  // 最大连续截图失败次数
+
+        // 日志缓冲参数（避免超长 prompt/response 持续堆积导致进程被系统回收）
+        private const val MAX_LOG_ENTRIES = 400
+        private const val MAX_LOG_MESSAGE_LENGTH = 2000
         
         // Flow 模式参数
         private const val FLOW_MIN_CONFIDENCE = 0.7f  // Flow 模式最低置信度
@@ -902,6 +906,30 @@ Limitations:
                         return AgentResult(success = true, message = "回答: ${action.text}")
                     }
 
+                    // 特殊处理: terminate 动作（任务结束信号）
+                    if (action.type == "terminate") {
+                        val successStatuses = setOf("success", "succeeded", "completed", "done")
+                        val isSuccess = action.status?.lowercase() in successStatuses
+                        val finalMessage = action.tellUser
+                            ?: action.text
+                            ?: if (isSuccess) "任务完成" else "任务失败"
+
+                        log("收到 terminate 动作: status=${action.status}, message=$finalMessage")
+                        OverlayService.update(finalMessage.take(20))
+                        delay(800)
+                        OverlayService.hideAfterTTS(context)
+                        updateState { copy(isRunning = false, isCompleted = isSuccess) }
+                        bringAppToFront()
+
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = isSuccess)
+                            autoSaveTemplate(instruction, success = isSuccess)
+                        }
+                        logOptimizationReport(infoPool)
+                        cleanup()
+                        return AgentResult(success = isSuccess, message = finalMessage)
+                    }
+
                     // 敏感操作确认
                     if (action.needConfirm || (action.message != null && action.type in listOf("click", "double_tap", "long_press"))) {
                         val confirmMessage = action.message ?: "确认执行此操作？"
@@ -1036,6 +1064,23 @@ Limitations:
 
                     log("Reflector 验证结果: ${verificationResult.outcome} - ${verificationResult.errorDescription.take(50)}")
                     log("验证方法: ${verificationResult.method}")
+
+                    if (verificationResult.outcome == "A" && isLikelyTerminalAction(action, actionDesc, infoPool)) {
+                        val finishMessage = action.tellUser?.takeIf { it.isNotBlank() } ?: "任务已完成"
+                        log("关键终态动作验证成功，提前收敛结束: $finishMessage")
+                        OverlayService.update(finishMessage.take(20))
+                        delay(1000)
+                        OverlayService.hideAfterTTS(context)
+                        updateState { copy(isRunning = false, isCompleted = true) }
+                        bringAppToFront()
+                        if (enableFlowMode) {
+                            flowIntegration.endSession(success = true)
+                            autoSaveTemplate(instruction, success = true)
+                        }
+                        logOptimizationReport(infoPool)
+                        cleanup()
+                        return AgentResult(success = true, message = finishMessage)
+                    }
 
                     // 更新历史
                     infoPool.actionHistory.add(action)
@@ -1213,11 +1258,11 @@ Limitations:
 
                 if (locateResult.success) {
                     // 无障碍定位成功，使用带重试机制的点击
-                    log("✓ 无障碍定位成功: ${locateResult.method}")
+                    logA11y("✓ 无障碍定位成功: ${locateResult.method}")
                     clickWithRetry(action, locateResult, screenWidth, screenHeight)
                 } else {
                     // 2. 降级到坐标点击
-                    log("⚠ 无障碍定位失败，使用坐标点击")
+                    logA11y("⚠ 无障碍定位失败，使用坐标点击")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                     executeWithOverlayProtection(action.type) {
                         runtimeTap(x, y)
@@ -1229,20 +1274,20 @@ Limitations:
                 val locateResult = tryAccessibilityLocate(action, infoPool, screenWidth, screenHeight)
 
                 if (locateResult.success) {
-                    log("✓ 无障碍定位成功: ${locateResult.method}")
+                    logA11y("✓ 无障碍定位成功: ${locateResult.method}")
                     if (locateResult.node != null) {
                         // 验证元素状态
                         val validation = elementLocator.validateElement(locateResult.node)
                         if (!validation.isValid) {
-                            log("⚠️ 元素状态无效: ${validation.errorMessage}")
-                            log("   降级到坐标双击")
+                            logA11y("⚠️ 元素状态无效: ${validation.errorMessage}")
+                            logA11y("   降级到坐标双击")
                             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                             executeWithOverlayProtection(action.type) {
                                 runtimeDoubleTap(x, y)
                             }
                         } else {
                             // 双击需要执行两次点击，隐藏悬浮窗避免挡住界面
-                            log("执行无障碍双击前隐藏悬浮窗")
+                            logA11y("执行无障碍双击前隐藏悬浮窗")
                             OverlayService.setVisible(false)
                             delay(100)
                             
@@ -1252,14 +1297,14 @@ Limitations:
                                     delay(100)
                                     val secondClickSuccess = elementLocator.clickElement(locateResult.node)
                                     if (!secondClickSuccess) {
-                                    log("⚠️ 第二次点击失败，降级到坐标双击")
+                                    logA11y("⚠️ 第二次点击失败，降级到坐标双击")
                                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                                     runtimeDoubleTap(x, y)
                                 } else {
-                                    log("✓ 双击成功")
+                                    logA11y("✓ 双击成功")
                                 }
                             } else {
-                                log("⚠️ 第一次点击失败，降级到坐标双击")
+                                logA11y("⚠️ 第一次点击失败，降级到坐标双击")
                                 val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                                 runtimeDoubleTap(x, y)
                             }
@@ -1275,7 +1320,7 @@ Limitations:
                         }
                     }
                 } else {
-                    log("⚠ 无障碍定位失败，使用坐标双击")
+                    logA11y("⚠ 无障碍定位失败，使用坐标双击")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                     executeWithOverlayProtection(action.type) {
                         runtimeDoubleTap(x, y)
@@ -1287,31 +1332,31 @@ Limitations:
                 val locateResult = tryAccessibilityLocate(action, infoPool, screenWidth, screenHeight)
 
                 if (locateResult.success) {
-                    log("✓ 无障碍定位成功: ${locateResult.method}")
+                    logA11y("✓ 无障碍定位成功: ${locateResult.method}")
                     if (locateResult.node != null) {
                         // 验证元素状态
                         val validation = elementLocator.validateElement(locateResult.node)
                         if (!validation.isValid) {
-                            log("⚠️ 元素状态无效: ${validation.errorMessage}")
-                            log("   降级到坐标长按")
+                            logA11y("⚠️ 元素状态无效: ${validation.errorMessage}")
+                            logA11y("   降级到坐标长按")
                             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                             executeWithOverlayProtection(action.type) {
                                 runtimeLongPress(x, y)
                             }
                         } else {
                             // 隐藏悬浮窗避免挡住界面
-                            log("执行无障碍长按前隐藏悬浮窗")
+                            logA11y("执行无障碍长按前隐藏悬浮窗")
                             OverlayService.setVisible(false)
                             delay(100)
                             
                             try {
                                 val clickSuccess = elementLocator.clickElement(locateResult.node)
                                 if (!clickSuccess) {
-                                    log("⚠️ 直接点击元素失败，降级到坐标长按")
+                                    logA11y("⚠️ 直接点击元素失败，降级到坐标长按")
                                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                                     runtimeLongPress(x, y)
                                 } else {
-                                    log("✓ 长按成功")
+                                    logA11y("✓ 长按成功")
                                 }
                             } finally {
                                 OverlayService.setVisible(true)
@@ -1325,7 +1370,7 @@ Limitations:
                         }
                     }
                 } else {
-                    log("⚠ 无障碍定位失败，使用坐标长按")
+                    logA11y("⚠ 无障碍定位失败，使用坐标长按")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                     executeWithOverlayProtection(action.type) {
                         runtimeLongPress(x, y)
@@ -1391,11 +1436,11 @@ Limitations:
                     }
 
                 if (editableNode != null) {
-                    log("✓ 找到输入框，直接输入")
+                    logA11y("✓ 找到输入框，直接输入")
                     elementLocator.typeInElement(editableNode, action.text ?: "")
                 } else {
                     // 2. 降级到坐标点击 + 输入
-                    log("⚠ 未找到输入框，使用坐标方式")
+                    logA11y("⚠ 未找到输入框，使用坐标方式")
                     action.text?.let { runtimeType(it) }
                 }
             }
@@ -1459,13 +1504,13 @@ Limitations:
         // 检查是否使用无障碍控制器
         val controllerType = controller.getControllerType()
         if (controllerType != ControllerType.ACCESSIBILITY && controllerType != ControllerType.HYBRID) {
-            log("当前控制器类型: $controllerType，跳过无障碍定位")
+            logA11y("当前控制器类型: $controllerType，跳过无障碍定位")
             return AccessibilityElementLocator.ElementLocateResult(success = false)
         }
 
         // 检查无障碍服务是否可用
         if (!elementLocator.isServiceAvailable()) {
-            log("无障碍服务未连接，跳过无障碍定位")
+            logA11y("无障碍服务未连接，跳过无障碍定位")
             return AccessibilityElementLocator.ElementLocateResult(success = false)
         }
 
@@ -1822,8 +1867,24 @@ Limitations:
     }
 
     private fun log(message: String) {
-        Log.d(TAG, message)
-        _logs.value = _logs.value + message
+        val normalized = if (message.length > MAX_LOG_MESSAGE_LENGTH) {
+            message.take(MAX_LOG_MESSAGE_LENGTH) + "...(truncated)"
+        } else {
+            message
+        }
+        Log.d(TAG, normalized)
+
+        val current = _logs.value
+        val bounded = if (current.size >= MAX_LOG_ENTRIES) {
+            current.takeLast(MAX_LOG_ENTRIES - 1) + normalized
+        } else {
+            current + normalized
+        }
+        _logs.value = bounded
+    }
+
+    private fun logA11y(message: String) {
+        log("[A11Y] $message")
     }
 
     /**
@@ -1932,6 +1993,28 @@ Limitations:
             "system_button" -> "🔘"
             else -> "⚙️"
         }
+    }
+
+    private fun isLikelyTerminalAction(action: Action, actionDesc: String, infoPool: InfoPoolImprove): Boolean {
+        val terminalActionTypes = setOf("click", "double_tap", "long_press", "system_button")
+        if (action.type !in terminalActionTypes) return false
+
+        val terminalKeywords = listOf(
+            "发送", "提交", "确认", "完成", "保存", "发布", "下单", "支付", "付款", "删除", "移除", "上传",
+            "send", "submit", "confirm", "finish", "complete", "save", "publish", "order", "pay", "delete", "upload"
+        )
+        val contextText = listOfNotNull(
+            action.targetText,
+            action.targetDesc,
+            action.button,
+            action.tellUser,
+            action.message,
+            action.text,
+            actionDesc,
+            infoPool.lastSummary
+        ).joinToString(" ").lowercase()
+
+        return terminalKeywords.any { keyword -> contextText.contains(keyword.lowercase()) }
     }
 
     private fun updateState(update: AgentState.() -> AgentState) {

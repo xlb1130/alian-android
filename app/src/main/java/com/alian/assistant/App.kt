@@ -127,8 +127,11 @@ class App : Application() {
 
                 println("[App] 检查认证状态...")
 
-                // 创建 BackendChatClient 用于检查认证状态
-                val backendChatClient = BackendChatClient(this@App)
+                // 使用当前设置中的后端地址，避免回退到默认本地开发地址
+                val backendChatClient = BackendChatClient(
+                    context = this@App,
+                    baseUrl = settingsManager.settings.value.backendBaseUrl
+                )
 
                 // 先调用 auth/status 检查认证状态
                 val isValid = backendChatClient.checkAuthStatus()

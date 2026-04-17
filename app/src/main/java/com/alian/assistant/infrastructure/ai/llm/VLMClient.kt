@@ -2,6 +2,7 @@ package com.alian.assistant.infrastructure.ai.llm
 
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -27,6 +28,7 @@ class VLMClient(
     baseUrl: String = "https://api.openai.com/v1",
     private val model: String = "gpt-4-vision-preview"
 ) {
+    private val tag = "VLMClient"
     // 规范化 URL：自动添加 https:// 前缀，移除末尾斜杠
     private val baseUrl: String = normalizeUrl(baseUrl)
 
@@ -122,12 +124,18 @@ class VLMClient(
         systemPrompt: String = ""
     ): Result<String> = withContext(Dispatchers.IO) {
         var lastException: Exception? = null
+        logLong(tag, "predict.input.prompt", prompt)
+        if (systemPrompt.isNotBlank()) {
+            logLong(tag, "predict.input.systemPrompt", systemPrompt)
+        }
+        Log.d(tag, "predict.input.meta model=$model, baseUrl=$baseUrl, images=${images.size}")
 
         // 预先编码图片 (避免重试时重复编码)
         val encodedImages = images.map { bitmapToBase64Url(it) }
 
         for (attempt in 1..MAX_RETRIES) {
             try {
+                Log.d(tag, "predict.request attempt=$attempt/$MAX_RETRIES")
                 val content = JSONArray().apply {
                     put(JSONObject().apply {
                         put("type", "text")
@@ -179,6 +187,7 @@ class VLMClient(
 
                 val response = client.newCall(request).execute()
                 val responseBody = response.body?.string() ?: ""
+                Log.d(tag, "predict.response http=${response.code}, attempt=$attempt/$MAX_RETRIES")
 
                 if (response.isSuccessful) {
                     val json = JSONObject(responseBody)
@@ -186,11 +195,13 @@ class VLMClient(
                     if (choices.length() > 0) {
                         val message = choices.getJSONObject(0).getJSONObject("message")
                         val responseContent = message.getString("content")
+                        logLong(tag, "predict.output.content", responseContent)
                         return@withContext Result.success(responseContent)
                     } else {
                         lastException = Exception("No response from model")
                     }
                 } else {
+                    logLong(tag, "predict.output.errorBody", responseBody)
                     lastException = Exception("API error: ${response.code} - $responseBody")
                 }
             } catch (e: UnknownHostException) {
@@ -215,11 +226,13 @@ class VLMClient(
                     delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: Exception) {
+                Log.e(tag, "predict.exception attempt=$attempt/$MAX_RETRIES", e)
                 // 其他错误，不重试
                 return@withContext Result.failure(e)
             }
         }
 
+        Log.e(tag, "predict.failed all retries, last=${lastException?.message}")
         Result.failure(lastException ?: Exception("Unknown error"))
     }
 
@@ -231,9 +244,12 @@ class VLMClient(
         messagesJson: JSONArray
     ): Result<String> = withContext(Dispatchers.IO) {
         var lastException: Exception? = null
+        logLong(tag, "predictWithContext.input.messages", messagesJson.toString())
+        Log.d(tag, "predictWithContext.input.meta model=$model, baseUrl=$baseUrl")
 
         for (attempt in 1..MAX_RETRIES) {
             try {
+                Log.d(tag, "predictWithContext.request attempt=$attempt/$MAX_RETRIES")
                 val requestBody = JSONObject().apply {
                     put("model", model)
                     put("messages", messagesJson)
@@ -254,6 +270,7 @@ class VLMClient(
 
                 val response = client.newCall(request).execute()
                 val responseBody = response.body?.string() ?: ""
+                Log.d(tag, "predictWithContext.response http=${response.code}, attempt=$attempt/$MAX_RETRIES")
 
                 if (response.isSuccessful) {
                     val json = JSONObject(responseBody)
@@ -261,11 +278,13 @@ class VLMClient(
                     if (choices.length() > 0) {
                         val message = choices.getJSONObject(0).getJSONObject("message")
                         val responseContent = message.getString("content")
+                        logLong(tag, "predictWithContext.output.content", responseContent)
                         return@withContext Result.success(responseContent)
                     } else {
                         lastException = Exception("No response from model")
                     }
                 } else {
+                    logLong(tag, "predictWithContext.output.errorBody", responseBody)
                     lastException = Exception("API error: ${response.code} - $responseBody")
                 }
             } catch (e: UnknownHostException) {
@@ -287,10 +306,12 @@ class VLMClient(
                     delay(RETRY_DELAY_MS * attempt)
                 }
             } catch (e: Exception) {
+                Log.e(tag, "predictWithContext.exception attempt=$attempt/$MAX_RETRIES", e)
                 return@withContext Result.failure(e)
             }
         }
 
+        Log.e(tag, "predictWithContext.failed all retries, last=${lastException?.message}")
         Result.failure(lastException ?: Exception("Unknown error"))
     }
 
@@ -385,5 +406,22 @@ class VLMClient(
         val newHeight = (height * ratio).toInt()
 
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+    }
+
+    private fun logLong(tag: String, prefix: String, text: String, chunkSize: Int = 3000) {
+        if (text.isEmpty()) {
+            Log.d(tag, "$prefix: <empty>")
+            return
+        }
+        if (text.length <= chunkSize) {
+            Log.d(tag, "$prefix: $text")
+            return
+        }
+        val total = (text.length + chunkSize - 1) / chunkSize
+        for (i in 0 until total) {
+            val start = i * chunkSize
+            val end = minOf(start + chunkSize, text.length)
+            Log.d(tag, "$prefix [${i + 1}/$total]: ${text.substring(start, end)}")
+        }
     }
 }

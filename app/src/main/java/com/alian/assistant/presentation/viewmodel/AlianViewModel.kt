@@ -69,7 +69,11 @@ import kotlinx.coroutines.yield
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 聊天消息
@@ -205,6 +209,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
     // 远端移动端任务列表
     private val _remoteMobileTasks = mutableStateListOf<RemoteMobileTask>()
     val remoteMobileTasks: SnapshotStateList<RemoteMobileTask> = _remoteMobileTasks
+    private val remoteTaskExecutionInFlight = mutableSetOf<String>()
 
     // 当前消息的附件收集器
     private val _currentAttachments = mutableStateListOf<Attachment>()
@@ -1203,6 +1208,10 @@ class AlianViewModel(private val context: Context) : ViewModel() {
      */
     fun confirmAndExecuteMobileTask(taskId: String) {
         Log.d("AlianViewModel", "confirmAndExecuteMobileTask called: taskId=$taskId")
+        if (remoteTaskExecutionInFlight.contains(taskId)) {
+            Log.w("AlianViewModel", "忽略重复确认请求: taskId=$taskId 正在执行中")
+            return
+        }
         Log.d("AlianViewModel", "当前任务列表数量: ${_remoteMobileTasks.size}")
         _remoteMobileTasks.forEach {
             Log.d("AlianViewModel", "  任务: taskId=${it.taskId}, sessionId=${it.sessionId}, status=${it.status}")
@@ -1231,6 +1240,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         }
 
         Log.d("AlianViewModel", "确认并执行任务: taskId=$taskId, sessionId=$sessionId")
+        remoteTaskExecutionInFlight.add(taskId)
 
         // 使用 RemoteMobileTaskCoordinator 执行完整流程
         viewModelScope.launch {
@@ -1265,6 +1275,8 @@ class AlianViewModel(private val context: Context) : ViewModel() {
 
             } catch (e: Exception) {
                 Log.e("AlianViewModel", "执行任务异常", e)
+            } finally {
+                remoteTaskExecutionInFlight.remove(taskId)
             }
         }
     }
@@ -2404,8 +2416,73 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                     }
                 }
                 "tool_call_chunk" -> {
-                    // 暂时忽略 tool_call_chunk
-                    Log.d("AlianViewModel", "忽略 tool_call_chunk 事件")
+                    // 处理工具调用 chunk（兼容 mobile_execute 直接下发任务详情）
+                    try {
+                        val dataString = event.data.toJsonString()
+                        val chunkData = json.decodeFromString<ToolCallChunkData>(dataString)
+                        if (chunkData.tool_call_name == "mobile_execute") {
+                            val deltaObject = chunkData.delta as? JsonObject
+                            val instruction = deltaObject
+                                ?.get("instruction")
+                                ?.jsonPrimitive
+                                ?.contentOrNull
+                                ?.trim()
+                                .orEmpty()
+
+                            if (instruction.isNotBlank()) {
+                                val appHint = deltaObject
+                                    ?.get("app_hint")
+                                    ?.jsonPrimitive
+                                    ?.contentOrNull
+                                    ?.takeIf { it.isNotBlank() }
+                                val expectedResult = deltaObject
+                                    ?.get("expected_result")
+                                    ?.jsonPrimitive
+                                    ?.contentOrNull
+                                    ?.takeIf { it.isNotBlank() }
+                                val taskId = deltaObject
+                                    ?.get("task_id")
+                                    ?.jsonPrimitive
+                                    ?.contentOrNull
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: chunkData.tool_call_id
+                                val title = deltaObject
+                                    ?.get("title")
+                                    ?.jsonPrimitive
+                                    ?.contentOrNull
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: appHint?.let { "$it 自动化任务" }
+                                    ?: "移动端任务"
+
+                                val metadata = mutableMapOf<String, JsonElement>(
+                                    "source" to JsonPrimitive("tool_call_chunk"),
+                                    "tool_call_id" to JsonPrimitive(chunkData.tool_call_id)
+                                )
+                                appHint?.let { metadata["app_hint"] = JsonPrimitive(it) }
+                                expectedResult?.let { metadata["expected_result"] = JsonPrimitive(it) }
+
+                                addUIEvent(
+                                    UIMobileTaskEvent(
+                                        eventId = chunkData.id,
+                                        timestamp = normalizeTimestamp(chunkData.timestamp),
+                                        taskId = taskId,
+                                        action = "created",
+                                        title = title,
+                                        instruction = instruction,
+                                        phase = "created",
+                                        metadata = metadata
+                                    )
+                                )
+                                Log.d("AlianViewModel", "tool_call_chunk 转换为移动任务: taskId=$taskId")
+                            } else {
+                                Log.d("AlianViewModel", "tool_call_chunk 缺少 instruction，忽略")
+                            }
+                        } else {
+                            Log.d("AlianViewModel", "忽略非 mobile_execute 的 tool_call_chunk: ${chunkData.tool_call_name}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("AlianViewModel", "解析 tool_call_chunk 事件失败", e)
+                    }
                 }
                 "tool_call_result" -> {
                     // 处理工具调用结果事件
@@ -2419,7 +2496,9 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                         if (existingIndex >= 0) {
                             val updatedToolCall = _toolCalls[existingIndex].copy(
                                 status = "completed",
-                                content = resultData.content
+                                content = resultData.content?.let { content ->
+                                    if (content is JsonPrimitive && content.isString) content.content else content.toString()
+                                }
                             )
                             _toolCalls.removeAt(existingIndex)
                             _toolCalls.add(existingIndex, updatedToolCall)

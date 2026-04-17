@@ -3,6 +3,7 @@ package com.alian.assistant.infrastructure.device.controller.shizuku
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import com.alian.assistant.IShellService
 import com.alian.assistant.infrastructure.device.controller.interfaces.IDeviceController
 import com.alian.assistant.infrastructure.device.controller.interfaces.IScreenshotProvider
@@ -25,8 +26,13 @@ class ShizukuScreenshotProvider(
 ) : IScreenshotProvider {
     
     companion object {
+        private const val TAG = "ShizukuScreenshotProvider"
         // 使用 /data/local/tmp，shell 用户有权限访问
         private const val SCREENSHOT_PATH = "/data/local/tmp/autopilot_screen.png"
+    }
+
+    private fun logShizuku(message: String) {
+        Log.d(TAG, "[A11Y][SHIZUKU] $message")
     }
     
     override suspend fun screenshot(): Bitmap? = withContext(Dispatchers.IO) {
@@ -38,22 +44,22 @@ class ShizukuScreenshotProvider(
             // 尝试直接读取
             val file = File(SCREENSHOT_PATH)
             if (file.exists() && file.canRead() && file.length() > 0) {
-                println("[ShizukuScreenshotProvider] Reading screenshot from: $SCREENSHOT_PATH, size: ${file.length()}")
+                logShizuku("Reading screenshot from: $SCREENSHOT_PATH, size: ${file.length()}")
                 return@withContext BitmapFactory.decodeFile(SCREENSHOT_PATH)
             }
             
             // 如果无法直接读取，通过 shell cat 读取二进制数据
-            println("[ShizukuScreenshotProvider] Cannot read directly, trying shell cat...")
+            logShizuku("Cannot read directly, trying shell cat...")
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat $SCREENSHOT_PATH"))
             val bytes = process.inputStream.readBytes()
             process.waitFor()
             
             if (bytes.isNotEmpty()) {
-                println("[ShizukuScreenshotProvider] Read ${bytes.size} bytes via shell")
+                logShizuku("Read ${bytes.size} bytes via shell")
                 return@withContext BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             }
             
-            println("[ShizukuScreenshotProvider] Screenshot file empty or not accessible")
+            logShizuku("Screenshot file empty or not accessible")
             null
         } catch (e: Exception) {
             e.printStackTrace()
@@ -69,7 +75,7 @@ class ShizukuScreenshotProvider(
             
             // 检查是否截图失败（敏感页面保护）
             if (output.contains("Status: -1") || output.contains("Failed") || output.contains("error")) {
-                println("[ShizukuScreenshotProvider] Screenshot blocked (sensitive screen), returning fallback")
+                logShizuku("Screenshot blocked (sensitive screen), returning fallback")
                 return@withContext createFallbackScreenshot(
                     isSensitive = true,
                     errorType = ScreenshotErrorType.SENSITIVE_PAGE
@@ -79,7 +85,7 @@ class ShizukuScreenshotProvider(
             // 尝试直接读取
             val file = File(SCREENSHOT_PATH)
             if (file.exists() && file.canRead() && file.length() > 0) {
-                println("[ShizukuScreenshotProvider] Reading screenshot from: $SCREENSHOT_PATH, size: ${file.length()}")
+                logShizuku("Reading screenshot from: $SCREENSHOT_PATH, size: ${file.length()}")
                 val bitmap = BitmapFactory.decodeFile(SCREENSHOT_PATH)
                 if (bitmap != null) {
                     return@withContext IDeviceController.ScreenshotResult(bitmap)
@@ -87,27 +93,27 @@ class ShizukuScreenshotProvider(
             }
             
             // 如果无法直接读取，通过 shell cat 读取二进制数据
-            println("[ShizukuScreenshotProvider] Cannot read directly, trying shell cat...")
+            logShizuku("Cannot read directly, trying shell cat...")
             val process = Runtime.getRuntime().exec(arrayOf("su", "-c", "cat $SCREENSHOT_PATH"))
             val bytes = process.inputStream.readBytes()
             process.waitFor()
             
             if (bytes.isNotEmpty()) {
-                println("[ShizukuScreenshotProvider] Read ${bytes.size} bytes via shell")
+                logShizuku("Read ${bytes.size} bytes via shell")
                 val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 if (bitmap != null) {
                     return@withContext IDeviceController.ScreenshotResult(bitmap)
                 }
             }
             
-            println("[ShizukuScreenshotProvider] Screenshot file empty or not accessible, returning fallback")
+            logShizuku("Screenshot file empty or not accessible, returning fallback")
             createFallbackScreenshot(
                 isSensitive = false,
                 errorType = ScreenshotErrorType.FILE_NOT_ACCESSIBLE
             )
         } catch (e: Exception) {
             e.printStackTrace()
-            println("[ShizukuScreenshotProvider] Screenshot exception, returning fallback")
+            logShizuku("Screenshot exception, returning fallback")
             createFallbackScreenshot(
                 isSensitive = false,
                 errorType = ScreenshotErrorType.SHELL_COMMAND_FAILED
@@ -118,7 +124,7 @@ class ShizukuScreenshotProvider(
     override fun getScreenSize(): Pair<Int, Int> {
         val output = exec("wm size")
         
-        println("[ShizukuScreenshotProvider] wm size 输出: $output")
+        logShizuku("wm size 输出: $output")
         
         // 输出格式: Physical size: 1080x2400
         val match = Regex("(\\d+)x(\\d+)").find(output)
@@ -126,35 +132,35 @@ class ShizukuScreenshotProvider(
             val (w, h) = match.destructured
             Pair(w.toInt(), h.toInt())
         } else {
-            println("[ShizukuScreenshotProvider] ⚠️ 无法解析屏幕尺寸，使用默认值 1080x2400")
+            logShizuku("⚠️ 无法解析屏幕尺寸，使用默认值 1080x2400")
             Pair(1080, 2400)
         }
         
-        println("[ShizukuScreenshotProvider] 物理尺寸: ${physicalWidth}x${physicalHeight}")
+        logShizuku("物理尺寸: ${physicalWidth}x${physicalHeight}")
         
         // 检测屏幕方向
         val orientation = getScreenOrientation()
-        println("[ShizukuScreenshotProvider] 屏幕方向: $orientation (0=竖屏, 1/3=横屏)")
+        logShizuku("屏幕方向: $orientation (0=竖屏, 1/3=横屏)")
         
         val (width, height) = if (orientation == 1 || orientation == 3) {
             // 横屏：交换宽高
-            println("[ShizukuScreenshotProvider] 横屏模式，交换宽高")
+            logShizuku("横屏模式，交换宽高")
             Pair(physicalHeight, physicalWidth)
         } else {
             // 竖屏
-            println("[ShizukuScreenshotProvider] 竖屏模式")
+            logShizuku("竖屏模式")
             Pair(physicalWidth, physicalHeight)
         }
         
         // 验证屏幕尺寸合理性
         if (width < 300 || height < 300) {
-            println("[ShizukuScreenshotProvider] ⚠️ 警告: 屏幕尺寸异常小 (${width}x${height})，可能解析错误")
+            logShizuku("⚠️ 警告: 屏幕尺寸异常小 (${width}x${height})，可能解析错误")
         }
         if (width > 5000 || height > 5000) {
-            println("[ShizukuScreenshotProvider] ⚠️ 警告: 屏幕尺寸异常大 (${width}x${height})，可能解析错误")
+            logShizuku("⚠️ 警告: 屏幕尺寸异常大 (${width}x${height})，可能解析错误")
         }
         
-        println("[ShizukuScreenshotProvider] 最终屏幕尺寸: ${width}x${height}")
+        logShizuku("最终屏幕尺寸: ${width}x${height}")
         
         return Pair(width, height)
     }
@@ -199,7 +205,7 @@ class ShizukuScreenshotProvider(
     private fun getScreenOrientation(): Int {
         val output = exec("dumpsys window displays | grep mCurrentOrientation")
         
-        println("[ShizukuScreenshotProvider] 屏幕方向检测输出: $output")
+        logShizuku("屏幕方向检测输出: $output")
         
         // 输出格式: mCurrentOrientation=0 或 mCurrentOrientation=1
         val match = Regex("mCurrentOrientation=(\\d)").find(output)
@@ -213,7 +219,7 @@ class ShizukuScreenshotProvider(
             else -> "未知方向"
         }
         
-        println("[ShizukuScreenshotProvider] 解析结果: $orientationName")
+        logShizuku("解析结果: $orientationName")
         
         return orientation
     }

@@ -28,6 +28,8 @@ CRITICAL RULES (MUST FOLLOW):
 8. Text input: click field first → ensure keyboard visible → type. CRITICAL: Check if input field already contains the target text in the input box area (NOT keyboard suggestions/history). If target text is NOT present in input box, MUST execute type action.
 9. If input field has cached text (actual text in the box, NOT keyboard suggestions) → clear it first (long press backspace). DO NOT skip type action if text only appears in keyboard suggestions.
 10. If items or content are not fully visible, swipe screen appropriately to get more information
+11. If the user goal is already achieved on current screen, MUST return terminate(status=success) immediately.
+12. After goal achieved, NEVER click unrelated UI (e.g. 更多/设置) just for confirmation.
     """.trimIndent()
     }
 
@@ -58,6 +60,7 @@ CRITICAL RULES (MUST FOLLOW):
         append("- wait[1-10]: Wait seconds. Example: {\"action\": \"wait\", \"duration\": 2, \"tell_user\": \"message to tell user\"}\n")
         append("- take_over[msg]: Request user help. Example: {\"action\": \"take_over\", \"message\": \"help message\", \"tell_user\": \"help message\"}\n")
         append("- answer[text]: Answer question. Example: {\"action\": \"answer\", \"text\": \"答案\", \"tell_user\": \"message to tell user\"}\n")
+        append("- terminate[success/fail]: Finish task immediately. Example: {\"action\": \"terminate\", \"status\": \"success\", \"tell_user\": \"任务完成\"}\n")
         if (infoPool.installedApps.isNotEmpty()) {
             append("\nInstalled Apps: ${infoPool.installedApps.take(20)}\n")
         }
