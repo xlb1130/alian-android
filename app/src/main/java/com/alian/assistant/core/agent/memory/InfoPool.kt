@@ -82,7 +82,11 @@ data class Action(
     // 新增：无障碍定位辅助字段
     val targetText: String? = null,      // 目标元素文本
     val targetDesc: String? = null,      // 目标元素描述
-    val targetResourceId: String? = null // 目标元素资源ID
+    val targetResourceId: String? = null, // 目标元素资源ID
+    val targetRole: String? = null,       // 目标角色 button/input/list_item...
+    val targetScopeHint: String? = null,  // 目标范围提示，如“输入框右侧”
+    val expectedOutcome: String? = null,  // 动作执行后的预期结果描述
+    val confidence: Float? = null         // 动作置信度 0.0-1.0
 ) {
     companion object {
         private const val SCALE_FACTOR = 999  // MAI-UI 坐标缩放因子
@@ -126,12 +130,16 @@ data class Action(
                     duration = if (obj.has("duration")) obj.optInt("duration", 3) else null,
                     message = obj.optString("message", null),
                     needConfirm = obj.optBoolean("need_confirm", false),
-                    direction = obj.optString("direction", null),
-                    status = obj.optString("status", null),
-                    tellUser = obj.optString("tell_user", null),
-                    targetText = obj.optString("target_text", null),
-                    targetDesc = obj.optString("target_desc", null),
-                    targetResourceId = obj.optString("target_resource_id", null)
+                    direction = optNullableString(obj, "direction"),
+                    status = optNullableString(obj, "status"),
+                    tellUser = optNullableString(obj, "tell_user"),
+                    targetText = optNullableString(obj, "target_text"),
+                    targetDesc = optNullableString(obj, "target_desc"),
+                    targetResourceId = optNullableString(obj, "target_resource_id"),
+                    targetRole = optNullableString(obj, "target_role"),
+                    targetScopeHint = optNullableString(obj, "target_scope_hint"),
+                    expectedOutcome = optNullableString(obj, "expected_outcome"),
+                    confidence = if (obj.has("confidence")) obj.optDouble("confidence", -1.0).toFloat().takeIf { it in 0f..1f } else null
                 )
             } catch (e: Exception) {
                 null
@@ -156,12 +164,16 @@ data class Action(
                     duration = if (jsonObj.has("duration")) jsonObj.optInt("duration", 3) else null,
                     message = jsonObj.optString("message", null),
                     needConfirm = jsonObj.optBoolean("need_confirm", false),
-                    direction = jsonObj.optString("direction", null),
-                    status = jsonObj.optString("status", null),
-                    tellUser = jsonObj.optString("tell_user", null),
-                    targetText = jsonObj.optString("target_text", null),
-                    targetDesc = jsonObj.optString("target_desc", null),
-                    targetResourceId = jsonObj.optString("target_resource_id", null)
+                    direction = optNullableString(jsonObj, "direction"),
+                    status = optNullableString(jsonObj, "status"),
+                    tellUser = optNullableString(jsonObj, "tell_user"),
+                    targetText = optNullableString(jsonObj, "target_text"),
+                    targetDesc = optNullableString(jsonObj, "target_desc"),
+                    targetResourceId = optNullableString(jsonObj, "target_resource_id"),
+                    targetRole = optNullableString(jsonObj, "target_role"),
+                    targetScopeHint = optNullableString(jsonObj, "target_scope_hint"),
+                    expectedOutcome = optNullableString(jsonObj, "expected_outcome"),
+                    confidence = if (jsonObj.has("confidence")) jsonObj.optDouble("confidence", -1.0).toFloat().takeIf { it in 0f..1f } else null
                 )
             } catch (e: Exception) {
                 null
@@ -244,14 +256,28 @@ data class Action(
                     y2 = y2,
                     text = arguments.optString("text", null),
                     button = arguments.optString("button", null),
-                    direction = arguments.optString("direction", null),
-                    status = arguments.optString("status", null),
-                    tellUser = arguments.optString("tell_user", null)
+                    direction = optNullableString(arguments, "direction"),
+                    status = optNullableString(arguments, "status"),
+                    tellUser = optNullableString(arguments, "tell_user"),
+                    targetText = optNullableString(arguments, "target_text"),
+                    targetDesc = optNullableString(arguments, "target_desc"),
+                    targetResourceId = optNullableString(arguments, "target_resource_id"),
+                    targetRole = optNullableString(arguments, "target_role"),
+                    targetScopeHint = optNullableString(arguments, "target_scope_hint"),
+                    expectedOutcome = optNullableString(arguments, "expected_outcome"),
+                    confidence = if (arguments.has("confidence")) arguments.optDouble("confidence", -1.0).toFloat().takeIf { it in 0f..1f } else null
                 )
             } catch (e: Exception) {
                 println("[Action] MAI-UI 格式解析失败: ${e.message}")
                 null
             }
+        }
+
+        private fun optNullableString(obj: JSONObject, key: String): String? {
+            if (!obj.has(key) || obj.isNull(key)) return null
+            val value = obj.optString(key, "").trim()
+            if (value.isEmpty() || value.equals("null", ignoreCase = true)) return null
+            return value
         }
 
         /**
@@ -289,6 +315,10 @@ data class Action(
         targetText?.let { obj.put("target_text", it) }
         targetDesc?.let { obj.put("target_desc", it) }
         targetResourceId?.let { obj.put("target_resource_id", it) }
+        targetRole?.let { obj.put("target_role", it) }
+        targetScopeHint?.let { obj.put("target_scope_hint", it) }
+        expectedOutcome?.let { obj.put("expected_outcome", it) }
+        confidence?.let { obj.put("confidence", it) }
 
         return obj.toString()
     }

@@ -80,6 +80,10 @@ data class InfoPoolImprove(
     var accessibilityLocateAttempts: Int = 0,      // 无障碍定位尝试次数
     var accessibilityLocateSuccess: Int = 0,       // 无障碍定位成功次数
     var accessibilityLocateByMethod: MutableMap<String, Int> = mutableMapOf(),  // 按方法统计成功次数
+    var loopBreakCount: Int = 0,
+    var loopBreakReasons: MutableMap<String, Int> = mutableMapOf(),
+    var completionTerminateCount: Int = 0,
+    var completionReasons: MutableMap<String, Int> = mutableMapOf(),
 
     // ========== 聊天相关字段（新增） ==========
 
@@ -154,6 +158,23 @@ fun InfoPoolImprove.getOptimizationReport(): String {
                 appendLine("按方法统计:")
                 accessibilityLocateByMethod.forEach { (method, count) ->
                     appendLine("  $method: $count 次")
+                }
+            }
+        }
+        if (completionReasons.isNotEmpty() || loopBreakReasons.isNotEmpty()) {
+            appendLine("--- 收敛与熔断统计 ---")
+            appendLine("completionTerminateCount: $completionTerminateCount")
+            if (completionReasons.isNotEmpty()) {
+                appendLine("completionReasons:")
+                completionReasons.forEach { (reason, count) ->
+                    appendLine("  $reason: $count 次")
+                }
+            }
+            appendLine("loopBreakCount: $loopBreakCount")
+            if (loopBreakReasons.isNotEmpty()) {
+                appendLine("loopBreakReasons:")
+                loopBreakReasons.forEach { (reason, count) ->
+                    appendLine("  $reason: $count 次")
                 }
             }
         }

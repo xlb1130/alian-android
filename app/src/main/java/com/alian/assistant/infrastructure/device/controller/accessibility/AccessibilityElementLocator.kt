@@ -1,10 +1,11 @@
+@file:Suppress("DEPRECATION")
+
 package com.alian.assistant.infrastructure.device.controller.accessibility
 
 import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import com.alian.assistant.infrastructure.device.accessibility.AlianAccessibilityService
-import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -19,6 +20,7 @@ class AccessibilityElementLocator {
     companion object {
         private const val TAG = "AccessibilityElementLocator"
         private const val DEFAULT_SEARCH_RADIUS = 100  // 默认搜索半径（像素）
+        private const val MAX_TREE_SCAN_NODES = 600
     }
 
     /**
@@ -29,7 +31,17 @@ class AccessibilityElementLocator {
         val node: AccessibilityNodeInfo? = null,
         val centerX: Int = 0,
         val centerY: Int = 0,
-        val method: String = ""  // 定位方式：text/resourceId/contentDesc/bounds
+        val method: String = "",  // 定位方式：text/resourceId/contentDesc/bounds
+        val candidateCount: Int = 0,
+        val topScore: Int? = null,
+        val secondScore: Int? = null,
+        val fallbackLevel: String = "none"
+    )
+
+    private data class ScoredCandidate(
+        val node: AccessibilityNodeInfo,
+        val score: Int,
+        val bounds: Rect
     )
 
     /**
@@ -68,7 +80,12 @@ class AccessibilityElementLocator {
      * @param exactMatch 是否精确匹配（默认 false，包含即可）
      * @return 定位结果
      */
-    fun locateByText(text: String, exactMatch: Boolean = false): ElementLocateResult {
+    fun locateByText(
+        text: String,
+        exactMatch: Boolean = false,
+        targetRole: String? = null,
+        targetScopeHint: String? = null
+    ): ElementLocateResult {
         val service = getService() ?: return ElementLocateResult(success = false)
 
         val nodes = service.findByText(text, exactMatch)
@@ -77,32 +94,32 @@ class AccessibilityElementLocator {
             return ElementLocateResult(success = false)
         }
 
-        // 从所有候选中打分选择最优节点（避免重复文本命中错误元素）
-        val node = selectBestCandidate(
+        val ranked = rankCandidates(
             candidates = nodes,
             targetText = text,
+            targetRole = targetRole,
+            targetScopeHint = targetScopeHint,
             exactMatch = exactMatch
-        ) ?: nodes.first()
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        val centerX = bounds.centerX()
-        val centerY = bounds.centerY()
-
-        // 验证元素是否真的匹配目标文本
-        val nodeText = node.text?.toString() ?: ""
-        val isMatch = if (exactMatch) {
-            nodeText == text
-        } else {
-            nodeText.contains(text, ignoreCase = true)
+        )
+        val selected = pickBestCandidate(ranked)
+        if (selected == null) {
+            releaseNodes(nodes)
+            return ElementLocateResult(success = false)
         }
+        releaseNodes(nodes, keep = selected.node)
+        val topScore = ranked.getOrNull(0)?.score
+        val secondScore = ranked.getOrNull(1)?.score
 
-        Log.d(TAG, a11y("✓ 通过文本定位成功: '$text' -> ($centerX, $centerY)"))
+        Log.d(TAG, a11y("✓ 通过文本定位成功: '$text' -> (${selected.bounds.centerX()}, ${selected.bounds.centerY()}) score=$topScore"))
         return ElementLocateResult(
             success = true,
-            node = node,
-            centerX = centerX,
-            centerY = centerY,
-            method = "text"
+            node = selected.node,
+            centerX = selected.bounds.centerX(),
+            centerY = selected.bounds.centerY(),
+            method = "text",
+            candidateCount = ranked.size,
+            topScore = topScore,
+            secondScore = secondScore
         )
     }
 
@@ -112,37 +129,55 @@ class AccessibilityElementLocator {
      * @param description 内容描述
      * @return 定位结果
      */
-    fun locateByDescription(description: String): ElementLocateResult {
+    fun locateByDescription(
+        description: String,
+        targetRole: String? = null,
+        targetScopeHint: String? = null
+    ): ElementLocateResult {
         val service = getService() ?: return ElementLocateResult(success = false)
 
         val root = service.rootNode ?: return ElementLocateResult(success = false)
-        val candidates = collectNodes(root).filter { node ->
-            val nodeDesc = node.contentDescription?.toString() ?: ""
-            nodeDesc.contains(description, ignoreCase = true)
+        return try {
+            val allNodes = collectNodes(root)
+            val candidates = allNodes.filter { node ->
+                val nodeDesc = node.contentDescription?.toString() ?: ""
+                nodeDesc.contains(description, ignoreCase = true)
+            }
+            if (candidates.isEmpty()) {
+                releaseNodes(allNodes)
+                Log.d(TAG, a11y("通过描述定位失败: '$description'"))
+                return ElementLocateResult(success = false)
+            }
+
+            val ranked = rankCandidates(
+                candidates = candidates,
+                targetDesc = description,
+                targetRole = targetRole,
+                targetScopeHint = targetScopeHint
+            )
+            val selected = pickBestCandidate(ranked)
+            if (selected == null) {
+                releaseNodes(allNodes)
+                return ElementLocateResult(success = false)
+            }
+            releaseNodes(allNodes, keep = selected.node)
+            val topScore = ranked.getOrNull(0)?.score
+            val secondScore = ranked.getOrNull(1)?.score
+
+            Log.d(TAG, a11y("✓ 通过描述定位成功: '$description' -> (${selected.bounds.centerX()}, ${selected.bounds.centerY()}) score=$topScore"))
+            ElementLocateResult(
+                success = true,
+                node = selected.node,
+                centerX = selected.bounds.centerX(),
+                centerY = selected.bounds.centerY(),
+                method = "contentDesc",
+                candidateCount = ranked.size,
+                topScore = topScore,
+                secondScore = secondScore
+            )
+        } finally {
+            root.recycle()
         }
-        if (candidates.isEmpty()) {
-            Log.d(TAG, a11y("通过描述定位失败: '$description'"))
-            return ElementLocateResult(success = false)
-        }
-
-        val node = selectBestCandidate(
-            candidates = candidates,
-            targetDesc = description
-        ) ?: candidates.first()
-
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        val centerX = bounds.centerX()
-        val centerY = bounds.centerY()
-
-        Log.d(TAG, a11y("✓ 通过描述定位成功: '$description' -> ($centerX, $centerY)"))
-        return ElementLocateResult(
-            success = true,
-            node = node,
-            centerX = centerX,
-            centerY = centerY,
-            method = "contentDesc"
-        )
     }
 
     /**
@@ -151,37 +186,55 @@ class AccessibilityElementLocator {
      * @param resourceId 资源ID（可以是部分匹配）
      * @return 定位结果
      */
-    fun locateByResourceId(resourceId: String): ElementLocateResult {
+    fun locateByResourceId(
+        resourceId: String,
+        targetRole: String? = null,
+        targetScopeHint: String? = null
+    ): ElementLocateResult {
         val service = getService() ?: return ElementLocateResult(success = false)
 
         val root = service.rootNode ?: return ElementLocateResult(success = false)
-        val candidates = collectNodes(root).filter { node ->
-            val nodeId = node.viewIdResourceName ?: ""
-            nodeId.contains(resourceId, ignoreCase = true)
+        return try {
+            val allNodes = collectNodes(root)
+            val candidates = allNodes.filter { node ->
+                val nodeId = node.viewIdResourceName ?: ""
+                nodeId.contains(resourceId, ignoreCase = true)
+            }
+            if (candidates.isEmpty()) {
+                releaseNodes(allNodes)
+                Log.d(TAG, a11y("通过资源ID定位失败: '$resourceId'"))
+                return ElementLocateResult(success = false)
+            }
+
+            val ranked = rankCandidates(
+                candidates = candidates,
+                targetResourceId = resourceId,
+                targetRole = targetRole,
+                targetScopeHint = targetScopeHint
+            )
+            val selected = pickBestCandidate(ranked)
+            if (selected == null) {
+                releaseNodes(allNodes)
+                return ElementLocateResult(success = false)
+            }
+            releaseNodes(allNodes, keep = selected.node)
+            val topScore = ranked.getOrNull(0)?.score
+            val secondScore = ranked.getOrNull(1)?.score
+
+            Log.d(TAG, a11y("✓ 通过资源ID定位成功: '$resourceId' -> (${selected.bounds.centerX()}, ${selected.bounds.centerY()}) score=$topScore"))
+            ElementLocateResult(
+                success = true,
+                node = selected.node,
+                centerX = selected.bounds.centerX(),
+                centerY = selected.bounds.centerY(),
+                method = "resourceId",
+                candidateCount = ranked.size,
+                topScore = topScore,
+                secondScore = secondScore
+            )
+        } finally {
+            root.recycle()
         }
-        if (candidates.isEmpty()) {
-            Log.d(TAG, a11y("通过资源ID定位失败: '$resourceId'"))
-            return ElementLocateResult(success = false)
-        }
-
-        val node = selectBestCandidate(
-            candidates = candidates,
-            targetResourceId = resourceId
-        ) ?: candidates.first()
-
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        val centerX = bounds.centerX()
-        val centerY = bounds.centerY()
-
-        Log.d(TAG, a11y("✓ 通过资源ID定位成功: '$resourceId' -> ($centerX, $centerY)"))
-        return ElementLocateResult(
-            success = true,
-            node = node,
-            centerX = centerX,
-            centerY = centerY,
-            method = "resourceId"
-        )
     }
 
     /**
@@ -192,7 +245,13 @@ class AccessibilityElementLocator {
      * @param radius 搜索半径（像素）
      * @return 定位结果
      */
-    fun locateNearestClickable(x: Int, y: Int, radius: Int = DEFAULT_SEARCH_RADIUS): ElementLocateResult {
+    fun locateNearestClickable(
+        x: Int,
+        y: Int,
+        radius: Int = DEFAULT_SEARCH_RADIUS,
+        targetRole: String? = null,
+        targetScopeHint: String? = null
+    ): ElementLocateResult {
         val service = getService() ?: return ElementLocateResult(success = false)
 
         // 定义搜索区域
@@ -210,46 +269,36 @@ class AccessibilityElementLocator {
             return ElementLocateResult(success = false)
         }
 
-        // 筛选可点击元素，并找到距离最近的
-        var nearestNode: AccessibilityNodeInfo? = null
-        var minDistance = Float.MAX_VALUE
-
-        for (node in nodes) {
-            if (node.isClickable) {
-                val bounds = Rect()
-                node.getBoundsInScreen(bounds)
-                val centerX = bounds.centerX()
-                val centerY = bounds.centerY()
-
-                // 计算欧几里得距离
-                val distance = sqrt(
-                    ((centerX - x) * (centerX - x) + (centerY - y) * (centerY - y)).toFloat()
-                )
-
-                if (distance < minDistance) {
-                    minDistance = distance
-                    nearestNode = node
-                }
-            }
-        }
-
-        if (nearestNode == null) {
+        val ranked = rankCandidates(
+            candidates = nodes.filter { resolveClickableNode(it) != null },
+            targetRole = targetRole,
+            targetScopeHint = targetScopeHint,
+            targetX = x,
+            targetY = y
+        )
+        val selected = pickBestCandidate(ranked)
+        if (selected == null) {
+            releaseNodes(nodes)
             Log.d(TAG, a11y("坐标附近未找到可点击元素: ($x, $y)"))
             return ElementLocateResult(success = false)
         }
+        releaseNodes(nodes, keep = selected.node)
+        val topScore = ranked.getOrNull(0)?.score
+        val secondScore = ranked.getOrNull(1)?.score
+        val minDistance = sqrt(
+            ((selected.bounds.centerX() - x) * (selected.bounds.centerX() - x) + (selected.bounds.centerY() - y) * (selected.bounds.centerY() - y)).toFloat()
+        )
 
-        val bounds = Rect()
-        nearestNode.getBoundsInScreen(bounds)
-        val centerX = bounds.centerX()
-        val centerY = bounds.centerY()
-
-        Log.d(TAG, a11y("✓ 通过坐标定位成功: ($x, $y) -> 最近的元素 ($centerX, $centerY), 距离: ${minDistance.toInt()}"))
+        Log.d(TAG, a11y("✓ 通过坐标定位成功: ($x, $y) -> (${selected.bounds.centerX()}, ${selected.bounds.centerY()}), 距离: ${minDistance.toInt()}, score=$topScore"))
         return ElementLocateResult(
             success = true,
-            node = nearestNode,
-            centerX = centerX,
-            centerY = centerY,
-            method = "bounds"
+            node = selected.node,
+            centerX = selected.bounds.centerX(),
+            centerY = selected.bounds.centerY(),
+            method = "bounds",
+            candidateCount = ranked.size,
+            topScore = topScore,
+            secondScore = secondScore
         )
     }
 
@@ -313,7 +362,8 @@ class AccessibilityElementLocator {
         node: AccessibilityNodeInfo,
         targetText: String? = null,
         targetDesc: String? = null,
-        targetResourceId: String? = null
+        targetResourceId: String? = null,
+        targetRole: String? = null
     ): Boolean {
         var matchCount = 0
         var totalChecks = 0
@@ -348,6 +398,16 @@ class AccessibilityElementLocator {
                 Log.d(TAG, a11y("✓ 资源ID匹配: '$nodeId' 包含 '$resourceId'"))
             } else {
                 Log.w(TAG, a11y("✗ 资源ID不匹配: '$nodeId' 不包含 '$resourceId'"))
+            }
+        }
+        targetRole?.let { role ->
+            totalChecks++
+            val nodeRole = inferRole(node)
+            if (nodeRole.equals(role, ignoreCase = true)) {
+                matchCount++
+                Log.d(TAG, a11y("✓ 角色匹配: '$nodeRole' == '$role'"))
+            } else {
+                Log.w(TAG, a11y("✗ 角色不匹配: '$nodeRole' != '$role'"))
             }
         }
 
@@ -421,26 +481,41 @@ class AccessibilityElementLocator {
         val service = getService() ?: return null
 
         val root = service.rootNode ?: return null
+        try {
+            // 遍历元素树查找焦点元素
+            val queue = ArrayDeque<AccessibilityNodeInfo>()
+            queue.add(AccessibilityNodeInfo.obtain(root))
+            var scanned = 0
 
-        // 遍历元素树查找焦点元素
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
+            while (queue.isNotEmpty() && scanned < MAX_TREE_SCAN_NODES) {
+                val node = queue.removeFirst()
+                try {
+                    scanned++
+                    if (node.isFocused && node.isEditable) {
+                        Log.d(TAG, "找到焦点可编辑元素: ${node.text}")
+                        val matched = AccessibilityNodeInfo.obtain(node)
+                        while (queue.isNotEmpty()) {
+                            queue.removeFirst().recycle()
+                        }
+                        return matched
+                    }
 
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            if (node.isFocused && node.isEditable) {
-                Log.d(TAG, "找到焦点可编辑元素: ${node.text}")
-                return node
+                    for (i in 0 until node.childCount) {
+                        node.getChild(i)?.let(queue::add)
+                    }
+                } finally {
+                    node.recycle()
+                }
             }
 
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
+            while (queue.isNotEmpty()) {
+                queue.removeFirst().recycle()
             }
+            Log.d(TAG, "未找到焦点可编辑元素")
+            return null
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "未找到焦点可编辑元素")
-        return null
     }
 
     /**
@@ -494,39 +569,62 @@ class AccessibilityElementLocator {
         if (nearestNode != null) {
             Log.d(TAG, "找到附近可编辑元素: ${nearestNode.text}, 距离: ${minDistance.toInt()}")
         }
-
+        releaseNodes(nodes, keep = nearestNode)
         return nearestNode
     }
 
     private fun collectNodes(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
         val results = mutableListOf<AccessibilityNodeInfo>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        while (queue.isNotEmpty()) {
+        queue.add(AccessibilityNodeInfo.obtain(root))
+        while (queue.isNotEmpty() && results.size < MAX_TREE_SCAN_NODES) {
             val node = queue.removeFirst()
-            results.add(node)
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.add(it) }
+            try {
+                results.add(AccessibilityNodeInfo.obtain(node))
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.add(it) }
+                }
+            } finally {
+                node.recycle()
             }
+        }
+        if (queue.isNotEmpty()) {
+            while (queue.isNotEmpty()) {
+                queue.removeFirst().recycle()
+            }
+            Log.d(TAG, a11y("节点扫描达到上限($MAX_TREE_SCAN_NODES)，已提前截断"))
         }
         return results
     }
 
-    private fun selectBestCandidate(
+    private fun releaseNodes(nodes: List<AccessibilityNodeInfo>, keep: AccessibilityNodeInfo? = null) {
+        nodes.forEach { node ->
+            if (node !== keep) {
+                runCatching { node.recycle() }
+            }
+        }
+    }
+
+    private fun rankCandidates(
         candidates: List<AccessibilityNodeInfo>,
         targetText: String? = null,
         targetDesc: String? = null,
         targetResourceId: String? = null,
+        targetRole: String? = null,
+        targetScopeHint: String? = null,
+        targetX: Int? = null,
+        targetY: Int? = null,
         exactMatch: Boolean = false
-    ): AccessibilityNodeInfo? {
-        if (candidates.isEmpty()) return null
-        return candidates.maxByOrNull { node ->
+    ): List<ScoredCandidate> {
+        if (candidates.isEmpty()) return emptyList()
+        return candidates.map { node ->
             var score = 0
             val bounds = Rect()
             node.getBoundsInScreen(bounds)
             val nodeText = node.text?.toString().orEmpty()
             val nodeDesc = node.contentDescription?.toString().orEmpty()
             val nodeId = node.viewIdResourceName.orEmpty()
+            val nodeRole = inferRole(node)
 
             targetText?.let { target ->
                 score += when {
@@ -542,6 +640,20 @@ class AccessibilityElementLocator {
             targetResourceId?.let { target ->
                 score += if (nodeId.contains(target, ignoreCase = true)) 260 else 0
             }
+            targetRole?.let { role ->
+                if (nodeRole.equals(role, ignoreCase = true)) {
+                    score += 120
+                }
+            }
+            targetScopeHint?.let { hint ->
+                if (hint.isNotBlank()) {
+                    val loweredHint = hint.lowercase()
+                    val loweredText = "$nodeText $nodeDesc $nodeId".lowercase()
+                    if (loweredHint.any { it.isLetterOrDigit() } && loweredText.contains(loweredHint.take(8))) {
+                        score += 80
+                    }
+                }
+            }
 
             if (node.isClickable) score += 120
             if (resolveClickableNode(node) != null) score += 80
@@ -553,11 +665,49 @@ class AccessibilityElementLocator {
             val area = bounds.width().coerceAtLeast(0) * bounds.height().coerceAtLeast(0)
             score += (area / 8000).coerceAtMost(120)
 
-            // 微调：更偏好在屏幕中部（通常更可能是主内容）
-            val centerOffset = abs(bounds.centerX() - 540) + abs(bounds.centerY() - 1200)
-            score -= (centerOffset / 120).coerceAtMost(40)
+            if (targetX != null && targetY != null) {
+                val distancePenalty = sqrt(
+                    ((bounds.centerX() - targetX) * (bounds.centerX() - targetX) +
+                        (bounds.centerY() - targetY) * (bounds.centerY() - targetY)).toFloat()
+                ).toInt() / 20
+                score -= distancePenalty.coerceAtMost(80)
+            }
 
-            score
+            ScoredCandidate(node = node, score = score, bounds = bounds)
+        }.sortedByDescending { it.score }
+    }
+
+    private fun pickBestCandidate(ranked: List<ScoredCandidate>): ScoredCandidate? {
+        if (ranked.isEmpty()) return null
+        if (ranked.size == 1) return ranked.first()
+        val top = ranked[0]
+        val second = ranked[1]
+        val scoreGap = top.score - second.score
+        if (scoreGap > 25) return top
+
+        // 分差过小，优先选可直接点击/更大热区，降低命中细小文本节点概率
+        val topClickable = top.node.isClickable || resolveClickableNode(top.node) != null
+        val secondClickable = second.node.isClickable || resolveClickableNode(second.node) != null
+        if (topClickable != secondClickable) {
+            return if (topClickable) top else second
+        }
+
+        val topArea = top.bounds.width().coerceAtLeast(0) * top.bounds.height().coerceAtLeast(0)
+        val secondArea = second.bounds.width().coerceAtLeast(0) * second.bounds.height().coerceAtLeast(0)
+        return if (topArea >= secondArea) top else second
+    }
+
+    private fun inferRole(node: AccessibilityNodeInfo): String {
+        val className = node.className?.toString()?.lowercase().orEmpty()
+        return when {
+            node.isEditable || className.contains("edittext") -> "input"
+            className.contains("button") -> "button"
+            className.contains("checkbox") -> "checkbox"
+            className.contains("switch") -> "switch"
+            className.contains("image") -> "image"
+            className.contains("textview") -> "text"
+            className.contains("recyclerview") || className.contains("listview") -> "list"
+            else -> "unknown"
         }
     }
 

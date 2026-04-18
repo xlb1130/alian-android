@@ -38,7 +38,14 @@ data class ExecutionMetricsData(
     val snapshotRuntimeFallbackCount: Int = 0,
     val snapshotRuntimeRecoveredCount: Int = 0,
     val snapshotRecoverRate: String = "0.0%",
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    val completionTerminateCount: Int = 0,
+    val completionTopReason: String = "",
+    val loopBreakCount: Int = 0,
+    val loopBreakTopReason: String = "",
+    val uiaLocateSuccessRate: String = "0.0%",
+    val uiaCoordinateFallbackRate: String = "0.0%",
+    val avgStepsPerSuccessTask: Float = 0f
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("runtimeSelected", runtimeSelected)
@@ -55,6 +62,13 @@ data class ExecutionMetricsData(
         put("snapshotRuntimeRecoveredCount", snapshotRuntimeRecoveredCount)
         put("snapshotRecoverRate", snapshotRecoverRate)
         put("durationMs", durationMs)
+        put("completionTerminateCount", completionTerminateCount)
+        put("completionTopReason", completionTopReason)
+        put("loopBreakCount", loopBreakCount)
+        put("loopBreakTopReason", loopBreakTopReason)
+        put("uiaLocateSuccessRate", uiaLocateSuccessRate)
+        put("uiaCoordinateFallbackRate", uiaCoordinateFallbackRate)
+        put("avgStepsPerSuccessTask", avgStepsPerSuccessTask)
     }
 
     companion object {
@@ -73,7 +87,14 @@ data class ExecutionMetricsData(
                 snapshotRuntimeFallbackCount = json.optInt("snapshotRuntimeFallbackCount", 0),
                 snapshotRuntimeRecoveredCount = json.optInt("snapshotRuntimeRecoveredCount", 0),
                 snapshotRecoverRate = json.optString("snapshotRecoverRate", "0.0%"),
-                durationMs = json.optLong("durationMs", 0L)
+                durationMs = json.optLong("durationMs", 0L),
+                completionTerminateCount = json.optInt("completionTerminateCount", 0),
+                completionTopReason = json.optString("completionTopReason", ""),
+                loopBreakCount = json.optInt("loopBreakCount", 0),
+                loopBreakTopReason = json.optString("loopBreakTopReason", ""),
+                uiaLocateSuccessRate = json.optString("uiaLocateSuccessRate", "0.0%"),
+                uiaCoordinateFallbackRate = json.optString("uiaCoordinateFallbackRate", "0.0%"),
+                avgStepsPerSuccessTask = json.optDouble("avgStepsPerSuccessTask", 0.0).toFloat()
             )
         }
     }

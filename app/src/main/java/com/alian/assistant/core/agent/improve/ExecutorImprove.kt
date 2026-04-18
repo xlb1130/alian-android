@@ -37,7 +37,11 @@ CRITICAL RULES (MUST FOLLOW):
      * 生成执行 Prompt（改进版 - 平衡精简和清晰度）
      * @param enableBatchExecution 是否启用批量执行模式
      */
-    fun getPrompt(infoPool: InfoPoolImprove, enableBatchExecution: Boolean = true): String = buildString {
+    fun getPrompt(
+        infoPool: InfoPoolImprove,
+        enableBatchExecution: Boolean = true,
+        uiaSummary: String? = null
+    ): String = buildString {
         append("### User Request ###\n")
         append("${infoPool.instruction}\n\n")
 
@@ -50,10 +54,11 @@ CRITICAL RULES (MUST FOLLOW):
 
         append("### Available Actions ###\n")
         append("- click[x,y]: Click at coordinate. Example: {\"action\": \"click\", \"coordinate\": [500, 800], \"tell_user\": \"message to tell user\"}\n")
-        append("  Optional: Add \"target_text\" for element text, \"target_desc\" for description, \"target_resource_id\" for resource ID.\n")
-        append("  Example: {\"action\": \"click\", \"coordinate\": [500, 800], \"target_text\": \"确定\", \"tell_user\": \"点击确定\"}\n")
+        append("  Optional: Add \"target_text\", \"target_desc\", \"target_resource_id\", \"target_role\", \"target_scope_hint\", \"expected_outcome\", \"confidence\".\n")
+        append("  Priority hint: Prefer \"target_resource_id\" > \"target_text/target_desc\" > coordinate for stable execution.\n")
+        append("  Example: {\"action\": \"click\", \"coordinate\": [500, 800], \"target_text\": \"确定\", \"target_role\": \"button\", \"expected_outcome\": \"弹窗关闭\", \"confidence\": 0.86, \"tell_user\": \"点击确定\"}\n")
         append("- type[text]: Type text. Example: {\"action\": \"type\", \"text\": \"hello\", \"tell_user\": \"message to tell user\"}\n")
-        append("  Optional: Add \"target_text\" for input field text.\n")
+        append("  Optional: Add \"target_text\"/\"target_resource_id\"/\"target_role\":\"input\" to help find input box.\n")
         append("- swipe[x1,y1→x2,y2]: Swipe. Example: {\"action\": \"swipe\", \"coordinate\": [500, 800], \"coordinate2\": [500, 300], \"tell_user\": \"message to tell user\"}\n")
         append("- open_app[name]: Open app. Example: {\"action\": \"open_app\", \"text\": \"美团\", \"tell_user\": \"message to tell user\"}\n")
         append("- system_button[Back/Home]: Press button. Example: {\"action\": \"system_button\", \"button\": \"Back\", \"tell_user\": \"message to tell user\"}\n")
@@ -65,19 +70,24 @@ CRITICAL RULES (MUST FOLLOW):
             append("\nInstalled Apps: ${infoPool.installedApps.take(20)}\n")
         }
         append("\n")
+        if (!uiaSummary.isNullOrBlank()) {
+            append("### UI Tree Context ###\n")
+            append(uiaSummary)
+            append("\n\n")
+        }
 
         if (enableBatchExecution) {
             append("### Batch Mode ###\n")
             append("You can return MULTIPLE independent actions in one response.\n")
             append("IMPORTANT: Each action MUST include a \"tell_user\" field (10 Chinese characters or less).\n")
-            append("TIP: Add \"target_text\" field to help accessibility element location when clicking buttons.\n")
+            append("TIP: Add structural fields (target_text/target_desc/target_resource_id/target_role/target_scope_hint) to improve accessibility location.\n")
             append("Format: {\"actions\": [{action1}, {action2}, ...], \"description\": \"...\"}\n")
             append("Example:\n")
             append("{\n")
             append("  \"actions\": [\n")
-            append("    {\"action\": \"click\", \"coordinate\": [480, 70], \"target_text\": \"搜索\", \"tell_user\": \"点击搜索框\"},\n")
-            append("    {\"action\": \"type\", \"text\": \"便宜的汉堡\", \"tell_user\": \"输入文字\"},\n")
-            append("    {\"action\": \"click\", \"coordinate\": [900, 60], \"target_text\": \"搜索\", \"tell_user\": \"点击搜索\"}\n")
+            append("    {\"action\": \"click\", \"coordinate\": [480, 70], \"target_text\": \"搜索\", \"target_role\": \"input\", \"confidence\": 0.82, \"tell_user\": \"点击搜索框\"},\n")
+            append("    {\"action\": \"type\", \"text\": \"便宜的汉堡\", \"target_role\": \"input\", \"expected_outcome\": \"输入框出现关键词\", \"tell_user\": \"输入文字\"},\n")
+            append("    {\"action\": \"click\", \"coordinate\": [900, 60], \"target_text\": \"搜索\", \"target_role\": \"button\", \"expected_outcome\": \"列表刷新\", \"tell_user\": \"点击搜索\"}\n")
             append("  ],\n")
             append("  \"description\": \"点击搜索框，输入文字，点击搜索\"\n")
             append("}\n\n")
@@ -129,15 +139,15 @@ CRITICAL RULES (MUST FOLLOW):
         if (enableBatchExecution) {
             append("{\n")
             append("  \"actions\": [\n")
-            append("    {\"action\": \"click\", \"coordinate\": [500, 800], \"target_text\": \"确定\", \"tell_user\": \"点击屏幕\"},\n")
-            append("    {\"action\": \"type\", \"text\": \"text\", \"tell_user\": \"输入文字\"}\n")
+            append("    {\"action\": \"click\", \"coordinate\": [500, 800], \"target_text\": \"确定\", \"target_role\": \"button\", \"confidence\": 0.78, \"tell_user\": \"点击屏幕\"},\n")
+            append("    {\"action\": \"type\", \"text\": \"text\", \"target_role\": \"input\", \"expected_outcome\": \"输入框出现文本\", \"tell_user\": \"输入文字\"}\n")
             append("  ],\n")
             append("  \"description\": \"brief description\"\n")
             append("}\n\n")
         } else {
             append("{\n")
             append("  \"actions\": [\n")
-            append("    {\"action\": \"click\", \"coordinate\": [500, 800], \"target_text\": \"确定\", \"tell_user\": \"点击屏幕\"}\n")
+            append("    {\"action\": \"click\", \"coordinate\": [500, 800], \"target_text\": \"确定\", \"target_role\": \"button\", \"confidence\": 0.78, \"tell_user\": \"点击屏幕\"}\n")
             append("  ],\n")
             append("  \"description\": \"brief description\"\n")
             append("}\n\n")
@@ -415,6 +425,7 @@ CRITICAL RULES (MUST FOLLOW):
                 "click", "long_press", "double_tap" -> {
                     if (action.targetText != null) append("[${action.targetText}]")
                     else if (action.targetDesc != null) append("[${action.targetDesc}]")
+                    else if (action.targetResourceId != null) append("[${action.targetResourceId}]")
                     else append("[${action.x}, ${action.y}]")
                 }
                 "type" -> {

@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.alian.assistant.infrastructure.device.accessibility
 
 import android.accessibilityservice.AccessibilityService
@@ -32,6 +34,7 @@ class AlianAccessibilityService : AccessibilityService() {
         // 滚动方向常量
         const val SCROLL_FORWARD = 1
         const val SCROLL_BACKWARD = -1
+        private const val MAX_TREE_SCAN_NODES = 600
 
         /**
          * 获取服务实例
@@ -115,44 +118,43 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findByText(text: String, exactMatch: Boolean = false): List<AccessibilityNodeInfo> {
         val root = rootNode ?: return emptyList()
-
-        val results = mutableListOf<AccessibilityNodeInfo>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            // 检查当前节点
-            val nodeText = node.text?.toString() ?: ""
-            val contentDesc = node.contentDescription?.toString() ?: ""
-
-            val isMatch = if (exactMatch) {
-                nodeText == text || contentDesc == text
-            } else {
-                nodeText.contains(text, ignoreCase = true) ||
-                contentDesc.contains(text, ignoreCase = true)
+        return try {
+            val results = collectMatches(root) { node ->
+                val nodeText = node.text?.toString() ?: ""
+                val contentDesc = node.contentDescription?.toString() ?: ""
+                if (exactMatch) {
+                    nodeText == text || contentDesc == text
+                } else {
+                    nodeText.contains(text, ignoreCase = true) ||
+                        contentDesc.contains(text, ignoreCase = true)
+                }
             }
-
-            if (isMatch) {
-                results.add(node)
-            }
-
-            // 遍历子节点
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
-            }
+            Log.d(TAG, "通过文本查找 '$text': 找到 ${results.size} 个结果")
+            results
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "通过文本查找 '$text': 找到 ${results.size} 个结果")
-        return results
     }
 
     /**
      * 通过文本查找元素 (返回第一个匹配)
      */
     fun findFirstByText(text: String, exactMatch: Boolean = false): AccessibilityNodeInfo? {
-        return findByText(text, exactMatch).firstOrNull()
+        val root = rootNode ?: return null
+        return try {
+            findFirstMatch(root) { node ->
+                val nodeText = node.text?.toString() ?: ""
+                val contentDesc = node.contentDescription?.toString() ?: ""
+                if (exactMatch) {
+                    nodeText == text || contentDesc == text
+                } else {
+                    nodeText.contains(text, ignoreCase = true) ||
+                        contentDesc.contains(text, ignoreCase = true)
+                }
+            }
+        } finally {
+            root.recycle()
+        }
     }
 
     /**
@@ -160,25 +162,19 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findByContentDescription(description: String): AccessibilityNodeInfo? {
         val root = rootNode ?: return null
-
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            if (node.contentDescription?.toString()?.equals(description, ignoreCase = true) == true) {
+        return try {
+            val node = findFirstMatch(root) {
+                it.contentDescription?.toString()?.equals(description, ignoreCase = true) == true
+            }
+            if (node != null) {
                 Log.d(TAG, "找到内容描述匹配: $description")
-                return node
+            } else {
+                Log.d(TAG, "未找到内容描述: $description")
             }
-
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
-            }
+            node
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "未找到内容描述: $description")
-        return null
     }
 
     /**
@@ -186,25 +182,19 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findByResourceId(resourceId: String): AccessibilityNodeInfo? {
         val root = rootNode ?: return null
-
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            if (node.viewIdResourceName?.contains(resourceId) == true) {
+        return try {
+            val node = findFirstMatch(root) {
+                it.viewIdResourceName?.contains(resourceId) == true
+            }
+            if (node != null) {
                 Log.d(TAG, "找到资源 ID 匹配: $resourceId")
-                return node
+            } else {
+                Log.d(TAG, "未找到资源 ID: $resourceId")
             }
-
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
-            }
+            node
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "未找到资源 ID: $resourceId")
-        return null
     }
 
     /**
@@ -212,26 +202,20 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findByViewId(viewId: String): AccessibilityNodeInfo? {
         val root = rootNode ?: return null
-
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            // viewIdResourceName 格式: "包名:id/视图ID"
-            if (node.viewIdResourceName?.endsWith(":id/$viewId") == true) {
+        return try {
+            val node = findFirstMatch(root) {
+                // viewIdResourceName 格式: "包名:id/视图ID"
+                it.viewIdResourceName?.endsWith(":id/$viewId") == true
+            }
+            if (node != null) {
                 Log.d(TAG, "找到视图 ID 匹配: $viewId")
-                return node
+            } else {
+                Log.d(TAG, "未找到视图 ID: $viewId")
             }
-
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
-            }
+            node
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "未找到视图 ID: $viewId")
-        return null
     }
 
     /**
@@ -239,25 +223,13 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findAllClickable(): List<AccessibilityNodeInfo> {
         val root = rootNode ?: return emptyList()
-
-        val results = mutableListOf<AccessibilityNodeInfo>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            if (node.isClickable) {
-                results.add(node)
-            }
-
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
-            }
+        return try {
+            val results = collectMatches(root) { it.isClickable }
+            Log.d(TAG, "找到 ${results.size} 个可点击元素")
+            results
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "找到 ${results.size} 个可点击元素")
-        return results
     }
 
     /**
@@ -265,25 +237,13 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findAllEditable(): List<AccessibilityNodeInfo> {
         val root = rootNode ?: return emptyList()
-
-        val results = mutableListOf<AccessibilityNodeInfo>()
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-
-            if (node.isEditable) {
-                results.add(node)
-            }
-
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
-            }
+        return try {
+            val results = collectMatches(root) { it.isEditable }
+            Log.d(TAG, "找到 ${results.size} 个可编辑元素")
+            results
+        } finally {
+            root.recycle()
         }
-
-        Log.d(TAG, "找到 ${results.size} 个可编辑元素")
-        return results
     }
 
     /**
@@ -291,28 +251,91 @@ class AlianAccessibilityService : AccessibilityService() {
      */
     fun findByBounds(rect: Rect): List<AccessibilityNodeInfo> {
         val root = rootNode ?: return emptyList()
+        return try {
+            val results = collectMatches(root) { node ->
+                val nodeBounds = Rect()
+                node.getBoundsInScreen(nodeBounds)
+                Rect.intersects(rect, nodeBounds)
+            }
+            Log.d(TAG, "在区域 $rect 内找到 ${results.size} 个元素")
+            results
+        } finally {
+            root.recycle()
+        }
+    }
 
+    private inline fun collectMatches(
+        root: AccessibilityNodeInfo,
+        matcher: (AccessibilityNodeInfo) -> Boolean
+    ): List<AccessibilityNodeInfo> {
         val results = mutableListOf<AccessibilityNodeInfo>()
         val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
+        queue.add(AccessibilityNodeInfo.obtain(root))
+        var scanned = 0
 
-        while (queue.isNotEmpty()) {
+        while (queue.isNotEmpty() && scanned < MAX_TREE_SCAN_NODES) {
             val node = queue.removeFirst()
-
-            val nodeBounds = Rect()
-            node.getBoundsInScreen(nodeBounds)
-
-            if (Rect.intersects(rect, nodeBounds)) {
-                results.add(node)
-            }
-
-            for (i in 0 until node.childCount) {
-                queue.add(node.getChild(i))
+            try {
+                scanned++
+                if (matcher(node)) {
+                    // 返回独立副本，避免遍历节点被 recycle 后失效
+                    results.add(AccessibilityNodeInfo.obtain(node))
+                }
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { child ->
+                        queue.add(child)
+                    }
+                }
+            } finally {
+                node.recycle()
             }
         }
 
-        Log.d(TAG, "在区域 $rect 内找到 ${results.size} 个元素")
+        if (queue.isNotEmpty()) {
+            while (queue.isNotEmpty()) {
+                queue.removeFirst().recycle()
+            }
+            Log.d(TAG, "节点扫描达到上限($MAX_TREE_SCAN_NODES)，已提前截断")
+        }
         return results
+    }
+
+    private inline fun findFirstMatch(
+        root: AccessibilityNodeInfo,
+        matcher: (AccessibilityNodeInfo) -> Boolean
+    ): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(AccessibilityNodeInfo.obtain(root))
+        var scanned = 0
+
+        while (queue.isNotEmpty() && scanned < MAX_TREE_SCAN_NODES) {
+            val node = queue.removeFirst()
+            try {
+                scanned++
+                if (matcher(node)) {
+                    val match = AccessibilityNodeInfo.obtain(node)
+                    while (queue.isNotEmpty()) {
+                        queue.removeFirst().recycle()
+                    }
+                    return match
+                }
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { child ->
+                        queue.add(child)
+                    }
+                }
+            } finally {
+                node.recycle()
+            }
+        }
+
+        if (queue.isNotEmpty()) {
+            while (queue.isNotEmpty()) {
+                queue.removeFirst().recycle()
+            }
+            Log.d(TAG, "节点扫描达到上限($MAX_TREE_SCAN_NODES)，已提前截断")
+        }
+        return null
     }
 
     // ========== 元素操作方法 ==========
@@ -618,7 +641,6 @@ class AlianAccessibilityService : AccessibilityService() {
 
         for (i in 0 until root.childCount) {
             root.getChild(i)?.let { printNodeTree(it, depth + 1) }
-            printNodeTree(root.getChild(i), depth + 1)
         }
     }
 

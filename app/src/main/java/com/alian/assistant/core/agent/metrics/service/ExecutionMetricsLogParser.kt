@@ -23,13 +23,17 @@ class ExecutionMetricsLogParser {
         val headerIndex = logs.indexOfLast { it.contains("Phase E 指标汇总") }
         if (headerIndex < 0) return null
 
-        val section = logs.drop(headerIndex).take(8)
+        val section = logs.drop(headerIndex).take(12)
 
         val runtimeLine = section.firstOrNull { it.startsWith("运行时:") }
         val snapshotLine = section.firstOrNull { it.startsWith("截图:") }
         val hitLine = section.firstOrNull { it.startsWith("截图命中:") }
         val fallbackLine = section.firstOrNull { it.startsWith("截图降级:") }
         val durationLine = section.firstOrNull { it.startsWith("耗时:") }
+        val completionLine = section.firstOrNull { it.startsWith("收敛:") }
+        val loopLine = section.firstOrNull { it.startsWith("熔断:") }
+        val uiaLine = section.firstOrNull { it.startsWith("UIA:") }
+        val efficiencyLine = section.firstOrNull { it.startsWith("效率:") }
 
         val runtimeSelected = parseString(runtimeLine, "selected").ifBlank { "unknown" }
         return ExecutionMetricsData(
@@ -46,7 +50,14 @@ class ExecutionMetricsLogParser {
             snapshotRuntimeFallbackCount = parseInt(fallbackLine, "runtimeFallback"),
             snapshotRuntimeRecoveredCount = parseInt(fallbackLine, "runtimeRecovered"),
             snapshotRecoverRate = parsePercent(fallbackLine, "recoverRate"),
-            durationMs = parseLong(durationLine, "totalMs")
+            durationMs = parseLong(durationLine, "totalMs"),
+            completionTerminateCount = parseInt(completionLine, "count"),
+            completionTopReason = parseString(completionLine, "topReason"),
+            loopBreakCount = parseInt(loopLine, "count"),
+            loopBreakTopReason = parseString(loopLine, "topReason"),
+            uiaLocateSuccessRate = parsePercent(uiaLine, "successRate"),
+            uiaCoordinateFallbackRate = parsePercent(uiaLine, "fallbackRate"),
+            avgStepsPerSuccessTask = parseFloat(efficiencyLine, "avgStepsPerSuccessTask")
         )
     }
 
@@ -72,6 +83,12 @@ class ExecutionMetricsLogParser {
         if (line == null) return "0.0%"
         val match = Regex("$key=([0-9]+(?:\\.[0-9]+)?%)").find(line)?.groupValues?.get(1)
         return match ?: "0.0%"
+    }
+
+    private fun parseFloat(line: String?, key: String): Float {
+        if (line == null) return 0f
+        val match = Regex("$key=([0-9]+(?:\\.[0-9]+)?)").find(line)?.groupValues?.get(1)
+        return match?.toFloatOrNull() ?: 0f
     }
 }
 

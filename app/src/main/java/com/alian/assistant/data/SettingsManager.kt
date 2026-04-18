@@ -126,6 +126,11 @@ data class AppSettings(
     val gestureDelayMs: Int = 100,  // 手势延迟（毫秒）
     val inputDelayMs: Int = 50,  // 输入延迟（毫秒）
     val swipeVelocity: Float = 0.5f,  // 滑动力度/速度，范围 0.0-1.0，默认 0.5（中等）
+    val uiaTreeSnapshotEnabled: Boolean = true,  // 是否启用 UI 树摘要注入
+    val uiaNodeFirstExecutionEnabled: Boolean = true,  // 是否启用无障碍节点优先执行
+    val taskCompletionJudgeEnabled: Boolean = true,  // 是否启用任务终态判定
+    val loopBreakerEnabled: Boolean = true,  // 是否启用循环熔断
+    val structuralVerifierEnabled: Boolean = true,  // 是否启用结构化终态校验
 
     // ========== 手机通话配置 ==========
     val phoneCallEnabled: Boolean = true,  // 是否启用手机通话
@@ -343,6 +348,11 @@ class SettingsManager(context: Context) {
             gestureDelayMs = prefs.getInt("gesture_delay_ms", 100),
             inputDelayMs = prefs.getInt("input_delay_ms", 50),
             swipeVelocity = prefs.getFloat("swipe_velocity", 0.5f),
+            uiaTreeSnapshotEnabled = prefs.getBoolean("uia_tree_snapshot_enabled", true),
+            uiaNodeFirstExecutionEnabled = prefs.getBoolean("uia_node_first_execution_enabled", true),
+            taskCompletionJudgeEnabled = prefs.getBoolean("task_completion_judge_enabled", true),
+            loopBreakerEnabled = prefs.getBoolean("loop_breaker_enabled", true),
+            structuralVerifierEnabled = prefs.getBoolean("structural_verifier_enabled", true),
             phoneCallEnabled = prefs.getBoolean("phone_call_enabled", true),
             phoneCallAutoOperate = prefs.getBoolean("phone_call_auto_operate", true),
             phoneCallConfirmBeforeAction = prefs.getBoolean("phone_call_confirm_before_action", false),
@@ -740,6 +750,31 @@ class SettingsManager(context: Context) {
         val validVelocity = velocity.coerceIn(0f, 1f)
         prefs.edit().putFloat("swipe_velocity", validVelocity).apply()
         _settings.value = _settings.value.copy(swipeVelocity = validVelocity)
+    }
+
+    fun updateUiaTreeSnapshotEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("uia_tree_snapshot_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(uiaTreeSnapshotEnabled = enabled)
+    }
+
+    fun updateUiaNodeFirstExecutionEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("uia_node_first_execution_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(uiaNodeFirstExecutionEnabled = enabled)
+    }
+
+    fun updateTaskCompletionJudgeEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("task_completion_judge_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(taskCompletionJudgeEnabled = enabled)
+    }
+
+    fun updateLoopBreakerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("loop_breaker_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(loopBreakerEnabled = enabled)
+    }
+
+    fun updateStructuralVerifierEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("structural_verifier_enabled", enabled).apply()
+        _settings.value = _settings.value.copy(structuralVerifierEnabled = enabled)
     }
     
     // ========== 手机通话配置更新方法 ==========

@@ -2010,18 +2010,7 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             }
         }
 
-        var switchingMarkedLoaded = false
-        fun markSwitchingLoadedOnce() {
-            if (switchingMarkedLoaded) return
-            if (loadToken != sessionLoadToken) return
-            if (_sessionLoadingState.value is SessionLoadingState.Switching) {
-                _sessionLoadingState.value = SessionLoadingState.Loaded(sessionId)
-            }
-            switchingMarkedLoaded = true
-        }
-
         fun addHistoryMessage(message: ChatMessage) {
-            markSwitchingLoadedOnce()
             _messages.add(message)
             _unifiedChatTimeline.add(MessageItem(message))
         }
@@ -2717,9 +2706,6 @@ class AlianViewModel(private val context: Context) : ViewModel() {
             }
 
             processedEventCount++
-            if (processedEventCount == 1) {
-                markSwitchingLoadedOnce()
-            }
             if (processedEventCount % 16 == 0) {
                 if (loadToken != sessionLoadToken) {
                     Log.d("AlianViewModel", "事件处理中检测到会话切换，提前终止: token=$loadToken, current=$sessionLoadToken")
@@ -2728,8 +2714,6 @@ class AlianViewModel(private val context: Context) : ViewModel() {
                 yield()
             }
         }
-
-        markSwitchingLoadedOnce()
 
         // 处理剩余的未完成消息块（如果有）
         messageChunkBuffer.forEach { (messageId, buffer) ->
@@ -2804,17 +2788,19 @@ class AlianViewModel(private val context: Context) : ViewModel() {
         // 按时间排序
         _unifiedChatTimeline.sortBy { it.timestamp }
 
-        // 输出时间线中的所有项和时间戳
-        _unifiedChatTimeline.forEach { item ->
+        // 大会话下避免逐条打印时间线导致卡顿，仅输出摘要和少量样本
+        val timelinePreview = _unifiedChatTimeline.take(8).joinToString(" | ") { item ->
             when (item) {
-                is MessageItem -> Log.d("AlianViewModel", "时间线项: Message, timestamp=${item.timestamp}, isUser=${item.message.isUser}, content=${item.message.content.take(20)}...")
-                is DeepThinkingItem -> Log.d("AlianViewModel", "时间线项: DeepThinking, timestamp=${item.timestamp}, title=${item.section.title}")
-                is PlanItem -> Log.d("AlianViewModel", "时间线项: Plan, timestamp=${item.planEvent.timestamp}, steps=${item.planEvent.steps.size}")
-                is MobileTaskItem -> Log.d("AlianViewModel", "时间线项: MobileTask, timestamp=${item.timestamp}, taskId=${item.task.taskId}")
+                is MessageItem -> "M(${if (item.message.isUser) "U" else "A"}:${item.timestamp})"
+                is DeepThinkingItem -> "D(${item.timestamp})"
+                is PlanItem -> "P(${item.timestamp})"
+                is MobileTaskItem -> "T(${item.timestamp})"
             }
         }
-
-        Log.d("AlianViewModel", "事件处理完成，共生成 ${_messages.size} 条消息，${_deepThinkingSections.size} 个深度思考章节，统一时间线共 ${_unifiedChatTimeline.size} 项")
+        Log.d(
+            "AlianViewModel",
+            "事件处理完成，共生成 ${_messages.size} 条消息，${_deepThinkingSections.size} 个深度思考章节，统一时间线共 ${_unifiedChatTimeline.size} 项，样本: $timelinePreview"
+        )
     }
 
     /**

@@ -39,6 +39,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -108,6 +110,7 @@ Limitations:
         // 日志缓冲参数（避免超长 prompt/response 持续堆积导致进程被系统回收）
         private const val MAX_LOG_ENTRIES = 400
         private const val MAX_LOG_MESSAGE_LENGTH = 2000
+        private const val LOG_PUBLISH_BATCH_SIZE = 8
         
         // Flow 模式参数
         private const val FLOW_MIN_CONFIDENCE = 0.7f  // Flow 模式最低置信度
@@ -118,9 +121,13 @@ Limitations:
     private val manager = ManagerImprove()
     private val executor = ExecutorImprove()
     private val reflector = ReflectorImprove(controller)
+    private val completionJudge = TaskCompletionJudge()
+    private val loopBreaker = LoopBreaker()
+    private val uiaTreeSnapshotProvider = UiaTreeSnapshotProvider()
     private val settingsManager: SettingsManager = SettingsManager(context)
     private val elementLocator = AccessibilityElementLocator()
     private val permissionCheck = AgentPermissionCheck(context, settingsManager)
+    private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // Flow 集成（流程缓存优化）
     private val flowIntegration: FlowIntegration = FlowIntegration(context, controller).apply {
@@ -164,6 +171,14 @@ Limitations:
     private var metricsRuntimeFallbackCount: Int = 0
     private var metricsRuntimeSnapshotFallbackAttemptCount: Int = 0
     private var metricsRuntimeSnapshotFallbackSuccessCount: Int = 0
+    private var metricsCompletionTerminateCount: Int = 0
+    private val metricsCompletionReasonCounts: MutableMap<String, Int> = mutableMapOf()
+    private var metricsLoopBreakCount: Int = 0
+    private val metricsLoopBreakReasonCounts: MutableMap<String, Int> = mutableMapOf()
+    private var metricsUiaLocateAttempts: Int = 0
+    private var metricsUiaLocateSuccess: Int = 0
+    private var metricsUiaCoordinateFallbackCount: Int = 0
+    private var metricsTaskSucceeded: Boolean = false
     private var metricsSummaryLogged: Boolean = false
 
     /**
@@ -316,6 +331,8 @@ Limitations:
 
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     override val logs: StateFlow<List<String>> = _logs
+    private val logBuffer: ArrayDeque<String> = ArrayDeque(MAX_LOG_ENTRIES)
+    private var pendingLogPublishCount: Int = 0
 
     /**
      * 带重试机制的点击操作
@@ -335,6 +352,7 @@ Limitations:
         if (locateResult.node == null) {
             // 没有可点击的元素，降级到坐标点击
             log("⚠️ 无障碍定位未找到可点击元素，降级到坐标点击")
+            recordUiaCoordinateFallback("click.node_null")
             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
             executeWithOverlayProtection(action.type) {
                 runtimeTap(x, y)
@@ -347,7 +365,8 @@ Limitations:
             node = locateResult.node,
             targetText = action.targetText,
             targetDesc = action.targetDesc,
-            targetResourceId = action.targetResourceId
+            targetResourceId = action.targetResourceId,
+            targetRole = action.targetRole
         )
 
         if (!isElementMatch) {
@@ -355,6 +374,7 @@ Limitations:
             log("   目标 - 文本: ${action.targetText}, 描述: ${action.targetDesc}, 资源ID: ${action.targetResourceId}")
             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
             log("   降级到坐标点击: ($x, $y)")
+            recordUiaCoordinateFallback("click.feature_mismatch")
             executeWithOverlayProtection(action.type) {
                 runtimeTap(x, y)
             }
@@ -367,6 +387,7 @@ Limitations:
             log("⚠️ 元素状态无效: ${validation.errorMessage}")
             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
             log("   降级到坐标点击: ($x, $y)")
+            recordUiaCoordinateFallback("click.validation_failed")
             executeWithOverlayProtection(action.type) {
                 runtimeTap(x, y)
             }
@@ -402,6 +423,7 @@ Limitations:
 
         // 所有重试都失败，降级到坐标点击
         log("⚠️ 所有重试失败，降级到坐标点击")
+        recordUiaCoordinateFallback("click.retry_exhausted")
         val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
         executeWithOverlayProtection(action.type) {
             runtimeTap(x, y)
@@ -420,6 +442,7 @@ Limitations:
     ): AgentResult {
         resetExecutionMetrics()
         snapshotRepository.resetMetrics()
+        loopBreaker.reset()
         log("========== 系统诊断 ==========")
         log("开始执行（优化模式）: $instruction")
         log("🎤 语音打断状态: enableChatAgent=$enableChatAgent")
@@ -793,6 +816,7 @@ Limitations:
                             // 自动沉淀流程模板
                             autoSaveTemplate(instruction, success = true)
                         }
+                        metricsTaskSucceeded = true
                         logOptimizationReport(infoPool)
                         cleanup()  // 清理语音监听资源
                         return AgentResult(success = true, message = "任务完成")
@@ -826,7 +850,23 @@ Limitations:
                     continue
                 }
 
-                val actionPrompt = executor.getPrompt(infoPool, enableBatchExecution)
+                val settings = settingsManager.settings.value
+                val uiaSummary = if (settings.uiaTreeSnapshotEnabled) {
+                    uiaTreeSnapshotProvider.capture()?.toPromptSummary(maxLines = 36)
+                } else {
+                    null
+                }
+                if (!uiaSummary.isNullOrBlank()) {
+                    logA11y("已注入 UI 树摘要: lines=${uiaSummary.lineSequence().count()}, feature=uia_tree_snapshot_enabled")
+                } else {
+                    logA11y("UI 树摘要不可用，继续使用视觉主导")
+                }
+
+                val actionPrompt = executor.getPrompt(
+                    infoPool = infoPool,
+                    enableBatchExecution = enableBatchExecution,
+                    uiaSummary = uiaSummary
+                )
                 log("Executor 提示词: $actionPrompt")
                 log("Executor 估算 token: ${actionPrompt.length / 3}")
                 val actionResponse = vlmClient.predict(actionPrompt, listOf(screenshot), SYSTEM_PROMPT)
@@ -902,6 +942,7 @@ Limitations:
                         if (enableFlowMode) {
                             flowIntegration.endSession(success = true)
                         }
+                        metricsTaskSucceeded = true
                         logOptimizationReport(infoPool)
                         return AgentResult(success = true, message = "回答: ${action.text}")
                     }
@@ -925,6 +966,7 @@ Limitations:
                             flowIntegration.endSession(success = isSuccess)
                             autoSaveTemplate(instruction, success = isSuccess)
                         }
+                        metricsTaskSucceeded = isSuccess
                         logOptimizationReport(infoPool)
                         cleanup()
                         return AgentResult(success = isSuccess, message = finalMessage)
@@ -1065,21 +1107,80 @@ Limitations:
                     log("Reflector 验证结果: ${verificationResult.outcome} - ${verificationResult.errorDescription.take(50)}")
                     log("验证方法: ${verificationResult.method}")
 
-                    if (verificationResult.outcome == "A" && isLikelyTerminalAction(action, actionDesc, infoPool)) {
-                        val finishMessage = action.tellUser?.takeIf { it.isNotBlank() } ?: "任务已完成"
-                        log("关键终态动作验证成功，提前收敛结束: $finishMessage")
-                        OverlayService.update(finishMessage.take(20))
-                        delay(1000)
-                        OverlayService.hideAfterTTS(context)
-                        updateState { copy(isRunning = false, isCompleted = true) }
-                        bringAppToFront()
-                        if (enableFlowMode) {
-                            flowIntegration.endSession(success = true)
-                            autoSaveTemplate(instruction, success = true)
+                    val runtimeSettings = settingsManager.settings.value
+                    val postActionUiaSummary = if (runtimeSettings.structuralVerifierEnabled) {
+                        uiaTreeSnapshotProvider.capture()?.toPromptSummary(maxLines = 16)
+                    } else {
+                        null
+                    }
+
+                    if (runtimeSettings.taskCompletionJudgeEnabled) {
+                        val completionDecision = completionJudge.judge(
+                            action = action,
+                            verification = verificationResult,
+                            actionDesc = actionDesc,
+                            lastSummary = infoPool.lastSummary,
+                            instruction = infoPool.instruction,
+                            contextHints = buildList {
+                                addAll(infoPool.summaryHistory.takeLast(3))
+                                if (!postActionUiaSummary.isNullOrBlank()) add(postActionUiaSummary)
+                            }
+                        )
+                        if (completionDecision.shouldTerminate && completionDecision.success) {
+                            metricsCompletionTerminateCount += 1
+                            metricsCompletionReasonCounts[completionDecision.reason] =
+                                (metricsCompletionReasonCounts[completionDecision.reason] ?: 0) + 1
+                            infoPool.completionTerminateCount += 1
+                            infoPool.completionReasons[completionDecision.reason] =
+                                (infoPool.completionReasons[completionDecision.reason] ?: 0) + 1
+                            val finishMessage = action.tellUser?.takeIf { it.isNotBlank() } ?: "任务已完成"
+                            log("关键终态动作验证成功，提前收敛结束: $finishMessage, reason=${completionDecision.reason}")
+                            OverlayService.update(finishMessage.take(20))
+                            delay(1000)
+                            OverlayService.hideAfterTTS(context)
+                            updateState { copy(isRunning = false, isCompleted = true) }
+                            bringAppToFront()
+                            if (enableFlowMode) {
+                                flowIntegration.endSession(success = true)
+                                autoSaveTemplate(instruction, success = true)
+                            }
+                            metricsTaskSucceeded = true
+                            logOptimizationReport(infoPool)
+                            cleanup()
+                            return AgentResult(success = true, message = finishMessage)
                         }
-                        logOptimizationReport(infoPool)
-                        cleanup()
-                        return AgentResult(success = true, message = finishMessage)
+                    }
+
+                    if (runtimeSettings.loopBreakerEnabled) {
+                        val loopDecision = loopBreaker.evaluate(
+                            currentAction = action,
+                            verification = verificationResult,
+                            actionHistory = infoPool.actionHistory,
+                            currentStep = step + 1,
+                            maxSteps = maxSteps
+                        )
+                        if (loopDecision.shouldBreak) {
+                            metricsLoopBreakCount += 1
+                            metricsLoopBreakReasonCounts[loopDecision.reason] =
+                                (metricsLoopBreakReasonCounts[loopDecision.reason] ?: 0) + 1
+                            infoPool.loopBreakCount += 1
+                            infoPool.loopBreakReasons[loopDecision.reason] =
+                                (infoPool.loopBreakReasons[loopDecision.reason] ?: 0) + 1
+                            val failMessage = "检测到循环，已停止"
+                            log("[LOOP] 熔断触发: ${loopDecision.reason}")
+                            OverlayService.update(failMessage)
+                            delay(1000)
+                            OverlayService.hideAfterTTS(context)
+                            updateState { copy(isRunning = false, isCompleted = false) }
+                            bringAppToFront()
+                            if (enableFlowMode) {
+                                flowIntegration.endSession(success = false)
+                                autoSaveTemplate(instruction, success = false)
+                            }
+                            logOptimizationReport(infoPool)
+                            cleanup()
+                            return AgentResult(success = false, message = failMessage)
+                        }
                     }
 
                     // 更新历史
@@ -1258,11 +1359,15 @@ Limitations:
 
                 if (locateResult.success) {
                     // 无障碍定位成功，使用带重试机制的点击
-                    logA11y("✓ 无障碍定位成功: ${locateResult.method}")
+                    logA11y(
+                        "✓ 无障碍定位成功: method=${locateResult.method}, candidates=${locateResult.candidateCount}, " +
+                            "topScore=${locateResult.topScore}, secondScore=${locateResult.secondScore}, fallback=${locateResult.fallbackLevel}"
+                    )
                     clickWithRetry(action, locateResult, screenWidth, screenHeight)
                 } else {
                     // 2. 降级到坐标点击
-                    logA11y("⚠ 无障碍定位失败，使用坐标点击")
+                    logA11y("⚠ 无障碍定位失败，使用坐标点击 (fallback=coordinate)")
+                    recordUiaCoordinateFallback("click.locate_failed")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                     executeWithOverlayProtection(action.type) {
                         runtimeTap(x, y)
@@ -1274,13 +1379,17 @@ Limitations:
                 val locateResult = tryAccessibilityLocate(action, infoPool, screenWidth, screenHeight)
 
                 if (locateResult.success) {
-                    logA11y("✓ 无障碍定位成功: ${locateResult.method}")
+                    logA11y(
+                        "✓ 无障碍定位成功: method=${locateResult.method}, candidates=${locateResult.candidateCount}, " +
+                            "topScore=${locateResult.topScore}, secondScore=${locateResult.secondScore}, fallback=${locateResult.fallbackLevel}"
+                    )
                     if (locateResult.node != null) {
                         // 验证元素状态
                         val validation = elementLocator.validateElement(locateResult.node)
                         if (!validation.isValid) {
                             logA11y("⚠️ 元素状态无效: ${validation.errorMessage}")
                             logA11y("   降级到坐标双击")
+                            recordUiaCoordinateFallback("double_tap.validation_failed")
                             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                             executeWithOverlayProtection(action.type) {
                                 runtimeDoubleTap(x, y)
@@ -1298,6 +1407,7 @@ Limitations:
                                     val secondClickSuccess = elementLocator.clickElement(locateResult.node)
                                     if (!secondClickSuccess) {
                                     logA11y("⚠️ 第二次点击失败，降级到坐标双击")
+                                    recordUiaCoordinateFallback("double_tap.second_click_failed")
                                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                                     runtimeDoubleTap(x, y)
                                 } else {
@@ -1305,6 +1415,7 @@ Limitations:
                                 }
                             } else {
                                 logA11y("⚠️ 第一次点击失败，降级到坐标双击")
+                                recordUiaCoordinateFallback("double_tap.first_click_failed")
                                 val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                                 runtimeDoubleTap(x, y)
                             }
@@ -1321,6 +1432,7 @@ Limitations:
                     }
                 } else {
                     logA11y("⚠ 无障碍定位失败，使用坐标双击")
+                    recordUiaCoordinateFallback("double_tap.locate_failed")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                     executeWithOverlayProtection(action.type) {
                         runtimeDoubleTap(x, y)
@@ -1339,6 +1451,7 @@ Limitations:
                         if (!validation.isValid) {
                             logA11y("⚠️ 元素状态无效: ${validation.errorMessage}")
                             logA11y("   降级到坐标长按")
+                            recordUiaCoordinateFallback("long_press.validation_failed")
                             val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                             executeWithOverlayProtection(action.type) {
                                 runtimeLongPress(x, y)
@@ -1353,6 +1466,7 @@ Limitations:
                                 val clickSuccess = elementLocator.clickElement(locateResult.node)
                                 if (!clickSuccess) {
                                     logA11y("⚠️ 直接点击元素失败，降级到坐标长按")
+                                    recordUiaCoordinateFallback("long_press.click_failed")
                                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                                     runtimeLongPress(x, y)
                                 } else {
@@ -1371,6 +1485,7 @@ Limitations:
                     }
                 } else {
                     logA11y("⚠ 无障碍定位失败，使用坐标长按")
+                    recordUiaCoordinateFallback("long_press.locate_failed")
                     val (x, y) = calculateClickCoordinates(action, screenWidth, screenHeight)
                     executeWithOverlayProtection(action.type) {
                         runtimeLongPress(x, y)
@@ -1423,24 +1538,23 @@ Limitations:
                 }
             }
             "type" -> {
-                // 1. 优先查找可编辑元素
-                val editableNode = elementLocator.findFocusedEditable()
-                    ?: if (action.x != null && action.y != null) {
-                        val origX = action.x ?: 0
-                        val origY = action.y ?: 0
-                        val x = mapCoordinate(origX, screenWidth)
-                        val y = mapCoordinate(origY, screenHeight)
-                        elementLocator.findNearestEditable(x, y)
-                    } else {
-                        null
-                    }
+                if (!settingsManager.settings.value.uiaNodeFirstExecutionEnabled) {
+                    logA11y("uia_node_first_execution_enabled=false，type 走键盘输入降级")
+                    recordUiaCoordinateFallback("type.feature_disabled")
+                    action.text?.let { runtimeType(it) }
+                    return@withContext
+                }
+
+                // 1. 优先使用结构化线索查找可编辑元素
+                val editableNode = resolveEditableNodeForAction(action, screenWidth, screenHeight)
 
                 if (editableNode != null) {
-                    logA11y("✓ 找到输入框，直接输入")
+                    logA11y("✓ 找到输入框，直接输入 (role=${action.targetRole ?: "unknown"})")
                     elementLocator.typeInElement(editableNode, action.text ?: "")
                 } else {
                     // 2. 降级到坐标点击 + 输入
-                    logA11y("⚠ 未找到输入框，使用坐标方式")
+                    logA11y("⚠ 未找到输入框，使用坐标方式 (fallback=keyboard_type)")
+                    recordUiaCoordinateFallback("type.editable_not_found")
                     action.text?.let { runtimeType(it) }
                 }
             }
@@ -1501,6 +1615,11 @@ Limitations:
         screenWidth: Int,
         screenHeight: Int
     ): AccessibilityElementLocator.ElementLocateResult {
+        if (!settingsManager.settings.value.uiaNodeFirstExecutionEnabled) {
+            logA11y("uia_node_first_execution_enabled=false，跳过无障碍定位")
+            return AccessibilityElementLocator.ElementLocateResult(success = false)
+        }
+
         // 检查是否使用无障碍控制器
         val controllerType = controller.getControllerType()
         if (controllerType != ControllerType.ACCESSIBILITY && controllerType != ControllerType.HYBRID) {
@@ -1515,33 +1634,49 @@ Limitations:
         }
 
         infoPool.accessibilityLocateAttempts++
+        metricsUiaLocateAttempts++
 
-        // 策略1: 通过目标文本定位
-        action.targetText?.let { text ->
-            val result = elementLocator.locateByText(text)
-            if (result.success) {
-                infoPool.accessibilityLocateSuccess++
-                infoPool.accessibilityLocateByMethod["text"] = (infoPool.accessibilityLocateByMethod["text"] ?: 0) + 1
-                return result
-            }
-        }
-
-        // 策略2: 通过目标描述定位
-        action.targetDesc?.let { desc ->
-            val result = elementLocator.locateByDescription(desc)
-            if (result.success) {
-                infoPool.accessibilityLocateSuccess++
-                infoPool.accessibilityLocateByMethod["contentDesc"] = (infoPool.accessibilityLocateByMethod["contentDesc"] ?: 0) + 1
-                return result
-            }
-        }
-
-        // 策略3: 通过资源ID定位
+        // 策略1: 通过资源ID定位（最高优先级）
         action.targetResourceId?.let { resourceId ->
-            val result = elementLocator.locateByResourceId(resourceId)
+            val result = elementLocator.locateByResourceId(
+                resourceId = resourceId,
+                targetRole = action.targetRole,
+                targetScopeHint = action.targetScopeHint
+            )
             if (result.success) {
                 infoPool.accessibilityLocateSuccess++
                 infoPool.accessibilityLocateByMethod["resourceId"] = (infoPool.accessibilityLocateByMethod["resourceId"] ?: 0) + 1
+                metricsUiaLocateSuccess++
+                return result
+            }
+        }
+
+        // 策略2: 通过目标文本定位
+        action.targetText?.let { text ->
+            val result = elementLocator.locateByText(
+                text = text,
+                targetRole = action.targetRole,
+                targetScopeHint = action.targetScopeHint
+            )
+            if (result.success) {
+                infoPool.accessibilityLocateSuccess++
+                infoPool.accessibilityLocateByMethod["text"] = (infoPool.accessibilityLocateByMethod["text"] ?: 0) + 1
+                metricsUiaLocateSuccess++
+                return result
+            }
+        }
+
+        // 策略3: 通过目标描述定位
+        action.targetDesc?.let { desc ->
+            val result = elementLocator.locateByDescription(
+                description = desc,
+                targetRole = action.targetRole,
+                targetScopeHint = action.targetScopeHint
+            )
+            if (result.success) {
+                infoPool.accessibilityLocateSuccess++
+                infoPool.accessibilityLocateByMethod["contentDesc"] = (infoPool.accessibilityLocateByMethod["contentDesc"] ?: 0) + 1
+                metricsUiaLocateSuccess++
                 return result
             }
         }
@@ -1553,16 +1688,56 @@ Limitations:
             val x = mapCoordinate(origX, screenWidth)
             val y = mapCoordinate(origY, screenHeight)
 
-            val result = elementLocator.locateNearestClickable(x, y)
+            val result = elementLocator.locateNearestClickable(
+                x = x,
+                y = y,
+                targetRole = action.targetRole,
+                targetScopeHint = action.targetScopeHint
+            )
             if (result.success) {
                 infoPool.accessibilityLocateSuccess++
                 infoPool.accessibilityLocateByMethod["bounds"] = (infoPool.accessibilityLocateByMethod["bounds"] ?: 0) + 1
+                metricsUiaLocateSuccess++
                 return result
             }
         }
 
         return AccessibilityElementLocator.ElementLocateResult(success = false)
     }
+
+    private fun resolveEditableNodeForAction(
+        action: Action,
+        screenWidth: Int,
+        screenHeight: Int
+    ) = elementLocator.findFocusedEditable()
+        ?: action.targetResourceId?.let { resourceId ->
+            elementLocator.locateByResourceId(
+                resourceId = resourceId,
+                targetRole = action.targetRole ?: "input",
+                targetScopeHint = action.targetScopeHint
+            ).node
+        }
+        ?: action.targetText?.let { text ->
+            elementLocator.locateByText(
+                text = text,
+                targetRole = action.targetRole ?: "input",
+                targetScopeHint = action.targetScopeHint
+            ).node
+        }
+        ?: action.targetDesc?.let { desc ->
+            elementLocator.locateByDescription(
+                description = desc,
+                targetRole = action.targetRole ?: "input",
+                targetScopeHint = action.targetScopeHint
+            ).node
+        }
+        ?: if (action.x != null && action.y != null) {
+            val x = mapCoordinate(action.x ?: 0, screenWidth)
+            val y = mapCoordinate(action.y ?: 0, screenHeight)
+            elementLocator.findNearestEditable(x, y)
+        } else {
+            null
+        }
 
     /**
      * 坐标映射 - 智能判断坐标类型并映射
@@ -1751,9 +1926,11 @@ Limitations:
      * 清理资源（任务结束时调用）
      */
     private fun cleanup() {
+        flushLogs()
         logExecutionMetricsSummary()
         // 停止 InterruptOrchestrator 和底层的 AEC 录音监听
         Log.d(TAG, "cleanup: 销毁 InterruptOrchestrator，停止语音监听")
+        mainScope.coroutineContext.cancelChildren()
         interruptOrchestrator?.destroy()
         interruptOrchestrator = null
         isPausedForChat = false
@@ -1774,6 +1951,8 @@ Limitations:
      * 清空日志
      */
     override fun clearLogs() {
+        logBuffer.clear()
+        pendingLogPublishCount = 0
         _logs.value = emptyList()
         updateState { copy(executionSteps = emptyList()) }
     }
@@ -1818,6 +1997,14 @@ Limitations:
         metricsRuntimeFallbackCount = 0
         metricsRuntimeSnapshotFallbackAttemptCount = 0
         metricsRuntimeSnapshotFallbackSuccessCount = 0
+        metricsCompletionTerminateCount = 0
+        metricsCompletionReasonCounts.clear()
+        metricsLoopBreakCount = 0
+        metricsLoopBreakReasonCounts.clear()
+        metricsUiaLocateAttempts = 0
+        metricsUiaLocateSuccess = 0
+        metricsUiaCoordinateFallbackCount = 0
+        metricsTaskSucceeded = false
         metricsSummaryLogged = false
     }
 
@@ -1832,6 +2019,10 @@ Limitations:
         log("截图: total=${executionMetrics.snapshotTotalRequests}, force=${executionMetrics.snapshotForceRefreshRequests}, fresh=${executionMetrics.snapshotFreshCaptureCount}")
         log("截图命中: cacheHit=${executionMetrics.snapshotCacheHitCount}, throttleReuse=${executionMetrics.snapshotThrottleReuseCount}, hitRate=${executionMetrics.snapshotHitRate}")
         log("截图降级: repoFallback=${executionMetrics.snapshotRepoFallbackCount}, runtimeFallback=${executionMetrics.snapshotRuntimeFallbackCount}, runtimeRecovered=${executionMetrics.snapshotRuntimeRecoveredCount}, recoverRate=${executionMetrics.snapshotRecoverRate}")
+        log("收敛: count=${executionMetrics.completionTerminateCount}, topReason=${executionMetrics.completionTopReason.ifBlank { "-" }}")
+        log("熔断: count=${executionMetrics.loopBreakCount}, topReason=${executionMetrics.loopBreakTopReason.ifBlank { "-" }}")
+        log("UIA: successRate=${executionMetrics.uiaLocateSuccessRate}, fallbackRate=${executionMetrics.uiaCoordinateFallbackRate}")
+        log("效率: avgStepsPerSuccessTask=${String.format("%.2f", executionMetrics.avgStepsPerSuccessTask)}")
         log("耗时: totalMs=${executionMetrics.durationMs}")
         log("======================================")
     }
@@ -1843,6 +2034,21 @@ Limitations:
             0.0
         } else {
             metricsRuntimeSnapshotFallbackSuccessCount.toDouble() / metricsRuntimeSnapshotFallbackAttemptCount
+        }
+        val uiaSuccessRate = if (metricsUiaLocateAttempts == 0) {
+            0.0
+        } else {
+            metricsUiaLocateSuccess.toDouble() / metricsUiaLocateAttempts
+        }
+        val uiaFallbackRate = if (metricsUiaLocateAttempts == 0) {
+            0.0
+        } else {
+            metricsUiaCoordinateFallbackCount.toDouble() / metricsUiaLocateAttempts
+        }
+        val avgStepsPerSuccessTask = if (metricsTaskSucceeded) {
+            _state.value.currentStep.toFloat().coerceAtLeast(1f)
+        } else {
+            0f
         }
         return ExecutionMetricsData(
             runtimeSelected = metricsRuntimeSelectedName,
@@ -1858,8 +2064,19 @@ Limitations:
             snapshotRuntimeFallbackCount = metricsRuntimeSnapshotFallbackAttemptCount,
             snapshotRuntimeRecoveredCount = metricsRuntimeSnapshotFallbackSuccessCount,
             snapshotRecoverRate = formatPercent(runtimeFallbackSuccessRate),
-            durationMs = durationMs
+            durationMs = durationMs,
+            completionTerminateCount = metricsCompletionTerminateCount,
+            completionTopReason = topReason(metricsCompletionReasonCounts),
+            loopBreakCount = metricsLoopBreakCount,
+            loopBreakTopReason = topReason(metricsLoopBreakReasonCounts),
+            uiaLocateSuccessRate = formatPercent(uiaSuccessRate),
+            uiaCoordinateFallbackRate = formatPercent(uiaFallbackRate),
+            avgStepsPerSuccessTask = avgStepsPerSuccessTask
         )
+    }
+
+    private fun topReason(reasonCounts: Map<String, Int>): String {
+        return reasonCounts.maxByOrNull { it.value }?.key.orEmpty()
     }
 
     private fun formatPercent(value: Double): String {
@@ -1874,17 +2091,37 @@ Limitations:
         }
         Log.d(TAG, normalized)
 
-        val current = _logs.value
-        val bounded = if (current.size >= MAX_LOG_ENTRIES) {
-            current.takeLast(MAX_LOG_ENTRIES - 1) + normalized
-        } else {
-            current + normalized
+        if (logBuffer.size >= MAX_LOG_ENTRIES) {
+            logBuffer.removeFirst()
         }
-        _logs.value = bounded
+        logBuffer.addLast(normalized)
+        pendingLogPublishCount++
+
+        if (pendingLogPublishCount >= LOG_PUBLISH_BATCH_SIZE || shouldImmediatePublish(normalized)) {
+            flushLogs()
+        }
     }
 
     private fun logA11y(message: String) {
         log("[A11Y] $message")
+    }
+
+    private fun shouldImmediatePublish(message: String): Boolean {
+        return message.startsWith("❌") ||
+            message.startsWith("⚠️") ||
+            message.startsWith("✅") ||
+            message.startsWith("任务")
+    }
+
+    private fun flushLogs() {
+        if (pendingLogPublishCount <= 0 && _logs.value.isNotEmpty()) return
+        _logs.value = logBuffer.toList()
+        pendingLogPublishCount = 0
+    }
+
+    private fun recordUiaCoordinateFallback(reason: String) {
+        metricsUiaCoordinateFallbackCount += 1
+        logA11y("触发坐标降级: reason=$reason")
     }
 
     /**
@@ -1993,28 +2230,6 @@ Limitations:
             "system_button" -> "🔘"
             else -> "⚙️"
         }
-    }
-
-    private fun isLikelyTerminalAction(action: Action, actionDesc: String, infoPool: InfoPoolImprove): Boolean {
-        val terminalActionTypes = setOf("click", "double_tap", "long_press", "system_button")
-        if (action.type !in terminalActionTypes) return false
-
-        val terminalKeywords = listOf(
-            "发送", "提交", "确认", "完成", "保存", "发布", "下单", "支付", "付款", "删除", "移除", "上传",
-            "send", "submit", "confirm", "finish", "complete", "save", "publish", "order", "pay", "delete", "upload"
-        )
-        val contextText = listOfNotNull(
-            action.targetText,
-            action.targetDesc,
-            action.button,
-            action.tellUser,
-            action.message,
-            action.text,
-            actionDesc,
-            infoPool.lastSummary
-        ).joinToString(" ").lowercase()
-
-        return terminalKeywords.any { keyword -> contextText.contains(keyword.lowercase()) }
     }
 
     private fun updateState(update: AgentState.() -> AgentState) {
@@ -2157,7 +2372,7 @@ Limitations:
                 log("已暂停，进入聊天模式")
                 
                 // 立即更新 UI（不阻塞 callback）
-                CoroutineScope(Dispatchers.Main).launch {
+                mainScope.launch {
                     OverlayService.showChatMode {
                         Log.d(TAG, "用户点击了问答按钮")
                     }
@@ -2176,7 +2391,7 @@ Limitations:
                 }
                 isPausedForChat = false
                 log("恢复执行")
-                CoroutineScope(Dispatchers.Main).launch {
+                mainScope.launch {
                     // 退出问答模式，恢复正常模式（按钮文字从"问答"变为"停止"）
                     OverlayService.exitChatMode()
                     callback()
@@ -2187,14 +2402,14 @@ Limitations:
                 // 停止回调
                 updateState { copy(isRunning = false) }
                 OverlayService.hide(context)
-                CoroutineScope(Dispatchers.Main).launch {
+                mainScope.launch {
                     callback()
                 }
             },
             onReplan = { newIntent, chatSession, onComplete ->
                 Log.d(TAG, "🔔 收到重规划回调: $newIntent")
                 // 重规划回调：使用新意图重新规划
-                CoroutineScope(Dispatchers.Main).launch {
+                mainScope.launch {
                     replanWithNewIntent(infoPool, newIntent, chatSession)
                     onComplete()
                 }
