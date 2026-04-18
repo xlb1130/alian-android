@@ -1,6 +1,7 @@
 package com.alian.assistant.infrastructure.device.controller.shizuku
 
 import android.content.Context
+import android.util.Log
 import com.alian.assistant.App
 import com.alian.assistant.IShellService
 import com.alian.assistant.infrastructure.device.controller.interfaces.IAppLauncher
@@ -16,6 +17,13 @@ class ShizukuAppLauncher(
     private val context: Context? = null,
     private val shellService: IShellService? = null
 ) : IAppLauncher {
+    companion object {
+        private const val TAG = "ShizukuAppLauncher"
+    }
+
+    private fun logShizuku(message: String) {
+        Log.d(TAG, "[A11Y][SHIZUKU] $message")
+    }
     
     override fun openApp(appNameOrPackage: String) {
         // 常见应用名到包名的映射 (作为备选)
@@ -59,17 +67,17 @@ class ShizukuAppLauncher(
             val searchResults = appScanner.searchApps(appNameOrPackage, topK = 1)
             if (searchResults.isNotEmpty()) {
                 finalPackage = searchResults[0].app.packageName
-                println("[ShizukuAppLauncher] AppScanner found: ${searchResults[0].app.appName} -> $finalPackage")
+                logShizuku("AppScanner found: ${searchResults[0].app.appName} -> $finalPackage")
             } else {
                 // 找不到，直接用原始输入尝试
                 finalPackage = appNameOrPackage
-                println("[ShizukuAppLauncher] App not found in AppScanner: $appNameOrPackage")
+                logShizuku("App not found in AppScanner: $appNameOrPackage")
             }
         }
         
         // 使用 monkey 命令启动应用 (最可靠)
         val result = exec("monkey -p $finalPackage -c android.intent.category.LAUNCHER 1 2>/dev/null")
-        println("[ShizukuAppLauncher] openApp: $appNameOrPackage -> $finalPackage, result: $result")
+        logShizuku("openApp: $appNameOrPackage -> $finalPackage, result: $result")
     }
     
     override fun openDeepLink(uri: String) {

@@ -183,13 +183,19 @@ class ReflectorImprove(
             return true
         }
 
-        // 6. 批量动作：批量动作需要验证
+        // 6. 关键动作：发送/提交/支付/删除等高风险动作必须验证
+        if (isCriticalAction(action, infoPool)) {
+            Log.d(TAG, "关键动作需要验证: ${action.type}")
+            return true
+        }
+
+        // 7. 批量动作：批量动作需要验证
         if (executorResult.actionBatch.actions.size > 1) {
             Log.d(TAG, "批量动作需要验证")
             return true
         }
 
-        // 7. 连续成功假设：连续 N 次跳过后强制验证一次
+        // 8. 连续成功假设：连续 N 次跳过后强制验证一次
         if (infoPool.consecutiveReflectorSkips >= MAX_CONSECUTIVE_REFLECTOR_SKIPS) {
             Log.d(TAG, "连续 ${infoPool.consecutiveReflectorSkips} 次跳过，强制验证")
             return true
@@ -197,6 +203,31 @@ class ReflectorImprove(
 
         // 其他情况跳过验证
         return false
+    }
+
+    private fun isCriticalAction(action: Action, infoPool: InfoPoolImprove): Boolean {
+        val criticalTypes = setOf("click", "double_tap", "long_press", "type", "system_button")
+        if (action.type !in criticalTypes) {
+            return false
+        }
+
+        val criticalKeywords = listOf(
+            "发送", "提交", "支付", "付款", "购买", "下单", "删除", "移除", "清空", "转账", "发布", "保存",
+            "send", "submit", "pay", "payment", "buy", "order", "delete", "remove", "clear", "transfer",
+            "publish", "save", "checkout"
+        )
+
+        val contextText = listOfNotNull(
+            action.text,
+            action.message,
+            action.targetText,
+            action.targetDesc,
+            action.tellUser,
+            action.button,
+            infoPool.lastSummary
+        ).joinToString(" ").lowercase()
+
+        return criticalKeywords.any { keyword -> contextText.contains(keyword.lowercase()) }
     }
 
     /**

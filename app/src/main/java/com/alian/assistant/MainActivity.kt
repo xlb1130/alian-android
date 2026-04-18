@@ -30,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import com.alian.assistant.core.agent.improve.MobileAgentImprove
 import com.alian.assistant.core.agent.MobileAgent
 import com.alian.assistant.core.agent.AgentRunner
+import com.alian.assistant.core.agent.AgentPermissionCheck
 import com.alian.assistant.core.skills.SkillConfig
 import com.alian.assistant.core.skills.SkillRegistry
 import com.alian.assistant.data.*
@@ -124,6 +125,7 @@ class MainActivity : ComponentActivity() {
 
     private val mobileAgent = mutableStateOf<Agent?>(null)
     private var shizukuAvailable = mutableStateOf(false)
+    private var lastRemoteTaskBlockedReason: String? = null
 
     override fun attachBaseContext(newBase: Context?) {
         super.attachBaseContext(LanguageManager.applyLanguage(newBase))
@@ -1836,6 +1838,92 @@ class MainActivity : ComponentActivity() {
      * 设置远端任务执行桥接
      * 使用 MobileAgent 执行远端下发的移动端任务
      */
+    private fun ensureMobileAgentForRemoteTask(): Agent? {
+        mobileAgent.value?.let { return it }
+
+        val settings = settingsManager.settings.value
+        val vlmClient = createVLMClient()
+        mobileAgent.value = if (settings.enableImproveMode) {
+            MobileAgentImprove(
+                vlmClient,
+                deviceController,
+                this,
+                settings.reactOnly,
+                settings.enableChatAgent,
+                settings.enableFlowMode
+            )
+        } else {
+            MobileAgent(vlmClient, deviceController, this)
+        }
+        Log.d(
+            TAG,
+            "远端任务自动初始化 MobileAgent: ${mobileAgent.value?.javaClass?.simpleName}"
+        )
+        return mobileAgent.value
+    }
+
+    private fun evaluateRemoteTaskReadiness(): String? {
+        if (isExecuting.value) {
+            return "设备正在执行其他任务"
+        }
+
+        val permissionCheck = AgentPermissionCheck(this, settingsManager)
+        val permissionResult = permissionCheck.checkPermissions(
+            mediaProjectionResultCode = mediaProjectionResultCode,
+            mediaProjectionData = mediaProjectionData
+        )
+        if (permissionResult !is AgentPermissionCheck.CheckResult.Granted) {
+            handleRemoteTaskPermissionRequirement(permissionResult, permissionCheck)
+            val title = permissionCheck.getPermissionTitle(permissionResult)
+            val description = permissionCheck.getPermissionDescription(permissionResult)
+                .ifBlank { "请前往系统设置完成授权后重试" }
+            return "$title：$description"
+        }
+
+        val controllerAvailable = runCatching { deviceController.isAvailable() }.getOrElse { false }
+        if (!controllerAvailable) {
+            return "前台控制器不可用，请检查无障碍/Shizuku状态"
+        }
+
+        return null
+    }
+
+    private fun handleRemoteTaskPermissionRequirement(
+        result: AgentPermissionCheck.CheckResult,
+        permissionCheck: AgentPermissionCheck
+    ) {
+        when (result) {
+            AgentPermissionCheck.CheckResult.NeedsAccessibilityService,
+            AgentPermissionCheck.CheckResult.NeedsSystemAlertWindow,
+            AgentPermissionCheck.CheckResult.NeedsRecordAudio -> {
+                permissionCheck.openPermissionSettings(result)
+            }
+
+            AgentPermissionCheck.CheckResult.NeedsMediaProjection -> {
+                requestMediaProjectionPermission()
+            }
+
+            AgentPermissionCheck.CheckResult.NeedsShizuku -> {
+                requestShizukuPermission()
+            }
+
+            is AgentPermissionCheck.CheckResult.NeedsMultiplePermissions -> {
+                val missingPermissions = result.missingPermissions
+                if (missingPermissions.any { it is AgentPermissionCheck.CheckResult.NeedsMediaProjection }) {
+                    requestMediaProjectionPermission()
+                }
+                val firstNonMediaProjection = missingPermissions.firstOrNull {
+                    it !is AgentPermissionCheck.CheckResult.NeedsMediaProjection
+                }
+                if (firstNonMediaProjection != null) {
+                    permissionCheck.openPermissionSettings(firstNonMediaProjection)
+                }
+            }
+
+            AgentPermissionCheck.CheckResult.Granted -> Unit
+        }
+    }
+
     private fun setupRemoteTaskExecutionBridge() {
         remoteMobileTaskCoordinator.setExecutionBridge(
             object : com.alian.assistant.core.coordinator.RemoteMobileTaskExecutionBridge {
@@ -1847,15 +1935,15 @@ class MainActivity : ComponentActivity() {
                     Log.d(TAG, "开始执行远端任务: ${task.taskId}")
                     Log.d(TAG, "任务指令: ${task.instruction}")
 
-                    // 获取或创建 MobileAgent
-                    val agent = mobileAgent.value
+                    // 获取或创建 MobileAgent（按当前执行策略自动选择）
+                    val agent = ensureMobileAgentForRemoteTask()
                     if (agent == null) {
                         Log.e(TAG, "MobileAgent 未初始化")
                         onComplete(
                             com.alian.assistant.core.coordinator.RemoteTaskExecutionResult(
                                 success = false,
                                 status = "failed",
-                                summary = "MobileAgent 未初始化，请检查 Shizuku 权限",
+                                summary = "MobileAgent 初始化失败，请检查执行配置和权限",
                                 durationMs = 0
                             )
                         )
@@ -1898,9 +1986,17 @@ class MainActivity : ComponentActivity() {
                 }
 
                 override fun canExecuteTask(): Boolean {
-                    val canExecute = shizukuAvailable.value && mobileAgent.value != null
-                    Log.d(TAG, "检查是否可以执行任务: $canExecute (shizuku=${shizukuAvailable.value}, agent=${mobileAgent.value != null})")
+                    lastRemoteTaskBlockedReason = evaluateRemoteTaskReadiness()
+                    val canExecute = lastRemoteTaskBlockedReason == null
+                    Log.d(
+                        TAG,
+                        "检查是否可以执行任务: $canExecute (reason=${lastRemoteTaskBlockedReason ?: "none"}, localExecuting=${isExecuting.value}, controllerType=${deviceController.getControllerType()}, shizuku=${shizukuAvailable.value}, agent=${mobileAgent.value != null})"
+                    )
                     return canExecute
+                }
+
+                override fun getCannotExecuteReason(): String? {
+                    return lastRemoteTaskBlockedReason
                 }
             }
         )

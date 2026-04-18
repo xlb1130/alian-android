@@ -736,7 +736,7 @@ data class ToolCallChunkData(
     val timestamp: Long,
     val tool_call_id: String,
     val tool_call_name: String,
-    val delta: String? = null  // 可能为 null 或字符串，或 JSON 对象
+    val delta: JsonElement? = null  // 可能为 null、字符串或 JSON 对象
 )
 
 /**
@@ -749,7 +749,7 @@ data class ToolCallResultData(
     val timestamp: Long,
     val tool_call_id: String,
     val tool_call_name: String,
-    val content: String? = null  // 工具执行结果，可能是字符串或JSON
+    val content: JsonElement? = null  // 工具执行结果，可能是字符串或 JSON 对象
 )
 
 /**

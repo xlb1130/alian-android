@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.alian.assistant.IShellService
 import com.alian.assistant.infrastructure.device.controller.interfaces.IInputProvider
 import java.io.BufferedReader
@@ -21,23 +22,30 @@ class ShizukuInputProvider(
     private val context: Context? = null,
     private val shellService: IShellService? = null
 ) : IInputProvider {
+    companion object {
+        private const val TAG = "ShizukuInputProvider"
+    }
     
     private val mainHandler = Handler(Looper.getMainLooper())
     private val clipboardManager: ClipboardManager? by lazy {
         context?.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     }
+
+    private fun logShizuku(message: String) {
+        Log.d(TAG, "[A11Y][SHIZUKU] $message")
+    }
     
     override fun tap(x: Int, y: Int) {
         val command = "input tap $x $y"
         
-        println("[ShizukuInputProvider] 🖱️ 执行点击: ($x, $y)")
-        println("[ShizukuInputProvider] 命令: $command")
+        logShizuku("🖱️ 执行点击: ($x, $y)")
+        logShizuku("命令: $command")
         
         val result = exec(command)
         if (result.isNotEmpty()) {
-            println("[ShizukuInputProvider] 执行结果: $result")
+            logShizuku("执行结果: $result")
         } else {
-            println("[ShizukuInputProvider] ✅ 点击命令已发送（无返回输出）")
+            logShizuku("✅ 点击命令已发送（无返回输出）")
         }
     }
     
@@ -92,7 +100,7 @@ class ShizukuInputProvider(
      * 使用 Android ClipboardManager API 设置剪贴板，然后发送粘贴按键
      */
     private fun typeViaClipboard(text: String) {
-        println("[ShizukuInputProvider] 尝试输入中文: $text")
+        logShizuku("尝试输入中文: $text")
         
         // 方法1: 使用 Android 剪贴板 API + 粘贴 (最可靠，不需要额外 App)
         if (clipboardManager != null) {
@@ -107,9 +115,9 @@ class ShizukuInputProvider(
                         val clip = ClipData.newPlainText("baozi_input", text)
                         clipboardManager?.setPrimaryClip(clip)
                         clipboardSet = true
-                        println("[ShizukuInputProvider] ✅ 已设置剪贴板: $text")
+                        logShizuku("✅ 已设置剪贴板")
                     } catch (e: Exception) {
-                        println("[ShizukuInputProvider] ❌ 设置剪贴板异常: ${e.message}")
+                        logShizuku("❌ 设置剪贴板异常: ${e.message}")
                     } finally {
                         latch.countDown()
                     }
@@ -118,12 +126,12 @@ class ShizukuInputProvider(
                 // 等待剪贴板设置完成 (最多等 1 秒)
                 val success = latch.await(1, TimeUnit.SECONDS)
                 if (!success) {
-                    println("[ShizukuInputProvider] ❌ 等待剪贴板超时")
+                    logShizuku("❌ 等待剪贴板超时")
                     return
                 }
                 
                 if (!clipboardSet) {
-                    println("[ShizukuInputProvider] ❌ 剪贴板设置失败")
+                    logShizuku("❌ 剪贴板设置失败")
                     return
                 }
                 
@@ -132,28 +140,28 @@ class ShizukuInputProvider(
                 
                 // 发送粘贴按键 (KEYCODE_PASTE = 279)
                 exec("input keyevent 279")
-                println("[ShizukuInputProvider] ✅ 已发送粘贴按键")
+                logShizuku("✅ 已发送粘贴按键")
                 return
             } catch (e: Exception) {
-                println("[ShizukuInputProvider] ❌ 剪贴板方式失败: ${e.message}")
+                logShizuku("❌ 剪贴板方式失败: ${e.message}")
                 e.printStackTrace()
             }
         } else {
-            println("[ShizukuInputProvider] ❌ ClipboardManager 为 null，Context 未设置")
+            logShizuku("❌ ClipboardManager 为 null，Context 未设置")
         }
         
         // 方法2: 使用 ADB Keyboard 广播 (备选，需要安装 ADBKeyboard)
         val escaped = text.replace("\"", "\\\"")
         val adbKeyboardResult = exec("am broadcast -a ADB_INPUT_TEXT --es msg \"$escaped\"")
-        println("[ShizukuInputProvider] ADBKeyboard 广播结果: $adbKeyboardResult")
+        logShizuku("ADBKeyboard 广播结果: $adbKeyboardResult")
         
         if (adbKeyboardResult.contains("result=0")) {
-            println("[ShizukuInputProvider] ✅ ADBKeyboard 输入成功")
+            logShizuku("✅ ADBKeyboard 输入成功")
             return
         }
         
         // 方法3: 使用 cmd input text (Android 12+ 可能支持 UTF-8)
-        println("[ShizukuInputProvider] 尝试 cmd input text...")
+        logShizuku("尝试 cmd input text...")
         exec("cmd input text '$text'")
     }
     

@@ -49,7 +49,6 @@ class AuthInterceptor(private val authManager: AuthManager) : Interceptor {
             if (response.code == 401) {
                 Log.w("AuthInterceptor", "SSE 请求认证失败，清除认证信息")
                 authManager.clearAuth()
-                response.close()
                 return response
             }
             return response
@@ -62,9 +61,7 @@ class AuthInterceptor(private val authManager: AuthManager) : Interceptor {
             // 认证失败，清除所有认证信息
             Log.w("AuthInterceptor", "认证失败，清除认证信息")
             authManager.clearAuth()
-            response.close()
-
-            // 不再尝试刷新Token，直接返回原始响应
+            // 不要在拦截器里提前 close，避免调用方读取响应体时报 "closed"
             return response
         }
 

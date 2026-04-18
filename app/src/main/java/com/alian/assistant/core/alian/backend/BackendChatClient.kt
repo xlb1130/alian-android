@@ -173,6 +173,50 @@ class BackendChatClient(
         }
     }
 
+    private fun JsonObject.stringValue(key: String): String? {
+        return (this[key] as? JsonPrimitive)?.contentOrNull
+    }
+
+    private fun buildMobileTaskEventFromToolCallChunk(
+        chunkData: ToolCallChunkData
+    ): UIMobileTaskEvent? {
+        if (chunkData.tool_call_name != "mobile_execute") {
+            return null
+        }
+
+        val deltaObject = chunkData.delta as? JsonObject ?: return null
+        val instruction = deltaObject.stringValue("instruction")?.trim().orEmpty()
+        if (instruction.isBlank()) {
+            return null
+        }
+
+        val appHint = deltaObject.stringValue("app_hint")?.takeIf { it.isNotBlank() }
+        val expectedResult = deltaObject.stringValue("expected_result")?.takeIf { it.isNotBlank() }
+        val taskId = deltaObject.stringValue("task_id")?.takeIf { it.isNotBlank() }
+            ?: chunkData.tool_call_id
+        val title = deltaObject.stringValue("title")?.takeIf { it.isNotBlank() }
+            ?: appHint?.let { "$it 自动化任务" }
+            ?: "移动端任务"
+
+        val metadata = mutableMapOf<String, JsonElement>(
+            "source" to JsonPrimitive("tool_call_chunk"),
+            "tool_call_id" to JsonPrimitive(chunkData.tool_call_id)
+        )
+        appHint?.let { metadata["app_hint"] = JsonPrimitive(it) }
+        expectedResult?.let { metadata["expected_result"] = JsonPrimitive(it) }
+
+        return UIMobileTaskEvent(
+            eventId = chunkData.id,
+            timestamp = chunkData.timestamp,
+            taskId = taskId,
+            action = "created",
+            title = title,
+            instruction = instruction,
+            phase = "created",
+            metadata = metadata
+        )
+    }
+
     /**
      * 刷新Token
      * @param refreshToken 刷新令牌
@@ -241,18 +285,28 @@ class BackendChatClient(
             Log.d("BackendChatClient", "发送登录请求")
 
             val response = client.newCall(request).execute()
+            val statusCode = response.code
+            val responseBody = response.use { resp ->
+                resp.body?.string()
+            }
 
-            Log.d("BackendChatClient", "收到响应: ${response.code}")
+            Log.d("BackendChatClient", "收到响应: $statusCode")
 
-            if (!response.isSuccessful) {
-                val errorBody = response.body?.string() ?: "Unknown error"
-                val errorMsg = "Login failed: ${response.code} - $errorBody"
+            if (statusCode == 401) {
+                Log.w("BackendChatClient", "登录失败: 用户名或密码错误")
+                return@withContext Result.failure(Exception("用户名或密码错误"))
+            }
+
+            if (statusCode !in 200..299) {
+                val errorBody = responseBody ?: "Unknown error"
+                val errorMsg = "Login failed: $statusCode - $errorBody"
                 Log.e("BackendChatClient", errorMsg)
                 return@withContext Result.failure(Exception(errorMsg))
             }
 
-            val responseBody = response.body?.string()
-                ?: return@withContext Result.failure(Exception("Empty response body"))
+            if (responseBody == null) {
+                return@withContext Result.failure(Exception("Empty response body"))
+            }
 
             Log.d("BackendChatClient", "响应体: $responseBody")
 
@@ -1155,9 +1209,27 @@ class BackendChatClient(
                         }
                     }
                     SSEEventType.TOOL_CALL_CHUNK -> {
-                        // 暂时忽略 tool_call_chunk
-                        Log.d("BackendChatClient", "收到TOOL_CALL_CHUNK事件，暂时忽略")
+                        Log.d("BackendChatClient", "收到TOOL_CALL_CHUNK事件")
                         System.out.flush()
+                        try {
+                            val chunkData = json.decodeFromString<ToolCallChunkData>(event.data)
+                            val mobileTaskEvent = buildMobileTaskEventFromToolCallChunk(chunkData)
+                            if (mobileTaskEvent != null) {
+                                onEvent?.invoke(mobileTaskEvent)
+                                Log.d(
+                                    "BackendChatClient",
+                                    "TOOL_CALL_CHUNK 转换为移动端任务: taskId=${mobileTaskEvent.taskId}, title=${mobileTaskEvent.title}"
+                                )
+                            } else {
+                                Log.d(
+                                    "BackendChatClient",
+                                    "TOOL_CALL_CHUNK 非 mobile_execute 或缺少 instruction，跳过"
+                                )
+                            }
+                            System.out.flush()
+                        } catch (e: Exception) {
+                            Log.e("BackendChatClient", "解析TOOL_CALL_CHUNK事件失败", e)
+                        }
                     }
                     SSEEventType.TOOL_CALL_RESULT -> {
                         Log.d("BackendChatClient", "收到TOOL_CALL_RESULT事件")
@@ -1177,7 +1249,9 @@ class BackendChatClient(
                                         status = "completed",
                                         function = "",
                                         args = emptyMap(),
-                                        content = resultData.content
+                                        content = resultData.content?.let { content ->
+                                            if (content is JsonPrimitive && content.isString) content.content else content.toString()
+                                        }
                                     )
                                 )
                             )
@@ -1610,8 +1684,22 @@ class BackendChatClient(
             val allEvents = mutableListOf<SessionEvent>()
             var cursor = 0
             val pageSize = 500  // 每页500条，避免超过1000条的限制
+            val visitedCursors = mutableSetOf<Int>()
+            var pageCount = 0
+            val maxPageCount = 2000
             
             while (true) {
+                // 防止 cursor 在异常情况下重复，导致无限拉取同一页
+                if (!visitedCursors.add(cursor)) {
+                    Log.w("BackendChatClient", "检测到重复 cursor=$cursor，终止事件拉取以避免死循环")
+                    break
+                }
+                pageCount++
+                if (pageCount > maxPageCount) {
+                    Log.w("BackendChatClient", "分页拉取超过上限($maxPageCount)，终止事件拉取以避免死循环")
+                    break
+                }
+
                 val request = Request.Builder()
                     .url("$baseUrl/sessions/$sessionId/events?cursor=$cursor&limit=$pageSize")
                     .get()
@@ -1674,7 +1762,15 @@ class BackendChatClient(
                 }
                 
                 // 更新 cursor，如果后端返回了 nextCursor 则使用它，否则使用 cursor + pageSize
-                cursor = nextCursor ?: (cursor + pageSize)
+                val nextPageCursor = nextCursor ?: (cursor + pageSize)
+                if (nextPageCursor <= cursor) {
+                    Log.w(
+                        "BackendChatClient",
+                        "检测到无效 next cursor，终止分页拉取: current=$cursor, next=$nextPageCursor, hasMore=$hasMore"
+                    )
+                    break
+                }
+                cursor = nextPageCursor
             }
 
             Result.success(allEvents)
@@ -1946,12 +2042,22 @@ class BackendChatClient(
 
             val confirmResponse = json.decodeFromString<ConfirmMobileTaskResponse>(responseBody)
 
-            if (confirmResponse.code != 0 || confirmResponse.data == null) {
+            if (confirmResponse.code != 0) {
                 return@withContext Result.failure(Exception(confirmResponse.msg))
             }
 
+            if (confirmResponse.data == null) {
+                Log.w("BackendChatClient", "确认任务响应 data 为空，按成功处理: taskId=$taskId")
+            }
+
             Log.d("BackendChatClient", "任务确认成功: taskId=$taskId")
-            Result.success(confirmResponse.data)
+            Result.success(
+                confirmResponse.data ?: ConfirmMobileTaskData(
+                    task_id = taskId,
+                    status = "confirmed",
+                    confirmed_at = System.currentTimeMillis()
+                )
+            )
         } catch (e: Exception) {
             Log.e("BackendChatClient", "确认任务异常", e)
             Result.failure(e)
@@ -1995,12 +2101,22 @@ class BackendChatClient(
 
             val completeResponse = json.decodeFromString<CompleteMobileTaskResponse>(responseBody)
 
-            if (completeResponse.code != 0 || completeResponse.data == null) {
+            if (completeResponse.code != 0) {
                 return@withContext Result.failure(Exception(completeResponse.msg))
             }
 
+            if (completeResponse.data == null) {
+                Log.w("BackendChatClient", "完成任务响应 data 为空，按成功处理: taskId=$taskId")
+            }
+
             Log.d("BackendChatClient", "任务完成上报成功: taskId=$taskId, status=${request.status}")
-            Result.success(completeResponse.data)
+            Result.success(
+                completeResponse.data ?: CompleteMobileTaskData(
+                    task_id = taskId,
+                    status = request.status,
+                    completed_at = System.currentTimeMillis()
+                )
+            )
         } catch (e: Exception) {
             Log.e("BackendChatClient", "完成任务异常", e)
             Result.failure(e)

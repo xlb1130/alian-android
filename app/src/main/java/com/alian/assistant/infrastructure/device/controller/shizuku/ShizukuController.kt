@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.util.Log
 import com.alian.assistant.IShellService
 import com.alian.assistant.infrastructure.device.controller.factory.ShizukuPrivilegeLevel
 import com.alian.assistant.infrastructure.device.controller.interfaces.ControllerType
@@ -19,6 +20,9 @@ import rikka.shizuku.Shizuku
 class ShizukuController(
     private val context: Context? = null
 ) : IDeviceController {
+    companion object {
+        private const val TAG = "ShizukuController"
+    }
     
     private var shellService: IShellService? = null
     private var serviceBound = false
@@ -50,13 +54,13 @@ class ShizukuController(
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             shellService = IShellService.Stub.asInterface(service)
             serviceBound = true
-            println("[ShizukuController] ShellService connected")
+            Log.d(TAG, "[A11Y][SHIZUKU] ShellService connected")
         }
         
         override fun onServiceDisconnected(name: ComponentName?) {
             shellService = null
             serviceBound = false
-            println("[ShizukuController] ShellService disconnected")
+            Log.d(TAG, "[A11Y][SHIZUKU] ShellService disconnected")
         }
     }
     
@@ -65,7 +69,7 @@ class ShizukuController(
      */
     fun bindService() {
         if (!isShizukuAvailable()) {
-            println("[ShizukuController] Shizuku not available")
+            Log.w(TAG, "[A11Y][SHIZUKU] Shizuku not available")
             return
         }
         try {
@@ -114,7 +118,7 @@ class ShizukuController(
         }
         return try {
             val uid = Shizuku.getUid()
-            println("[ShizukuController] Shizuku UID: $uid")
+            Log.d(TAG, "[A11Y][SHIZUKU] Shizuku UID: $uid")
             when (uid) {
                 0 -> ShizukuPrivilegeLevel.ROOT
                 else -> ShizukuPrivilegeLevel.ADB
